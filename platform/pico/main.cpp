@@ -8,11 +8,13 @@
 #include "modules/CompassModule.h"
 #include "modules/SonarModule.h"
 #include "transport/uart/UartTransport.h"
+#include "BootselModule.h"
 
 static CommandRegistry registry;
 static SystemModule    systemModule;
 static CompassModule   compassModule;
 static SonarModule     sonarModule(6);  // Grove GP6
+static BootselModule   bootselModule;
 static UartTransport   uart;
 
 extern "C" {
@@ -30,20 +32,21 @@ static void mainTask(void *) {
     registry.registerModule(systemModule);
     registry.registerModule(compassModule);
     registry.registerModule(sonarModule);
+    registry.registerModule(bootselModule);
     registry.validateIds();
 
     // UartTransport task — 1 KB stack is comfortable on Pico
     xTaskCreate(UartTransport::taskBody, "uart", 1024, &uart, 2, nullptr);
 
-    printf("commander/pico\n");
     vTaskDelete(nullptr);
 }
 
 int main() {
+    BootselModule::checkAtBoot();
     stdio_init_all();
     sleep_ms(1000);  // let USB CDC enumerate
 
-    uart.begin(registry, 115200);
+    uart.begin(registry, 115200, "commander/pico");
 
     xTaskCreate(mainTask, "main", 2048, nullptr, 1, nullptr);
     vTaskStartScheduler();

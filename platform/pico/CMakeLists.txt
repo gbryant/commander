@@ -12,6 +12,7 @@ pico_sdk_init()
 
 add_executable(commander
     main.cpp
+    BootselModule.cpp
     ../../core/CommandRegistry.cpp
     ../../hal/pico/hal.cpp
     ../../transport/uart/UartTransport.cpp

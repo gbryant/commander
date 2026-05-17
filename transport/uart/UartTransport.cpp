@@ -9,8 +9,9 @@ struct UartWriter : Writer {
 };
 }
 
-void UartTransport::begin(CommandRegistry &reg, uint32_t baud) {
-    _reg = &reg;
+void UartTransport::begin(CommandRegistry &reg, uint32_t baud, const char *greeting) {
+    _reg      = &reg;
+    _greeting = greeting;
     hal_uart_init(baud);
 }
 
@@ -51,6 +52,7 @@ void UartTransport::handleByte(char c) {
 
 void UartTransport::taskBody(void *self) {
     auto *t = static_cast<UartTransport *>(self);
+    if (t->_greeting) { hal_uart_puts(t->_greeting); hal_uart_puts("\r\n"); }
     t->prompt();
     for (;;) {
         int c = hal_uart_getchar(10);  // 10 ms poll
