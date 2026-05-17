@@ -1,0 +1,25 @@
+#!/bin/bash
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")/platform/pico"
+
+cmake --build build
+
+UF2="build/commander.uf2"
+VOLUME="/Volumes/RPI-RP2"
+
+if [ -d "$VOLUME" ]; then
+    echo "Copying $UF2 to $VOLUME..."
+    cp "$UF2" "$VOLUME"
+elif picotool info 2>/dev/null | grep -q commander; then
+    echo "Loading via picotool..."
+    picotool load -f "$UF2"
+    picotool reboot
+else
+    echo "error: no upload path found."
+    echo "  Hold BOOTSEL while plugging in to mount $VOLUME, or connect a running Pico."
+    exit 1
+fi
+
+DEVICE="/dev/cu.usbmodem1413401"
+echo "Connecting to $DEVICE  (Ctrl-T q to quit)"
+tio "$DEVICE"

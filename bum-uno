@@ -1,0 +1,5 @@
+#!/bin/bash
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
+pio run -e uno -t upload
+tio --baudrate 115200 /dev/cu.usbmodem1413301
