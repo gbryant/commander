@@ -7,6 +7,11 @@ void hal_i2c_init(uint8_t sda_pin, uint8_t scl_pin, uint32_t speed_hz) {
     Wire.setClock(speed_hz);
 }
 
+bool hal_i2c_probe(uint8_t addr) {
+    Wire.beginTransmission(addr);
+    return Wire.endTransmission() == 0;
+}
+
 bool hal_i2c_write(uint8_t addr, uint8_t reg, const uint8_t *data, size_t len) {
     Wire.beginTransmission(addr);
     Wire.write(reg);

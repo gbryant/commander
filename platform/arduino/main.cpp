@@ -3,12 +3,14 @@
 #include "core/CommandRegistry.h"
 #include "core/SystemModule.h"
 #include "modules/CompassModule.h"
+#include "modules/I2cModule.h"
 #include "modules/SonarModule.h"
 #include "transport/uart/UartTransport.h"
 
 static CommandRegistry registry;
 static SystemModule    systemModule;
 static CompassModule   compassModule;
+static I2cModule       i2cModule;
 static SonarModule     sonarModule(4);  // Grove D4
 static UartTransport   uart;
 
@@ -24,6 +26,7 @@ void setup() {
 
     registry.registerModule(systemModule);
     registry.registerModule(compassModule);
+    registry.registerModule(i2cModule);
     registry.registerModule(sonarModule);
     registry.validateIds();
 

@@ -5,18 +5,21 @@
 #include "hal/hal.h"
 #include "core/CommandRegistry.h"
 #include "core/SystemModule.h"
+#include "modules/I2cModule.h"
 #include "transport/uart/UartTransport.h"
 
 static const char *TAG = "commander";
 
 static CommandRegistry registry;
 static SystemModule    systemModule;
+static I2cModule       i2cModule;
 static UartTransport   uart;
 
 static void mainTask(void *) {
-    hal_i2c_init(21, 22, 400000);  // SDA=GPIO21, SCL=GPIO22
+    hal_i2c_init(8, 9, 100000);  // SDA=GPIO8, SCL=GPIO9
 
     registry.registerModule(systemModule);
+    registry.registerModule(i2cModule);
     registry.validateIds();
 
     xTaskCreate(UartTransport::taskBody, "uart", 4096, &uart, 2, nullptr);

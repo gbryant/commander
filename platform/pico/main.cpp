@@ -6,6 +6,7 @@
 #include "core/CommandRegistry.h"
 #include "core/SystemModule.h"
 #include "modules/CompassModule.h"
+#include "modules/I2cModule.h"
 #include "modules/SonarModule.h"
 #include "transport/uart/UartTransport.h"
 #include "BootselModule.h"
@@ -13,6 +14,7 @@
 static CommandRegistry registry;
 static SystemModule    systemModule;
 static CompassModule   compassModule;
+static I2cModule       i2cModule;
 static SonarModule     sonarModule(6);  // Grove GP6
 static BootselModule   bootselModule;
 static UartTransport   uart;
@@ -31,6 +33,7 @@ static void mainTask(void *) {
 
     registry.registerModule(systemModule);
     registry.registerModule(compassModule);
+    registry.registerModule(i2cModule);
     registry.registerModule(sonarModule);
     registry.registerModule(bootselModule);
     registry.validateIds();

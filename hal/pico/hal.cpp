@@ -18,6 +18,11 @@ void hal_i2c_init(uint8_t sda_pin, uint8_t scl_pin, uint32_t speed_hz) {
     gpio_pull_up(scl_pin);
 }
 
+bool hal_i2c_probe(uint8_t addr) {
+    uint8_t dummy;
+    return i2c_read_blocking(_i2c_bus, addr, &dummy, 1, false) >= 0;
+}
+
 bool hal_i2c_write(uint8_t addr, uint8_t reg, const uint8_t *data, size_t len) {
     uint8_t buf[len + 1];
     buf[0] = reg;

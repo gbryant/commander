@@ -37,6 +37,10 @@ void hal_i2c_init(uint8_t sda_pin, uint8_t scl_pin, uint32_t speed_hz) {
     i2c_new_master_bus(&cfg, &_bus);
 }
 
+bool hal_i2c_probe(uint8_t addr) {
+    return i2c_master_probe(_bus, addr, 50) == ESP_OK;
+}
+
 bool hal_i2c_write(uint8_t addr, uint8_t reg, const uint8_t *data, size_t len) {
     uint8_t buf[len + 1];
     buf[0] = reg;

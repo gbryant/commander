@@ -60,7 +60,9 @@ using their native SDKs — no Arduino core on production targets.
 | `platform/arduino/`         | ✅ done     | builds clean: 51% RAM, 53% flash on Uno   |
 | `platform/pico/`            | ✅ done     | builds clean; `help` confirmed over USB CDC |
 | `platform/esp32/`           | ✅ done     | builds clean; `help` confirmed over native USB CDC (USB Serial/JTAG) |
-| `modules/ir/IIRModule.h`    | ✅ done     | interface only                             |
+| `hal_i2c_probe()`           | ✅ done     | Wire endTransmission / i2c_read_blocking / i2c_master_probe per platform |
+| `modules/I2cModule.h`      | ✅ done     | `scan` confirmed on ESP32-S3 (found 0x40, 0x41) |
+| `modules/ir/IIRModule.h`   | ✅ done     | interface only                             |
 | `platform/arduino/IRModule` | ⬜ todo     | port from nano-commander (IRremote)        |
 | `platform/pico/IRModule`    | ⬜ todo     | PIO-based implementation                   |
 | `platform/esp32/IRModule`   | ⬜ todo     | RMT-based implementation                   |
@@ -101,8 +103,8 @@ using their native SDKs — no Arduino core on production targets.
 
 | Signal    | Arduino Uno | Pico W (Grove) | ESP32-S3-N16R8 |
 |-----------|-------------|----------------|----------------|
-| I2C SDA   | A4          | GP4            | GPIO21         |
-| I2C SCL   | A5          | GP5            | GPIO22         |
+| I2C SDA   | A4          | GP4            | GPIO8          |
+| I2C SCL   | A5          | GP5            | GPIO9          |
 | Sonar     | D4          | GP6            | GPIO4          |
 | IR recv   | D5          | GP7 (PIO)      | GPIO5 (RMT)    |
 | UART TX   | —           | —              | GPIO43 (fixed) |
