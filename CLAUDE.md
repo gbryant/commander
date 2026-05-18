@@ -53,22 +53,32 @@ Port is hardcoded to `/dev/cu.usbmodem1413301` in `platformio.ini`.
 `scripts/patch_freertos.py` runs pre-build to disable the FreeRTOS timer task
 (saves ~480 bytes of heap) and reduce `configMINIMAL_STACK_SIZE` to 128.
 
-### Pico W (next task — not yet working)
-Build system is CMake + Pico SDK. See `platform/pico/CMakeLists.txt`.
-Before building, the repo needs:
-- `pico_sdk_import.cmake` — copy from `$PICO_SDK_PATH/external/`
-- `FreeRTOS_Kernel_import.cmake` — copy from Pico SDK FreeRTOS port
-- `platform/pico/FreeRTOSConfig.h` — exists in `micro-commander/`, copy over
+### Pico W
+Build system is CMake + Pico SDK. `pico_sdk_import.cmake` and
+`FreeRTOS_Kernel_import.cmake` are checked in at the repo root.
 
 ```bash
-cd platform/pico
-cmake -B build -DPICO_BOARD=pico_w
-cmake --build build
-# flash: copy build/commander.uf2 to Pico mass storage
+./bum-pico           # build + upload + monitor in one command
+./build-pico         # cmake build only
 ```
 
-### ESP32 (scaffold only — not yet built)
-Uses ESP-IDF. See `platform/esp32/CMakeLists.txt`.
+### ESP32-S3-N16R8
+Uses ESP-IDF v5. Project root is `platform/esp32/`; component sources are in `platform/esp32/main/`.
+
+```bash
+./bum-esp32          # build + upload + monitor in one command
+./build-esp32        # build only (runs set-target on first run)
+./upload-esp32       # flash via esptool (auto-detects port)
+./monitor-esp32      # tio at 115200 baud
+```
+
+First build runs `idf.py set-target esp32s3` automatically (detects missing `sdkconfig`).
+`sdkconfig.defaults` configures 16 MB flash and 8 MB OPI PSRAM for the N16R8 variant.
+Transport uses native USB (USB Serial/JTAG, GPIO19/20) — connect tio to the `usbmodem` port.
+The board has no USB-to-serial chip; UART0 (GPIO43/44) is on headers only.
+
+**ESP-IDF environment:** run `esp` before any `idf.py` or `bum-esp32` command.
+`esp` is a shell alias for `. ~/u-developer/esp-idf/export.sh`.
 
 ## File layout (key files)
 
@@ -107,21 +117,22 @@ commander/
     │   ├── main.cpp
     │   └── CMakeLists.txt
     └── esp32/
-        ├── main.cpp
-        └── CMakeLists.txt
+        ├── CMakeLists.txt
+        ├── sdkconfig.defaults       # 16 MB flash, 8 MB OPI PSRAM, UART0 console
+        └── main/
+            ├── CMakeLists.txt       # idf_component_register with all sources
+            └── main.cpp
 ```
 
 ## What's working
 
 - Arduino Uno: builds, uploads, `help` command works over serial.
 - Pico W: builds clean, `help` confirmed over USB CDC serial.
-- ESP32: scaffolded but not yet built or tested.
+- ESP32-S3-N16R8: builds clean, `help` confirmed over native USB CDC (USB Serial/JTAG).
 
 ## What's next
 
-Phase 1 — finish serial shell on all targets:
-- Verify `platform/esp32` builds and `help` works over UART0
-
-Phase 2 — sensor modules on Pico W:
+Phase 2 — sensor modules on Pico W and ESP32-S3:
 - Prove `CompassModule` and `SonarModule` work unchanged on Pico W
 - Add Pico-native IR module (PIO) implementing `IIRModule`
+- Add ESP32-native IR module (RMT) implementing `IIRModule`

@@ -1,0 +1,16 @@
+idf_component_register(
+    SRCS
+        "main.cpp"
+        "../../../hal/esp32/hal.cpp"
+        "../../../core/CommandRegistry.cpp"
+        "../../../transport/uart/UartTransport.cpp"
+    INCLUDE_DIRS
+        "../../.."
+        "../../../include"
+    REQUIRES
+        esp_driver_i2c
+        esp_driver_gpio
+        esp_driver_usb_serial_jtag
+        esp_timer
+        freertos
+)

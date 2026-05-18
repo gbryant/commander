@@ -59,7 +59,7 @@ using their native SDKs — no Arduino core on production targets.
 | `platformio.ini` (root)     | ✅ done     | `src_dir=.`, explicit src filter, runs from commander/    |
 | `platform/arduino/`         | ✅ done     | builds clean: 51% RAM, 53% flash on Uno   |
 | `platform/pico/`            | ✅ done     | builds clean; `help` confirmed over USB CDC |
-| `platform/esp32/`           | 🔧 scaffold | transport wired, needs build test          |
+| `platform/esp32/`           | ✅ done     | builds clean; `help` confirmed over native USB CDC (USB Serial/JTAG) |
 | `modules/ir/IIRModule.h`    | ✅ done     | interface only                             |
 | `platform/arduino/IRModule` | ⬜ todo     | port from nano-commander (IRremote)        |
 | `platform/pico/IRModule`    | ⬜ todo     | PIO-based implementation                   |
@@ -78,7 +78,7 @@ using their native SDKs — no Arduino core on production targets.
 - [x] `scripts/patch_freertos.py` + `bum-uno` in place
 - [x] Upload to Uno and confirm `help` works over serial
 - [x] Verify `platform/pico` builds and `help` works over USB CDC
-- [ ] Verify `platform/esp32` builds and `help` works over UART0
+- [x] Verify `platform/esp32` builds and `help` works over native USB CDC
 
 ### Phase 2 — sensor modules on Pico
 - [ ] Prove `CompassModule` and `SonarModule` work unchanged on Pico
@@ -99,9 +99,11 @@ using their native SDKs — no Arduino core on production targets.
 
 ## Board pin reference
 
-| Signal    | Arduino Uno | Pico W (Grove) | ESP32 DevKit |
-|-----------|-------------|----------------|--------------|
-| I2C SDA   | A4          | GP4            | GPIO21       |
-| I2C SCL   | A5          | GP5            | GPIO22       |
-| Sonar     | D4          | GP6            | GPIO4        |
-| IR recv   | D5          | GP7 (PIO)      | GPIO5 (RMT)  |
+| Signal    | Arduino Uno | Pico W (Grove) | ESP32-S3-N16R8 |
+|-----------|-------------|----------------|----------------|
+| I2C SDA   | A4          | GP4            | GPIO21         |
+| I2C SCL   | A5          | GP5            | GPIO22         |
+| Sonar     | D4          | GP6            | GPIO4          |
+| IR recv   | D5          | GP7 (PIO)      | GPIO5 (RMT)    |
+| UART TX   | —           | —              | GPIO43 (fixed) |
+| UART RX   | —           | —              | GPIO44 (fixed) |

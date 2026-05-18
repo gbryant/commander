@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORT=$(python3 "$REPO_ROOT/scripts/find_port.py" esp32s3)
+echo "Flashing $PORT..."
+cd "$REPO_ROOT/platform/esp32"
+idf.py -p "$PORT" flash

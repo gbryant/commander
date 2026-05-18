@@ -1,0 +1,45 @@
+#!/bin/bash
+set -e
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+UF2="$REPO_ROOT/platform/pico/build/commander.uf2"
+VOLUME="/Volumes/RPI-RP2"
+
+wait_for_volume() {
+    for i in $(seq 1 20); do
+        [ -d "$VOLUME" ] && return 0
+        sleep 0.5
+    done
+    echo "error: $VOLUME did not appear" >&2
+    exit 1
+}
+
+if [ -d "$VOLUME" ]; then
+    echo "Copying $UF2 to $VOLUME..."
+    cp "$UF2" "$VOLUME"
+else
+    PORT=$(python3 "$REPO_ROOT/scripts/find_port.py" pico 2>/dev/null || true)
+    if [ -n "$PORT" ]; then
+        echo "Sending bootloader command to $PORT..."
+        python3 - "$PORT" <<'EOF'
+import sys, serial, time
+with serial.Serial(sys.argv[1], 115200, timeout=2) as s:
+    time.sleep(0.1)
+    s.write(b'bootloader\r\n')
+    time.sleep(0.5)
+EOF
+        echo "Waiting for $VOLUME..."
+        wait_for_volume
+        echo "Copying $UF2 to $VOLUME..."
+        cp "$UF2" "$VOLUME"
+    elif picotool info 2>/dev/null | grep -q commander; then
+        echo "Loading via picotool..."
+        picotool load -f "$UF2"
+        picotool reboot
+    else
+        echo "error: no upload path found."
+        echo "  - Hold BOOTSEL while plugging in to mount $VOLUME"
+        echo "  - Or connect a running Pico"
+        exit 1
+    fi
+fi

@@ -1,6 +1,7 @@
 .pio/
 build/
 .cache/
+platform/esp32/sdkconfig
 *.o
 *.elf
 *.bin
