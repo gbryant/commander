@@ -38,23 +38,7 @@ void hal_i2c_init(uint8_t sda_pin, uint8_t scl_pin, uint32_t speed_hz) {
 }
 
 bool hal_i2c_probe(uint8_t addr) {
-    i2c_master_dev_handle_t dev = open_device(addr);
-    if (!dev) return false;
-    // Write-probe: send one register-pointer byte (0x00). Devices that are present
-    // ACK the address; absent addresses NACK and i2c_master_transmit returns error.
-    // This mirrors the Arduino Wire scan approach and avoids i2c_master_probe,
-    // which has known reliability issues under FreeRTOS/lwIP task load.
-    uint8_t zero = 0;
-    esp_err_t ret = i2c_master_transmit(dev, &zero, 1, 200);
-    i2c_master_bus_rm_device(dev);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "probe 0x%02X: found", addr);
-    } else if (ret == ESP_ERR_NOT_FOUND) {
-        ESP_LOGD(TAG, "probe 0x%02X: not found", addr);
-    } else {
-        ESP_LOGW(TAG, "probe 0x%02X: %s", addr, esp_err_to_name(ret));
-    }
-    return ret == ESP_OK;
+    return i2c_master_probe(_bus, addr, 50) == ESP_OK;
 }
 
 bool hal_i2c_write(uint8_t addr, uint8_t reg, const uint8_t *data, size_t len) {

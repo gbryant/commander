@@ -17,6 +17,7 @@ inline void I2cModule::registerCommands(CommandRegistry &reg) {
             static const char hex[] = "0123456789ABCDEF";
             uint8_t found = 0;
             for (uint8_t addr = 0x08; addr <= 0x77; addr++) {
+                hal_delay_ms(1);
                 if (hal_i2c_probe(addr)) {
                     char buf[5];
                     buf[0] = '0'; buf[1] = 'x';
