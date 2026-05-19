@@ -8,3 +8,5 @@ platform/esp32/sdkconfig
 *.uf2
 *.map
 secrets.h
+.claude/settings.local.json
+platform/esp32/managed_components/

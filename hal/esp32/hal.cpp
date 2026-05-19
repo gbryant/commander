@@ -3,30 +3,30 @@
 #include "driver/gpio.h"
 #include "driver/usb_serial_jtag.h"
 #include "esp_timer.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
 
-static i2c_master_bus_handle_t  _bus;
-static i2c_master_dev_handle_t  _dev_cache[16];
-static uint8_t                  _dev_addrs[16];
-static uint8_t                  _dev_count = 0;
+static const char *TAG = "hal_i2c";
 
-static i2c_master_dev_handle_t get_device(uint8_t addr) {
-    for (uint8_t i = 0; i < _dev_count; i++)
-        if (_dev_addrs[i] == addr) return _dev_cache[i];
+static i2c_master_bus_handle_t _bus;
+static uint32_t                _bus_speed_hz;
+
+static i2c_master_dev_handle_t open_device(uint8_t addr) {
     i2c_device_config_t cfg = {};
     cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
     cfg.device_address  = addr;
-    cfg.scl_speed_hz    = 400000;
-    i2c_master_dev_handle_t dev;
-    i2c_master_bus_add_device(_bus, &cfg, &dev);
-    _dev_addrs[_dev_count] = addr;
-    _dev_cache[_dev_count++] = dev;
+    cfg.scl_speed_hz    = _bus_speed_hz;
+    i2c_master_dev_handle_t dev = nullptr;
+    esp_err_t ret = i2c_master_bus_add_device(_bus, &cfg, &dev);
+    if (ret != ESP_OK)
+        ESP_LOGE(TAG, "open 0x%02X: %s", addr, esp_err_to_name(ret));
     return dev;
 }
 
 void hal_i2c_init(uint8_t sda_pin, uint8_t scl_pin, uint32_t speed_hz) {
+    _bus_speed_hz = speed_hz;
     i2c_master_bus_config_t cfg = {};
     cfg.i2c_port      = I2C_NUM_0;
     cfg.sda_io_num    = (gpio_num_t)sda_pin;
@@ -38,19 +38,48 @@ void hal_i2c_init(uint8_t sda_pin, uint8_t scl_pin, uint32_t speed_hz) {
 }
 
 bool hal_i2c_probe(uint8_t addr) {
-    return i2c_master_probe(_bus, addr, 50) == ESP_OK;
+    i2c_master_dev_handle_t dev = open_device(addr);
+    if (!dev) return false;
+    // Write-probe: send one register-pointer byte (0x00). Devices that are present
+    // ACK the address; absent addresses NACK and i2c_master_transmit returns error.
+    // This mirrors the Arduino Wire scan approach and avoids i2c_master_probe,
+    // which has known reliability issues under FreeRTOS/lwIP task load.
+    uint8_t zero = 0;
+    esp_err_t ret = i2c_master_transmit(dev, &zero, 1, 200);
+    i2c_master_bus_rm_device(dev);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "probe 0x%02X: found", addr);
+    } else if (ret == ESP_ERR_NOT_FOUND) {
+        ESP_LOGD(TAG, "probe 0x%02X: not found", addr);
+    } else {
+        ESP_LOGW(TAG, "probe 0x%02X: %s", addr, esp_err_to_name(ret));
+    }
+    return ret == ESP_OK;
 }
 
 bool hal_i2c_write(uint8_t addr, uint8_t reg, const uint8_t *data, size_t len) {
     uint8_t buf[len + 1];
     buf[0] = reg;
     memcpy(buf + 1, data, len);
-    return i2c_master_transmit(get_device(addr), buf, len + 1, pdMS_TO_TICKS(10)) == ESP_OK;
+    i2c_master_dev_handle_t dev = open_device(addr);
+    esp_err_t ret = i2c_master_transmit(dev, buf, len + 1, 50);
+    if (ret != ESP_OK)
+        ESP_LOGW(TAG, "write 0x%02X reg 0x%02X: %s", addr, reg, esp_err_to_name(ret));
+    i2c_master_bus_rm_device(dev);
+    return ret == ESP_OK;
 }
 
 bool hal_i2c_read(uint8_t addr, uint8_t reg, uint8_t *data, size_t len) {
-    return i2c_master_transmit_receive(
-        get_device(addr), &reg, 1, data, len, pdMS_TO_TICKS(10)) == ESP_OK;
+    i2c_master_dev_handle_t dev = open_device(addr);
+    // Two separate transactions (STOP+START) instead of repeated START —
+    // more compatible with devices that have signal integrity issues on Sr.
+    esp_err_t ret = i2c_master_transmit(dev, &reg, 1, 50);
+    if (ret == ESP_OK)
+        ret = i2c_master_receive(dev, data, len, 50);
+    if (ret != ESP_OK)
+        ESP_LOGW(TAG, "read 0x%02X reg 0x%02X: %s", addr, reg, esp_err_to_name(ret));
+    i2c_master_bus_rm_device(dev);
+    return ret == ESP_OK;
 }
 
 void hal_gpio_set_output(uint8_t pin) {

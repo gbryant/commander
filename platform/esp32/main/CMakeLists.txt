@@ -4,6 +4,7 @@ idf_component_register(
         "../../../hal/esp32/hal.cpp"
         "../../../core/CommandRegistry.cpp"
         "../../../transport/uart/UartTransport.cpp"
+        "../../../transport/telnet/TelnetTransport.cpp"
     INCLUDE_DIRS
         "../../.."
         "../../../include"
@@ -13,4 +14,9 @@ idf_component_register(
         esp_driver_usb_serial_jtag
         esp_timer
         freertos
+        nvs_flash
+        esp_netif
+        esp_wifi
+        esp_event
+        espressif__mdns
 )

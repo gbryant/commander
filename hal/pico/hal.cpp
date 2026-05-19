@@ -20,19 +20,23 @@ void hal_i2c_init(uint8_t sda_pin, uint8_t scl_pin, uint32_t speed_hz) {
 
 bool hal_i2c_probe(uint8_t addr) {
     uint8_t dummy;
-    return i2c_read_blocking(_i2c_bus, addr, &dummy, 1, false) >= 0;
+    return i2c_read_blocking_until(_i2c_bus, addr, &dummy, 1, false,
+                                   make_timeout_time_ms(10)) >= 0;
 }
 
 bool hal_i2c_write(uint8_t addr, uint8_t reg, const uint8_t *data, size_t len) {
     uint8_t buf[len + 1];
     buf[0] = reg;
     memcpy(buf + 1, data, len);
-    return i2c_write_blocking(_i2c_bus, addr, buf, len + 1, false) == (int)(len + 1);
+    return i2c_write_blocking_until(_i2c_bus, addr, buf, len + 1, false,
+                                    make_timeout_time_ms(10)) == (int)(len + 1);
 }
 
 bool hal_i2c_read(uint8_t addr, uint8_t reg, uint8_t *data, size_t len) {
-    if (i2c_write_blocking(_i2c_bus, addr, &reg, 1, true) != 1) return false;
-    return i2c_read_blocking(_i2c_bus, addr, data, len, false) == (int)len;
+    if (i2c_write_blocking_until(_i2c_bus, addr, &reg, 1, true,
+                                 make_timeout_time_ms(10)) != 1) return false;
+    return i2c_read_blocking_until(_i2c_bus, addr, data, len, false,
+                                   make_timeout_time_ms(10)) == (int)len;
 }
 
 void hal_gpio_set_output(uint8_t pin) { gpio_init(pin); gpio_set_dir(pin, GPIO_OUT); }
@@ -58,7 +62,12 @@ uint64_t hal_time_us(void)         { return time_us_64(); }
 // stdio_init_all() in main.cpp connects USB-CDC (or UART) to stdin/stdout.
 void hal_uart_init(uint32_t /*baud*/) {}  // handled by pico_enable_stdio_usb in CMake
 int  hal_uart_getchar(uint32_t timeout_ms) {
-    int c = getchar_timeout_us((uint32_t)timeout_ms * 1000);
+    int c = getchar_timeout_us(0);
+    if (c != PICO_ERROR_TIMEOUT) return c;
+    // Yield via vTaskDelay so lower-priority tasks (WiFi, cyw43 async) get CPU.
+    // getchar_timeout_us busy-polls and would starve them if called directly.
+    if (timeout_ms > 0) vTaskDelay(pdMS_TO_TICKS(timeout_ms));
+    c = getchar_timeout_us(0);
     return (c == PICO_ERROR_TIMEOUT) ? -1 : c;
 }
 void hal_uart_putchar(char c)     { putchar(c); fflush(stdout); }

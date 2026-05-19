@@ -1,9 +1,26 @@
 #pragma once
 
-// threadsafe_background arch — lwIP runs from CYW43 background context, no tcpip thread
-#define NO_SYS                          1
-#define LWIP_SOCKET                     0
-#define LWIP_NETCONN                    0
+// lwip_freertos arch — lwIP runs in its own tcpip_thread, BSD sockets enabled
+#define NO_SYS                          0
+#define LWIP_SOCKET                     1
+#define LWIP_NETCONN                    1
+
+// tcpip thread (configMAX_PRIORITIES=8, so 6 is below the timer task at 7)
+// TCP connection setup (SYN→PCB alloc→SYN-ACK) has a deeper call stack than
+// UDP/mDNS; 1024 words was marginal and caused stack-overflow panics on connect.
+#define TCPIP_THREAD_STACKSIZE          2048
+#define TCPIP_THREAD_PRIO               6
+#define TCPIP_MBOX_SIZE                 16
+#define DEFAULT_TCP_RECVMBOX_SIZE       12
+#define DEFAULT_UDP_RECVMBOX_SIZE       12
+#define DEFAULT_ACCEPTMBOX_SIZE         8
+
+// Thread safety
+#define SYS_LIGHTWEIGHT_PROT            1
+#define LWIP_TCPIP_CORE_LOCKING         1
+
+// Sockets / netconns (default 4 is too few: mDNS + telnet server + telnet client)
+#define MEMP_NUM_NETCONN                8
 
 // Memory
 #define MEM_LIBC_MALLOC                 0
@@ -24,6 +41,9 @@
 #define LWIP_DNS                        1
 #define LWIP_RAW                        0
 
+// Socket options
+#define LWIP_SO_RCVTIMEO                1
+
 // TCP tuning
 #define TCP_MSS                         1460
 #define TCP_WND                         (8 * TCP_MSS)
@@ -40,10 +60,6 @@
 #define LWIP_MDNS_RESPONDER             1
 #define MDNS_MAX_SERVICES               4
 #define LWIP_NUM_NETIF_CLIENT_DATA      (LWIP_MDNS_RESPONDER)
-
-// No OS threading in lwIP — cyw43_arch_lwip_begin/end provides mutual exclusion
-#define SYS_LIGHTWEIGHT_PROT            0
-#define LWIP_TCPIP_CORE_LOCKING         0
 
 // Avoid newlib conflicts
 #define LWIP_POSIX_SOCKETS_IO_NAMES     0

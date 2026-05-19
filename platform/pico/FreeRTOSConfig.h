@@ -36,6 +36,8 @@
 #define configUSE_STATS_FORMATTING_FUNCTIONS        0
 #define configUSE_NEWLIB_REENTRANT                  0
 #define configENABLE_BACKWARD_COMPATIBILITY         0
+// lwIP FreeRTOS port (pico-sdk/lib/lwip) references the pre-v8.0 name
+#define portTICK_RATE_MS                            portTICK_PERIOD_MS
 #define configUSE_IDLE_HOOK                         0
 #define configUSE_TICK_HOOK                         0
 #define configUSE_PASSIVE_IDLE_HOOK                 0
