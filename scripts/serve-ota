@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Serve the ESP32 firmware binary for OTA.
+# Usage: ./scripts/serve-ota [port]
+set -e
+
+cd "$(dirname "$0")/../platform/esp32"
+BIN="build/commander.bin"
+
+if [[ ! -f "$BIN" ]]; then
+    echo "Binary not found: $BIN"
+    echo "Run ./build-esp32 first."
+    exit 1
+fi
+
+PORT=${1:-8000}
+IP=$(ipconfig getifaddr en0 2>/dev/null \
+    || ipconfig getifaddr en1 2>/dev/null \
+    || echo "<YOUR_IP>")
+
+echo "Serving build/ on port $PORT"
+echo ""
+echo "Telnet in and run:"
+echo "  ota http://$IP:$PORT/commander.bin"
+echo ""
+python3 -m http.server "$PORT" --directory build

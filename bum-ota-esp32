@@ -1,0 +1,73 @@
+#!/bin/bash
+# Build ESP32 firmware and push to device via OTA.
+# Usage: ./bum-ota-esp32 [host]
+set -e
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST="${1:-esp32.local}"
+OTA_PORT=8000
+
+cd "$REPO"
+
+# Build
+echo "==> Building..."
+./build-esp32
+
+BIN="platform/esp32/build/commander.bin"
+[[ -f "$BIN" ]] || { echo "Binary not found after build."; exit 1; }
+
+# Determine local IP
+IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+[[ -n "$IP" ]] || { echo "Could not determine local IP — set en0/en1 manually."; exit 1; }
+URL="http://$IP:$OTA_PORT/commander.bin"
+
+# Start HTTP server in background; kill it on exit
+python3 -m http.server "$OTA_PORT" --directory platform/esp32/build &
+SERVER_PID=$!
+trap "kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null" EXIT
+sleep 1  # let server bind
+
+echo "==> Serving $URL"
+echo "==> Connecting to $HOST..."
+
+# Telnet OTA
+OTA_HOST="$HOST" OTA_URL="$URL" python3 <<'PYEOF'
+import os, socket
+
+def strip_iac(data):
+    out, i = bytearray(), 0
+    while i < len(data):
+        if data[i] == 0xFF and i + 1 < len(data):
+            i += 3 if data[i+1] >= 0xFB else 2
+        else:
+            out.append(data[i])
+            i += 1
+    return bytes(out)
+
+def read_until_prompt(sock, timeout=90.0):
+    sock.settimeout(timeout)
+    raw = b''
+    while True:
+        chunk = sock.recv(256)
+        if not chunk:
+            raise ConnectionError('connection closed')
+        raw += chunk
+        if strip_iac(raw).endswith(b'> '):
+            return strip_iac(raw).decode('utf-8', errors='ignore')
+
+host = os.environ['OTA_HOST']
+url  = os.environ['OTA_URL']
+
+sock = socket.create_connection((host, 23), timeout=15)
+read_until_prompt(sock)
+sock.sendall(f'ota {url}\r\n'.encode())
+resp = read_until_prompt(sock, timeout=120)
+cmd  = f'ota {url}'
+for line in resp.replace('\r\n', '\n').split('\n'):
+    line = line.strip()
+    if line and line != cmd and line != '>':
+        print(line)
+sock.close()
+PYEOF
+
+echo "==> Done."

@@ -17,6 +17,7 @@
 #include "modules/Ina219Module.h"
 #include "transport/uart/UartTransport.h"
 #include "transport/telnet/TelnetTransport.h"
+#include "ota_cmd.h"
 
 static const char *TAG = "commander";
 
@@ -24,7 +25,7 @@ static CommandRegistry registry;
 static SystemModule    systemModule;
 static I2cModule       i2cModule;
 static Ina219Module    ina_a(0x40, "a");
-static Ina219Module    ina_b(0x41, "b");
+static Ina219Module    ina_b(0x45, "b");
 static UartTransport   uart;
 static TelnetTransport telnet;
 
@@ -71,12 +72,13 @@ static bool wifi_connect() {
 }
 
 static void mainTask(void *) {
-    hal_i2c_init(8, 9, 100000);  // SDA=GPIO8, SCL=GPIO9
+    hal_i2c_init(8, 9, 50000);  // SDA=GPIO8, SCL=GPIO9
 
     registry.registerModule(systemModule);
     registry.registerModule(i2cModule);
     registry.registerModule(ina_a);
     registry.registerModule(ina_b);
+    registry.registerCommand(CMD("ota", "flash firmware from URL (http)", I2C_NONE, cmdOta, nullptr));
     registry.validateIds();
 
     xTaskCreate(UartTransport::taskBody, "uart", 4096, &uart, 2, nullptr);
@@ -85,7 +87,7 @@ static void mainTask(void *) {
         mdns_init();
         mdns_hostname_set("esp32");
         telnet.begin(registry, "commander/esp32s3");
-        xTaskCreate(TelnetTransport::taskBody, "telnet", 4096, &telnet, 2, nullptr);
+        xTaskCreate(TelnetTransport::taskBody, "telnet", 6144, &telnet, 2, nullptr);
     } else {
         ESP_LOGW(TAG, "wifi connect failed — telnet disabled");
     }
