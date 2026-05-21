@@ -38,7 +38,7 @@ void hal_i2c_init(uint8_t sda_pin, uint8_t scl_pin, uint32_t speed_hz) {
 }
 
 bool hal_i2c_probe(uint8_t addr) {
-    return i2c_master_probe(_bus, addr, 50) == ESP_OK;
+    return i2c_master_probe(_bus, addr, 200) == ESP_OK;
 }
 
 bool hal_i2c_write(uint8_t addr, uint8_t reg, const uint8_t *data, size_t len) {
@@ -55,11 +55,7 @@ bool hal_i2c_write(uint8_t addr, uint8_t reg, const uint8_t *data, size_t len) {
 
 bool hal_i2c_read(uint8_t addr, uint8_t reg, uint8_t *data, size_t len) {
     i2c_master_dev_handle_t dev = open_device(addr);
-    // Two separate transactions (STOP+START) instead of repeated START —
-    // more compatible with devices that have signal integrity issues on Sr.
-    esp_err_t ret = i2c_master_transmit(dev, &reg, 1, 50);
-    if (ret == ESP_OK)
-        ret = i2c_master_receive(dev, data, len, 50);
+    esp_err_t ret = i2c_master_transmit_receive(dev, &reg, 1, data, len, 50);
     if (ret != ESP_OK)
         ESP_LOGW(TAG, "read 0x%02X reg 0x%02X: %s", addr, reg, esp_err_to_name(ret));
     i2c_master_bus_rm_device(dev);

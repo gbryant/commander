@@ -16,9 +16,11 @@
 class Ina219Module : public IModule {
 public:
     explicit Ina219Module(uint8_t addr, const char *prefix) : _addr(addr) {
-        cat(_volt_cmd, sizeof(_volt_cmd), prefix, "volt");
-        cat(_amp_cmd,  sizeof(_amp_cmd),  prefix, "amp");
-        cat(_watt_cmd, sizeof(_watt_cmd), prefix, "watt");
+        cat(_volt_cmd,  sizeof(_volt_cmd),  prefix, "volt");
+        cat(_amp_cmd,   sizeof(_amp_cmd),   prefix, "amp");
+        cat(_watt_cmd,  sizeof(_watt_cmd),  prefix, "watt");
+        cat(_init_cmd,  sizeof(_init_cmd),  prefix, "init");
+        cat(_stats_cmd, sizeof(_stats_cmd), prefix, "stats");
     }
 
     const char *name()  const override { return _volt_cmd; }
@@ -31,6 +33,8 @@ private:
     char    _volt_cmd[12];
     char    _amp_cmd[12];
     char    _watt_cmd[12];
+    char    _init_cmd[12];
+    char    _stats_cmd[12];
 
     static void cat(char *dst, size_t n, const char *a, const char *b) {
         size_t i = 0;
@@ -46,14 +50,19 @@ private:
         return true;
     }
 
-    static void cmdVolt(const char *, Writer &out, void *ctx);
-    static void cmdAmp (const char *, Writer &out, void *ctx);
-    static void cmdWatt(const char *, Writer &out, void *ctx);
+    static void cmdVolt (const char *, Writer &out, void *ctx);
+    static void cmdAmp  (const char *, Writer &out, void *ctx);
+    static void cmdWatt (const char *, Writer &out, void *ctx);
+    static void cmdInit (const char *, Writer &out, void *ctx);
+    static void cmdStats(const char *, Writer &out, void *ctx);
 };
 
 inline void Ina219Module::init() {
+    // INA219 needs ~1 ms after Vcc stable before it will ACK I2C writes.
+    // Without this delay, calibration writes on early boot are silently lost,
+    // leaving the cal register at 0 and the current/power registers stuck at 0.
+    hal_delay_ms(10);
     // Configuration: 32 V bus range, ÷8 PGA (±320 mV shunt), 12-bit ADC, continuous.
-    // Matches the power-on default; written anyway as an explicit reset.
     uint8_t cfg[2] = {0x39, 0x9F};
     hal_i2c_write(_addr, 0x00, cfg, 2);
     // Cal = 4096 (0x1000) for 0.1 Ω shunt → Current_LSB = 100 µA.
@@ -116,10 +125,58 @@ inline void Ina219Module::cmdWatt(const char *, Writer &out, void *ctx) {
     out.writeln(buf);
 }
 
+inline void Ina219Module::cmdInit(const char *, Writer &out, void *ctx) {
+    static_cast<Ina219Module *>(ctx)->init();
+    out.writeln("ok");
+}
+
+inline void Ina219Module::cmdStats(const char *, Writer &out, void *ctx) {
+    auto *m = static_cast<Ina219Module *>(ctx);
+    uint16_t vraw; uint16_t iraw;
+    // Read voltage and current back-to-back in the same I2C session (~1 ms apart)
+    // so both values come from the same ADC conversion cycle.
+    if (!readReg(m->_addr, 0x02, vraw) || !readReg(m->_addr, 0x04, iraw)) {
+        out.writeln("err");
+        return;
+    }
+    uint32_t mV  = (uint32_t)(vraw >> 3) * 4;
+    int16_t  cur = (int16_t)iraw;
+
+    // Output: "voltage_mv,current_ma"  e.g. "13880,1044.3"
+    char buf[24];
+    uint8_t i = 0;
+
+    if (mV >= 10000) buf[i++] = '0' + (char)(mV / 10000);
+    if (mV >=  1000) buf[i++] = '0' + (char)((mV /  1000) % 10);
+    if (mV >=   100) buf[i++] = '0' + (char)((mV /   100) % 10);
+    if (mV >=    10) buf[i++] = '0' + (char)((mV /    10) % 10);
+    buf[i++] = '0' + (char)(mV % 10);
+    buf[i++] = ',';
+
+    if (cur < 0) {
+        buf[i++] = '-';
+        cur = (cur == (int16_t)-32768) ? (int16_t)32767 : (int16_t)-cur;
+    }
+    uint16_t u    = (uint16_t)cur;
+    uint16_t mA   = u / 10;
+    uint8_t  frac = (uint8_t)(u % 10);
+    if (mA >= 1000) buf[i++] = '0' + (char)(mA / 1000);
+    if (mA >=  100) buf[i++] = '0' + (char)((mA /  100) % 10);
+    if (mA >=   10) buf[i++] = '0' + (char)((mA /   10) % 10);
+    buf[i++] = '0' + (char)(mA % 10);
+    buf[i++] = '.';
+    buf[i++] = '0' + frac;
+    buf[i]   = '\0';
+
+    out.writeln(buf);
+}
+
 inline void Ina219Module::registerCommands(CommandRegistry &reg) {
     // I2C_NONE: these are local sensor reads, not I²C relay commands.
     // Two instances share the same handler code but differ by _addr via ctx.
-    reg.registerCommand(CMD(_volt_cmd, "bus voltage (mV)", I2C_NONE, cmdVolt, this));
-    reg.registerCommand(CMD(_amp_cmd,  "current (mA)",     I2C_NONE, cmdAmp,  this));
-    reg.registerCommand(CMD(_watt_cmd, "power (mW)",       I2C_NONE, cmdWatt, this));
+    reg.registerCommand(CMD(_volt_cmd,  "bus voltage (mV)",                     I2C_NONE, cmdVolt,  this));
+    reg.registerCommand(CMD(_amp_cmd,   "current (mA)",                         I2C_NONE, cmdAmp,   this));
+    reg.registerCommand(CMD(_watt_cmd,  "power (mW)",                           I2C_NONE, cmdWatt,  this));
+    reg.registerCommand(CMD(_init_cmd,  "reinit INA219 (restores calibration)", I2C_NONE, cmdInit,  this));
+    reg.registerCommand(CMD(_stats_cmd, "voltage+current atomic read (csv)",    I2C_NONE, cmdStats, this));
 }

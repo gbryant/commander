@@ -47,7 +47,7 @@ extern "C" {
 }
 
 static void mainTask(void *) {
-    hal_i2c_init(4, 5, 400000);  // SDA=GP4, SCL=GP5
+    hal_i2c_init(4, 5, 100000);  // SDA=GP4, SCL=GP5
 
     registry.registerModule(systemModule);
     registry.registerModule(compassModule);
