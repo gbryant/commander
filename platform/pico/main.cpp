@@ -59,6 +59,7 @@ static void mainTask(void *) {
     registry.registerModule(irModule);
     registry.validateIds();
 
+    uart.addTicker(irModule);
     xTaskCreate(UartTransport::taskBody, "uart", 1024, &uart, 2, nullptr);
 
     // cyw43_arch_init must be called from a task (after scheduler) with lwip_freertos
@@ -82,7 +83,8 @@ static void mainTask(void *) {
         }
     }
 
-    irModule.launch();  // start core1 after WiFi — avoids bus contention during WPA2 handshake
+    irModule.launch();  // enable PIO + start core1 after WiFi
+    printf("ir ready (GP%d)\r\n", 22);
     vTaskDelete(nullptr);
 }
 

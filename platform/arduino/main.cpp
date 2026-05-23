@@ -12,7 +12,7 @@ static CommandRegistry registry;
 static SystemModule    systemModule;
 static CompassModule   compassModule;
 static I2cModule       i2cModule;
-static SonarModule     sonarModule(4);  // Grove D4
+static SonarModule     sonarModule(6);  // Grove D6
 static IRModule        irModule;
 static UartTransport   uart;
 

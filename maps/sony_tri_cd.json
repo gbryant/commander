@@ -1,0 +1,938 @@
+[
+  {
+    "name": "power",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x15",
+    "bits": 12
+  },
+  {
+    "name": "power",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x15",
+    "bits": 15
+  },
+  {
+    "name": "power",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x15",
+    "bits": 15
+  },
+  {
+    "name": "continue",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x1d",
+    "bits": 12
+  },
+  {
+    "name": "continue",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x1d",
+    "bits": 15
+  },
+  {
+    "name": "continue",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x1d",
+    "bits": 15
+  },
+  {
+    "name": "shuffle",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x35",
+    "bits": 12
+  },
+  {
+    "name": "program",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x1f",
+    "bits": 12
+  },
+  {
+    "name": "program",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x1f",
+    "bits": 15
+  },
+  {
+    "name": "program",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x1f",
+    "bits": 15
+  },
+  {
+    "name": "shuffle",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x35",
+    "bits": 15
+  },
+  {
+    "name": "shuffle",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x35",
+    "bits": 15
+  },
+  {
+    "name": "x-fade",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x71",
+    "bits": 12
+  },
+  {
+    "name": "x-fade",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x71",
+    "bits": 15
+  },
+  {
+    "name": "x-fade",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x71",
+    "bits": 15
+  },
+  {
+    "name": "no delay",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x6e",
+    "bits": 15
+  },
+  {
+    "name": "no delay",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x6e",
+    "bits": 12
+  },
+  {
+    "name": "no delay",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x6e",
+    "bits": 15
+  },
+  {
+    "name": "time",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x28",
+    "bits": 12
+  },
+  {
+    "name": "time",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x28",
+    "bits": 15
+  },
+  {
+    "name": "time",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x28",
+    "bits": 15
+  },
+  {
+    "name": "disc",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x4a",
+    "bits": 15
+  },
+  {
+    "name": "disc",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x4a",
+    "bits": 12
+  },
+  {
+    "name": "disc",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x4a",
+    "bits": 15
+  },
+  {
+    "name": "top artist",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x4c",
+    "bits": 12
+  },
+  {
+    "name": "top artist",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x4c",
+    "bits": 15
+  },
+  {
+    "name": "top artist",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x4c",
+    "bits": 15
+  },
+  {
+    "name": "display",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x7e",
+    "bits": 15
+  },
+  {
+    "name": "display",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x7e",
+    "bits": 12
+  },
+  {
+    "name": "display",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x7e",
+    "bits": 15
+  },
+  {
+    "name": "1",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x0",
+    "bits": 15
+  },
+  {
+    "name": "1",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x0",
+    "bits": 12
+  },
+  {
+    "name": "1",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x0",
+    "bits": 15
+  },
+  {
+    "name": "2",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x1",
+    "bits": 15
+  },
+  {
+    "name": "2",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x1",
+    "bits": 12
+  },
+  {
+    "name": "2",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x1",
+    "bits": 15
+  },
+  {
+    "name": "3",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x2",
+    "bits": 15
+  },
+  {
+    "name": "3",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x2",
+    "bits": 12
+  },
+  {
+    "name": "3",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x2",
+    "bits": 15
+  },
+  {
+    "name": "4",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x3",
+    "bits": 15
+  },
+  {
+    "name": "4",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x3",
+    "bits": 12
+  },
+  {
+    "name": "4",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x3",
+    "bits": 15
+  },
+  {
+    "name": "5",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x4",
+    "bits": 15
+  },
+  {
+    "name": "5",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x4",
+    "bits": 12
+  },
+  {
+    "name": "5",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x4",
+    "bits": 15
+  },
+  {
+    "name": "6",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x5",
+    "bits": 15
+  },
+  {
+    "name": "6",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x5",
+    "bits": 12
+  },
+  {
+    "name": "6",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x5",
+    "bits": 15
+  },
+  {
+    "name": "7",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x6",
+    "bits": 12
+  },
+  {
+    "name": "7",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x6",
+    "bits": 15
+  },
+  {
+    "name": "7",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x6",
+    "bits": 15
+  },
+  {
+    "name": "8",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x7",
+    "bits": 15
+  },
+  {
+    "name": "8",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x7",
+    "bits": 15
+  },
+  {
+    "name": "8",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x7",
+    "bits": 12
+  },
+  {
+    "name": "9",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x8",
+    "bits": 12
+  },
+  {
+    "name": "9",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x8",
+    "bits": 15
+  },
+  {
+    "name": "9",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x8",
+    "bits": 15
+  },
+  {
+    "name": "> 10",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x27",
+    "bits": 12
+  },
+  {
+    "name": "> 10",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x27",
+    "bits": 15
+  },
+  {
+    "name": "> 10",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x27",
+    "bits": 15
+  },
+  {
+    "name": "10/0",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x20",
+    "bits": 12
+  },
+  {
+    "name": "10/0",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x20",
+    "bits": 15
+  },
+  {
+    "name": "10/0",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x20",
+    "bits": 15
+  },
+  {
+    "name": "enter",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0xb",
+    "bits": 15
+  },
+  {
+    "name": "enter",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0xb",
+    "bits": 12
+  },
+  {
+    "name": "enter",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0xb",
+    "bits": 15
+  },
+  {
+    "name": "repeat",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x2c",
+    "bits": 12
+  },
+  {
+    "name": "repeat",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x2c",
+    "bits": 15
+  },
+  {
+    "name": "repeat",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x2c",
+    "bits": 15
+  },
+  {
+    "name": "check",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0xd",
+    "bits": 15
+  },
+  {
+    "name": "check",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0xd",
+    "bits": 12
+  },
+  {
+    "name": "check",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0xd",
+    "bits": 15
+  },
+  {
+    "name": "clear",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0xf",
+    "bits": 15
+  },
+  {
+    "name": "clear",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0xf",
+    "bits": 12
+  },
+  {
+    "name": "clear",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0xf",
+    "bits": 15
+  },
+  {
+    "name": "name edit / select",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x69",
+    "bits": 15
+  },
+  {
+    "name": "name edit / select",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x69",
+    "bits": 12
+  },
+  {
+    "name": "name edit / select",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x69",
+    "bits": 15
+  },
+  {
+    "name": "history mode",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x133a",
+    "command": "0x4b",
+    "bits": 20
+  },
+  {
+    "name": "history mode",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x143a",
+    "command": "0x4b",
+    "bits": 20
+  },
+  {
+    "name": "history mode",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x153a",
+    "command": "0x4b",
+    "bits": 20
+  },
+  {
+    "name": "artist mode",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x133a",
+    "command": "0x48",
+    "bits": 20
+  },
+  {
+    "name": "artist mode",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x153a",
+    "command": "0x48",
+    "bits": 20
+  },
+  {
+    "name": "artist mode",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x143a",
+    "command": "0x48",
+    "bits": 20
+  },
+  {
+    "name": "play",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x32",
+    "bits": 12
+  },
+  {
+    "name": "play",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x32",
+    "bits": 15
+  },
+  {
+    "name": "play",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x32",
+    "bits": 15
+  },
+  {
+    "name": "pause",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x39",
+    "bits": 15
+  },
+  {
+    "name": "pause",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x39",
+    "bits": 15
+  },
+  {
+    "name": "pause",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x39",
+    "bits": 12
+  },
+  {
+    "name": "stop",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x38",
+    "bits": 12
+  },
+  {
+    "name": "stop",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x38",
+    "bits": 15
+  },
+  {
+    "name": "stop",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x38",
+    "bits": 15
+  },
+  {
+    "name": "back",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x30",
+    "bits": 15
+  },
+  {
+    "name": "back",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x30",
+    "bits": 12
+  },
+  {
+    "name": "back",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x30",
+    "bits": 15
+  },
+  {
+    "name": "forward",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x31",
+    "bits": 15
+  },
+  {
+    "name": "forward",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x31",
+    "bits": 12
+  },
+  {
+    "name": "forward",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x31",
+    "bits": 15
+  },
+  {
+    "name": "rewind",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x33",
+    "bits": 12
+  },
+  {
+    "name": "rewind",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x33",
+    "bits": 15
+  },
+  {
+    "name": "rewind",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x33",
+    "bits": 15
+  },
+  {
+    "name": "fast forward",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x34",
+    "bits": 15
+  },
+  {
+    "name": "fast forward",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x34",
+    "bits": 12
+  },
+  {
+    "name": "fast forward",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x34",
+    "bits": 15
+  },
+  {
+    "name": "album minus",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x66",
+    "bits": 12
+  },
+  {
+    "name": "album minus",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x66",
+    "bits": 15
+  },
+  {
+    "name": "album minus",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x66",
+    "bits": 15
+  },
+  {
+    "name": "album plus",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x67",
+    "bits": 15
+  },
+  {
+    "name": "album plus",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x67",
+    "bits": 12
+  },
+  {
+    "name": "album plus",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x67",
+    "bits": 15
+  },
+  {
+    "name": "disc plus",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x3e",
+    "bits": 15
+  },
+  {
+    "name": "disc plus",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x3e",
+    "bits": 12
+  },
+  {
+    "name": "disc plus",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x3e",
+    "bits": 15
+  },
+  {
+    "name": "disc minus",
+    "select": "CD3",
+    "protocol": "Sony",
+    "address": "0x51",
+    "command": "0x3d",
+    "bits": 15
+  },
+  {
+    "name": "disc minus",
+    "select": "CD1",
+    "protocol": "Sony",
+    "address": "0x11",
+    "command": "0x3d",
+    "bits": 12
+  },
+  {
+    "name": "disc minus",
+    "select": "CD2",
+    "protocol": "Sony",
+    "address": "0x39",
+    "command": "0x3d",
+    "bits": 15
+  }
+]
