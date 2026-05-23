@@ -136,7 +136,7 @@ def main():
                     error_count = 0
             else:
                 error_count = 0
-                if current == 0.0 and not reinit_sent:
+                if current == 0.0 and voltage > 1000 and not reinit_sent:
                     run_command(sock, f'{args.prefix}init')
                     print(f'{ts}  0.0 mA — sent {args.prefix}init')
                     reinit_sent = True

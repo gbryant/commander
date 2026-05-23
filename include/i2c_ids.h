@@ -21,6 +21,7 @@
 #define CMD_DISCONNECT     I2C_CMD(MOD_SYSTEM, 0x1)
 #define CMD_RESET          I2C_CMD(MOD_SYSTEM, 0x2)
 #define CMD_BOOTLOADER     I2C_CMD(MOD_SYSTEM, 0x3)
+#define CMD_VERSION        I2C_CMD(MOD_SYSTEM, 0x4)
 
 // Compass commands
 #define CMD_COMPASS_HEADING I2C_CMD(MOD_COMPASS, 0x0)

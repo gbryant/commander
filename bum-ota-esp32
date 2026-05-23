@@ -48,12 +48,16 @@ def read_until_prompt(sock, timeout=90.0):
     sock.settimeout(timeout)
     raw = b''
     while True:
-        chunk = sock.recv(256)
+        try:
+            chunk = sock.recv(256)
+        except OSError:
+            break
         if not chunk:
-            raise ConnectionError('connection closed')
+            break  # connection closed (device rebooted) — return what we have
         raw += chunk
         if strip_iac(raw).endswith(b'> '):
-            return strip_iac(raw).decode('utf-8', errors='ignore')
+            break
+    return strip_iac(raw).decode('utf-8', errors='ignore')
 
 host = os.environ['OTA_HOST']
 url  = os.environ['OTA_URL']
