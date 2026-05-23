@@ -50,12 +50,19 @@ void UartTransport::handleByte(char c) {
     }
 }
 
+void UartTransport::addTicker(IModule &m) {
+    if (_tickCount < kMaxTickers)
+        _tickers[_tickCount++] = &m;
+}
+
 void UartTransport::taskBody(void *self) {
     auto *t = static_cast<UartTransport *>(self);
     if (t->_greeting) { hal_uart_puts(t->_greeting); hal_uart_puts("\r\n"); }
     t->prompt();
     for (;;) {
-        int c = hal_uart_getchar(10);  // 10 ms poll
+        int c = hal_uart_getchar(10);  // 10 ms poll; HAL yields on platforms with blocking UART
         if (c >= 0) t->handleByte((char)c);
+        for (uint8_t i = 0; i < t->_tickCount; i++)
+            t->_tickers[i]->tick();
     }
 }

@@ -1,0 +1,51 @@
+.program ir_rx
+
+; Pushes alternating mark (LOW) and space (HIGH) durations.
+; First push after start is always a mark.
+; PIO clock = 1 MHz; each loop = 3 instructions = 3 µs resolution.
+; Decode: duration_us = (uint32_t)(-(int32_t)val) * 3
+;
+; Pin 0 = IR receiver signal (active-low demodulated, e.g. Grove IR Receiver v1.2).
+
+    wait 0 pin 0        ; sync to first falling edge (mark start)
+
+.wrap_target
+    set x, 0
+mark_loop:
+    jmp x-- mark_chk    ; decrement x (wraps 0 → 0xFFFFFFFF on first call)
+mark_chk:
+    jmp pin mark_done   ; HIGH → mark ended
+    jmp mark_loop
+mark_done:
+    in x, 32
+    push noblock
+
+    set x, 0
+space_loop:
+    jmp x-- space_chk
+space_chk:
+    nop                 ; pad to 3 cycles/loop — matches mark timing
+    jmp pin space_loop  ; HIGH → space continues
+    ; pin went LOW — space ended, next mark already started
+    in x, 32
+    push noblock
+.wrap                   ; back to mark measurement (no re-sync needed)
+
+% c-sdk {
+#include "hardware/clocks.h"
+static inline void ir_rx_program_init(PIO pio, uint sm, uint offset, uint pin) {
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
+
+    pio_sm_config c = ir_rx_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, pin);
+    sm_config_set_jmp_pin(&c, pin);
+    sm_config_set_in_shift(&c, false, false, 32);
+
+    // 1 MHz PIO clock → 3 µs per loop iteration
+    sm_config_set_clkdiv(&c, (float)clock_get_hz(clk_sys) / 1000000.0f);
+
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}

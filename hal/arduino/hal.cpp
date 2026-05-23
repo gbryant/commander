@@ -42,7 +42,18 @@ void     hal_delay_ms(uint32_t ms)  { delay(ms); }
 // micros() wraps at ~70 min; fine for pulse timing, not for long uptimes
 uint64_t hal_time_us(void) { return (uint64_t)micros(); }
 
-void hal_uart_init(uint32_t baud)          { Serial.begin(baud); }
-int  hal_uart_getchar(uint32_t /*timeout*/) { return Serial.available() ? Serial.read() : -1; }
-void hal_uart_putchar(char c)              { Serial.write(c); }
-void hal_uart_puts(const char *s)          { Serial.print(s); }
+void hal_uart_init(uint32_t baud) { Serial.begin(baud); }
+
+// delay() in feilipu FreeRTOS calls vTaskDelay — yields the UART task each
+// millisecond so lower-priority tasks (idle, loop) actually get to run.
+int hal_uart_getchar(uint32_t timeout_ms) {
+    uint32_t start = millis();
+    do {
+        if (Serial.available()) return Serial.read();
+        delay(1);
+    } while (millis() - start < timeout_ms);
+    return -1;
+}
+
+void hal_uart_putchar(char c)     { Serial.write(c); }
+void hal_uart_puts(const char *s) { Serial.print(s); }

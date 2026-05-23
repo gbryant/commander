@@ -15,8 +15,9 @@ import re
 config = os.path.join(".pio", "libdeps", "uno", "FreeRTOS", "src", "FreeRTOSConfig.h")
 
 PATCHES = [
-    ("configUSE_TIMERS",       "1",   "0",   "timer task exhausts heap on Uno"),
-    ("configMINIMAL_STACK_SIZE", "192", "128", "idle task is trivially shallow"),
+    ("configUSE_TIMERS",             "1",   "0",   "timer task exhausts heap on Uno"),
+    ("configMINIMAL_STACK_SIZE",     "192", "128", "idle task is trivially shallow"),
+    ("configSUPPORT_STATIC_ALLOCATION", "0", "1",  "allow xTaskCreateStatic for UART task"),
 ]
 
 if not os.path.exists(config):

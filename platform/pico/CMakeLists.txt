@@ -10,6 +10,22 @@ set(CMAKE_CXX_STANDARD 17)
 
 pico_sdk_init()
 
+
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+execute_process(
+    COMMAND git rev-list --count HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_BUILD_NUMBER OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NOT GIT_COMMIT)
+    set(GIT_COMMIT "unknown")
+endif()
+if(NOT GIT_BUILD_NUMBER)
+    set(GIT_BUILD_NUMBER 0)
+endif()
+
 add_executable(commander
     main.cpp
     BootselModule.cpp
@@ -19,10 +35,12 @@ add_executable(commander
     ../../transport/telnet/TelnetTransport.cpp
 )
 
+pico_generate_pio_header(commander ${CMAKE_CURRENT_LIST_DIR}/ir_rx.pio)
+
 target_compile_definitions(commander PRIVATE
-    # async_context_task handles CYW43 SPI + delivers packets to lwIP.
-    # Increase from the 1024-word minimum to match tcpip_thread headroom.
     CYW43_TASK_STACK_SIZE=2048
+    BUILD_COMMIT="${GIT_COMMIT}"
+    BUILD_NUMBER=${GIT_BUILD_NUMBER}
 )
 
 target_include_directories(commander PRIVATE
@@ -37,6 +55,9 @@ target_link_libraries(commander
     pico_lwip_mdns
     hardware_i2c
     hardware_gpio
+    hardware_pio
+    hardware_clocks
+    pico_multicore
     FreeRTOS-Kernel
     FreeRTOS-Kernel-Heap4
 )

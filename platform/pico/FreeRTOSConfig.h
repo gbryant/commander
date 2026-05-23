@@ -2,10 +2,17 @@
 #include <assert.h>
 #define configASSERT(x) assert(x)
 
-// SMP — both RP2350 cores
+// RP2040: force single-core. cyw43_arch_lwip_sys_freertos creates the CYW43
+// async_context task without core affinity; under SMP it can migrate to core1
+// and miss SPI IRQs that fire on core0, corrupting the WPA2 handshake.
+// RP2350: SMP across both cores is safe and desired.
+#ifdef PICO_RP2350
 #define configNUMBER_OF_CORES                       2
 #define configUSE_CORE_AFFINITY                     1
 #define configRUN_MULTIPLE_PRIORITIES               1
+#else
+#define configNUMBER_OF_CORES                       1
+#endif
 
 // Pico-SDK interop: lets pico-sdk sync primitives and time functions
 // yield correctly under FreeRTOS instead of busy-waiting

@@ -16,6 +16,7 @@
 #include "transport/uart/UartTransport.h"
 #include "transport/telnet/TelnetTransport.h"
 #include "BootselModule.h"
+#include "PicoIRModule.h"
 
 static CommandRegistry registry;
 static SystemModule    systemModule;
@@ -23,6 +24,7 @@ static CompassModule   compassModule;
 static I2cModule       i2cModule;
 static SonarModule     sonarModule(6);  // Grove GP6
 static BootselModule   bootselModule;
+static PicoIRModule    irModule(22);  // Grove IR Receiver v1.2 on GP22
 static UartTransport   uart;
 static TelnetTransport telnet;
 
@@ -54,15 +56,19 @@ static void mainTask(void *) {
     registry.registerModule(i2cModule);
     registry.registerModule(sonarModule);
     registry.registerModule(bootselModule);
+    registry.registerModule(irModule);
     registry.validateIds();
 
     xTaskCreate(UartTransport::taskBody, "uart", 1024, &uart, 2, nullptr);
 
     // cyw43_arch_init must be called from a task (after scheduler) with lwip_freertos
+    printf("[wifi] ssid='%s' connecting...\n", WIFI_SSID);
     if (cyw43_arch_init() == 0) {
         cyw43_arch_enable_sta_mode();
+
         int err = cyw43_arch_wifi_connect_timeout_ms(
-            WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 15000);
+            WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_MIXED_PSK, 30000);
+        printf("[wifi] connect=%d\n", err);
         if (err == 0) {
             cyw43_arch_lwip_begin();
             mdns_resp_init();
@@ -76,6 +82,7 @@ static void mainTask(void *) {
         }
     }
 
+    irModule.launch();  // start core1 after WiFi — avoids bus contention during WPA2 handshake
     vTaskDelete(nullptr);
 }
 

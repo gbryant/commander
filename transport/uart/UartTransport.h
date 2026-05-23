@@ -1,10 +1,12 @@
 #pragma once
 #include "core/CommandRegistry.h"
+#include "core/IModule.h"
 #include "core/Writer.h"
 
 class UartTransport {
 public:
     void begin(CommandRegistry &reg, uint32_t baud = 115200, const char *greeting = nullptr);
+    void addTicker(IModule &m);
 
     // Pass this instance as the FreeRTOS task parameter.
     // Platform main controls stack size and allocation strategy.
@@ -18,4 +20,8 @@ private:
     const char      *_greeting = nullptr;
     char    _buf[64];
     uint8_t _pos = 0;
+
+    static constexpr uint8_t kMaxTickers = 2;
+    IModule *_tickers[kMaxTickers] = {};
+    uint8_t  _tickCount = 0;
 };

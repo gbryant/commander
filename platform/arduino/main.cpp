@@ -6,13 +6,18 @@
 #include "modules/I2cModule.h"
 #include "modules/SonarModule.h"
 #include "transport/uart/UartTransport.h"
+#include "IRModule.h"
 
 static CommandRegistry registry;
 static SystemModule    systemModule;
 static CompassModule   compassModule;
 static I2cModule       i2cModule;
 static SonarModule     sonarModule(4);  // Grove D4
+static IRModule        irModule;
 static UartTransport   uart;
+
+static StackType_t  xUartStack[192];
+static StaticTask_t xUartTCB;
 
 extern "C" void vApplicationMallocFailedHook() {
     Serial.print(F("[PANIC] malloc failed\r\n"));
@@ -28,9 +33,11 @@ void setup() {
     registry.registerModule(compassModule);
     registry.registerModule(i2cModule);
     registry.registerModule(sonarModule);
+    registry.registerModule(irModule);
     registry.validateIds();
 
-    xTaskCreate(UartTransport::taskBody, "uart", 192, &uart, 2, nullptr);
+    uart.addTicker(irModule);
+    xTaskCreateStatic(UartTransport::taskBody, "uart", 192, &uart, 2, xUartStack, &xUartTCB);
 
     Serial.println(F("commander/arduino"));
 }
