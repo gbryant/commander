@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build @CMDR_APP@ and push via OTA.
-# Usage: ./bum-ota-@CMDR_BOARD_SHORT@ [host]   default: @CMDR_OTA_HOST@
+# Usage: ./bum-ota [host]   default: @CMDR_OTA_HOST@
 set -e
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,7 +8,7 @@ HOST="${1:-@CMDR_OTA_HOST@}"
 OTA_PORT=8000
 
 echo "==> Building..."
-"$DIR/build-@CMDR_BOARD_SHORT@"
+"$DIR/build"
 
 BIN="@CMDR_BUILD_DIR@/@CMDR_APP@_fota_image.bin"
 [[ -f "$BIN" ]] || { echo "OTA image not found — is APP_USE_PFB ON in your app.cmake?"; exit 1; }
