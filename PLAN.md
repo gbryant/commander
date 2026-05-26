@@ -7,6 +7,10 @@ target boards. Hardware modules (sensors, actuators) are developed and validated
 on the Arduino Uno testbed, then deployed unchanged to Pico W and ESP32 targets
 using their native SDKs — no Arduino core on production targets.
 
+The framework is also a reusable library: external projects consume it via
+CMake `FetchContent`, provide `commander_config()` / `commander_setup()`, and
+get working firmware without touching WiFi, FreeRTOS, or panic-hook boilerplate.
+
 ## Principles
 
 - No Arduino framework on Pico or ESP32. Use native SDKs (Pico SDK, ESP-IDF).
@@ -18,126 +22,147 @@ using their native SDKs — no Arduino core on production targets.
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────┐
-│  platform/arduino   platform/pico   platform/esp32│  ← main, FreeRTOS config,
-│  (main + task setup per board)                   │    board pin assignments
-├──────────────────────────────────────────────────┤
-│  transport/uart          transport/telnet         │  ← how commands arrive
-│  (UartTransport)         (TelnetTransport)        │    (serial / WiFi)
-├──────────────────────────────────────────────────┤
-│  modules/                                         │  ← sensor & system modules
-│  CompassModule  SonarModule  IIRModule  ...       │    zero platform code
-├──────────────────────────────────────────────────┤
-│  hal/  arduino/hal.cpp  pico/hal.cpp  esp32/hal   │  ← I2C, GPIO, UART, time
-│  (one .cpp compiled per target, same interface)   │
-├──────────────────────────────────────────────────┤
-│  core/                                            │  ← pure C++, no platform
-│  IModule  CommandRegistry  Writer  SystemModule   │
-├──────────────────────────────────────────────────┤
-│  include/i2c_ids.h                               │  ← wire protocol spec
-└──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  External app  /  platform/pico/apps/commander/       │ ← commander_config()
+│  commander_config() + commander_setup() + hooks       │   commander_setup()
+├──────────────────────────────────────────────────────┤
+│  runners/pico/runner.cpp  (commander::pico_runner)    │ ← main(), WiFi+mDNS,
+│  runners/esp32/  (todo)                               │   FreeRTOS tasks,
+│                                                        │   panic hooks
+├──────────────────────────────────────────────────────┤
+│  transport/uart/          transport/telnet/            │ ← how commands arrive
+│  (commander::transport_uart/telnet)                   │   (serial / WiFi)
+├──────────────────────────────────────────────────────┤
+│  modules/                                             │ ← sensor & system modules
+│  CompassModule  SonarModule  IIRModule  ...           │   zero platform code
+├──────────────────────────────────────────────────────┤
+│  hal/  arduino/hal.cpp  pico/hal.cpp  esp32/hal.cpp   │ ← I2C, GPIO, UART, time
+│  (commander::hal_pico — one .cpp compiled per target) │
+├──────────────────────────────────────────────────────┤
+│  core/                                                │ ← pure C++, no platform
+│  IModule  CommandRegistry  Writer  SystemModule       │   (commander::core)
+├──────────────────────────────────────────────────────┤
+│  include/i2c_ids.h                                    │ ← wire protocol spec
+└──────────────────────────────────────────────────────┘
+```
+
+## External app usage (FetchContent)
+
+```cmake
+# Consumer's CMakeLists.txt — after pico_sdk_init()
+include(FetchContent)
+FetchContent_Declare(commander
+    GIT_REPOSITORY https://github.com/gbryant/commander.git
+    GIT_TAG        main
+)
+FetchContent_MakeAvailable(commander)
+
+add_executable(my_robot main.cpp)
+target_link_libraries(my_robot PRIVATE commander::pico_runner)
+commander_generate_scripts(my_robot)   # writes bum/build/upload/monitor/bum-ota
+```
+
+App provides two symbols + optional hooks (see `commander.h`):
+
+```cpp
+CommanderConfig commander_config();               // WiFi, I2C pins, baud, etc.
+void            commander_setup(CommandRegistry&); // register modules
+// optional weak overrides:
+void commander_early_init();                       // pre-scheduler (BOOTSEL check)
+void commander_on_uart_ready(UartTransport&);      // add tickers
+void commander_on_wifi_connected();                // post-WiFi (launch PIO/core1)
 ```
 
 ## Status
 
-| Area                        | State       | Notes                                      |
-|-----------------------------|-------------|--------------------------------------------|
-| `core/` — registry, writer  | ✅ done     |                                            |
-| `include/i2c_ids.h`         | ✅ done     | merged from nano + micro                   |
-| `hal/hal.h` interface        | ✅ done     | I2C, GPIO, time, UART                      |
-| `hal/arduino/`              | ✅ done     | Wire + Arduino GPIO + Serial               |
-| `hal/pico/`                 | ✅ done     | Pico SDK                                   |
-| `hal/esp32/`                | ✅ done     | ESP-IDF v5 i2c_master + UART driver        |
-| `core/SystemModule.h`       | ✅ done     | `help` command                             |
-| `modules/CompassModule.h`   | ✅ done     | HAL only, no Wire.h                        |
-| `modules/SonarModule.h`     | ✅ done     | pin passed at construction                 |
-| `transport/uart/`           | ✅ done     | task body platform-agnostic; platform main owns stack size |
-| `platform/arduino/FreeRTOSConfig.h` | ✅ done | project-owned; library version overridden by patch script |
-| `scripts/patch_freertos.py` | ✅ done     | disables timer task, reduces idle stack; runs pre-build   |
-| `bum-uno`                   | ✅ done     | build + upload + monitor in one command    |
-| `bum-pico`                  | ✅ done     | cmake build + uf2 copy + tio monitor       |
-| `platformio.ini` (root)     | ✅ done     | `src_dir=.`, explicit src filter, runs from commander/    |
-| `platform/arduino/`         | ✅ done     | builds clean: 51% RAM, 53% flash on Uno   |
-| `platform/pico/`            | ✅ done     | builds clean; `help` confirmed over USB CDC |
-| `platform/esp32/`           | ✅ done     | builds clean; `help` confirmed over native USB CDC (USB Serial/JTAG) |
-| `hal_i2c_probe()`           | ✅ done     | Wire endTransmission / i2c_read_blocking / i2c_master_probe per platform |
-| `modules/I2cModule.h`      | ✅ done     | `scan` confirmed on ESP32-S3 (found 0x40, 0x41) |
-| `modules/ir/IIRModule.h`   | ✅ done     | interface only                             |
-| `platform/arduino/IRModule` | ⬜ todo     | port from nano-commander (IRremote)        |
-| `platform/pico/IRModule`    | ⬜ todo     | PIO-based implementation                   |
-| `platform/esp32/IRModule`   | ⬜ todo     | RMT-based implementation                   |
-| `transport/telnet/`         | ✅ done     | lwIP (Pico/ESP32) + ArduinoTelnet (R4)    |
-| `platform/arduino-r4/`      | ✅ builds   | WiFi + OTA + Telnet; needs hardware test   |
-| `platform/pico2/`           | ✅ builds   | RP2350 via -DPICO_BOARD=pico2_w; needs hw test |
-| Roomba driver module        | ⬜ todo     | modules/roomba/ — OI protocol, hal_uart_* |
-| Bluetooth module            | ⬜ todo     |                                            |
+| Area                              | State        | Notes                                               |
+|-----------------------------------|--------------|-----------------------------------------------------|
+| `core/` — registry, writer        | ✅ done      |                                                     |
+| `include/i2c_ids.h`               | ✅ done      | wire protocol spec                                  |
+| `hal/hal.h` interface             | ✅ done      | I2C, GPIO, time, UART                               |
+| `hal/arduino/`                    | ✅ done      | Wire + Arduino GPIO + Serial                        |
+| `hal/pico/`                       | ✅ done      | Pico SDK                                            |
+| `hal/esp32/`                      | ✅ done      | ESP-IDF v5 i2c_master + UART driver                 |
+| `modules/CompassModule`           | ✅ done      | HAL only                                            |
+| `modules/SonarModule`             | ✅ done      |                                                     |
+| `transport/uart/`                 | ✅ done      | platform-agnostic; begin() overload without baud    |
+| `transport/telnet/`               | ✅ done      | lwIP BSD sockets (Pico/ESP32)                       |
+| `transport/telnet/arduino/`       | ✅ done      | WiFiServer-based (R4)                               |
+| `platform/arduino/`               | ✅ done      | Uno: builds clean; `help` confirmed over serial     |
+| `platform/arduino-r4/`            | ✅ builds    | WiFi + OTA + Telnet; **needs hardware test**        |
+| `platform/pico/` (Pico W)         | ✅ done      | `help` confirmed over USB CDC; WiFi + Telnet live   |
+| `platform/pico/` (Pico 2W)        | ✅ done      | `help` + WiFi + Telnet confirmed; RP2350 INVPC fix  |
+| `platform/esp32/`                 | ✅ done      | `help` confirmed over native USB CDC                |
+| **CMake library targets**         | ✅ done      | `commander::core/hal_pico/transport_*/modules`      |
+| **`runners/pico/`**               | ✅ done      | `commander::pico_runner`; owns main(), WiFi, hooks  |
+| **`commander.h` API**             | ✅ done      | `CommanderConfig`, required + optional callbacks    |
+| **FetchContent validation**       | ✅ done      | scratch project at `/tmp/commander-test-app` builds |
+| **`commander_generate_scripts()`**| ✅ done      | generates bum/build/upload/monitor/bum-ota scripts  |
+| `runners/esp32/`                  | ⬜ todo      | ESP-IDF component wrapper for runner pattern        |
+| `modules/ir/IIRModule.h`          | ✅ done      | interface only                                      |
+| `platform/arduino/IRModule`       | ⬜ todo      | IRremote                                            |
+| `platform/pico/IRModule` (PIO)    | ✅ done      | PicoIRModule — ring buffer, NEC + Sony              |
+| `platform/esp32/IRModule` (RMT)   | ⬜ todo      |                                                     |
+| Roomba driver module              | ⬜ todo      | `modules/roomba/` — OI protocol, `hal_uart_*`       |
+| Bluetooth module                  | ⬜ todo      |                                                     |
 
 ## Roadmap
 
-### Phase 1 — serial shell on all three targets (current)
-- [x] Scaffold repo structure
-- [x] Core, HAL, shared modules
-- [x] `UartTransport` + `SystemModule`
-- [x] `platform/arduino` builds clean (51% RAM, 53% flash)
-- [x] `scripts/patch_freertos.py` + `bum-uno` in place
-- [x] Upload to Uno and confirm `help` works over serial
-- [x] Verify `platform/pico` builds and `help` works over USB CDC
-- [x] Verify `platform/esp32` builds and `help` works over native USB CDC
+### Phase L — library / runner pattern ✅ done (2026-05-26)
 
-### Phase 2 — sensor modules on Pico
-- [ ] Prove `CompassModule` and `SonarModule` work unchanged on Pico
-- [ ] Add Pico-native IR module (PIO) implementing `IIRModule`
+Commander is now consumable as a CMake FetchContent library.
 
-### Phase 3 — telnet transport on Pico W
-- [x] Port `TelnetTransport` from micro-commander (lwIP BSD sockets)
-- [x] Wire into `platform/pico/main.cpp` alongside UART
+- [x] Root `CMakeLists.txt` defines named targets: `commander::core`,
+      `commander::hal_pico`, `commander::transport_uart`,
+      `commander::transport_telnet`, `commander::modules`
+- [x] `runners/pico/runner.cpp` owns `main()`, WiFi/mDNS init, FreeRTOS task
+      wiring, watchdog panic hooks; `FreeRTOSConfig.h` + `lwipopts.h` live here
+- [x] `commander.h` public API: `CommanderConfig`, `commander_config()`,
+      `commander_setup()`, three optional weak hooks
+- [x] `cmake/GenerateScripts.cmake`: `commander_generate_scripts(TARGET)` writes
+      bum/build/upload/monitor/bum-ota scripts on cmake configure
+- [x] `scripts/ota_push.py` extracted from inline Python in bum-ota scripts
+- [x] FetchContent validated: scratch project builds `test_app.uf2` cleanly
 
-### Phase 4 — ESP32
-- [ ] Verify sensor modules on ESP32
-- [ ] Add ESP32-native IR module (RMT) implementing `IIRModule`
-- [ ] WiFi + Telnet transport for ESP32
+### Phase R — robot integration
 
-### Phase 5 — retire nano-commander and micro-commander
-- [ ] Confirm all nano-commander functionality covered
-- [ ] Confirm all micro-commander functionality covered
+Goal: migrate Roomba robot to this framework.
+- Pico 2 W = main controller (commander shell + FreeRTOS)
+- Arduino R4 = Roomba OI bridge (I2C slave → Serial1 → Roomba)
+- BT controller TBD
 
-### Phase R — robot integration (new)
-
-The goal is to migrate the Roomba robot project to this framework with:
-- Pico 2 W as the main controller (running commander + FreeRTOS)
-- Arduino R4 as the Roomba bridge (I2C slave → Roomba OI over Serial1)
-- Bluetooth controller TBD (ESP32, dedicated Pico W, or native Pico 2 W BLE)
-
-#### Phase R0 — platform proofs (current)
+#### Phase R0 — platform proofs
 - [x] `platform/arduino-r4/` builds (WiFi + OTA + Telnet + UART shell)
-- [x] `platform/pico2/` builds (RP2350 via `-DPICO_BOARD=pico2_w`)
-- [ ] Flash R4 and confirm `help` + telnet work
-- [x] Flash Pico 2 W and confirm `help` + WiFi + Telnet work
-      Root cause of FreeRTOS hang: missing `configRUN_FREERTOS_SECURE_ONLY 1` in
-      FreeRTOSConfig.h — RP2350_ARM_NTZ port used non-secure EXC_RETURN (0xFFFFFFBC,
-      bit0=0) causing INVPC UsageFault on first context switch. Fixed 2026-05-25.
+- [x] `platform/pico2/` builds and runs (RP2350 INVPC fault fixed 2026-05-25)
+- [ ] **Flash R4 and confirm `help` + WiFi + Telnet** ← next hardware task
 
 #### Phase R1 — Roomba driver module
-- [ ] `modules/roomba/Roomba.h` — OI protocol driver using `hal_uart_*` (no Arduino APIs)
-- [ ] Wire into `platform/arduino-r4/main.cpp` (Arduino speaks OI on Serial1)
-- [ ] `i2c_ids.h` — add Roomba bridge command/sensor registers
+- [ ] `modules/roomba/Roomba.h` — OI protocol driver using `hal_uart_*`
+- [ ] Wire into `platform/arduino-r4/main.cpp` (OI on Serial1)
+- [ ] `i2c_ids.h` — Roomba bridge command/sensor registers
 
-#### Phase R2 — Pico 2 W as Roomba bridge master
-- [ ] Arduino R4 becomes I2C slave (accepts roomba commands, returns sensor data)
-- [ ] Pico 2 W `RoombaModule` talks to Arduino bridge via `hal_i2c_*`
-- [ ] Basic drive + stop commands working from Pico shell
+#### Phase R2 — Pico 2 W as main controller
+- [ ] R4 becomes I2C slave; Pico 2 W `RoombaModule` via `hal_i2c_*`
+- [ ] Basic drive + stop from Pico shell
 
 #### Phase R3 — Bluetooth controller
-- [ ] Decide: dedicated Pico W slave / Pico 2 W native BLE / ESP32
+- [ ] Decide: Pico 2 W native BLE / dedicated Pico W / ESP32
 - [ ] Controller input → locomotion commands
+
+### What's next (step 4 candidates)
+
+1. **ESP32 runner** — `runners/esp32/` using ESP-IDF component model; same
+   `commander_config/setup` API. Completes multi-platform library story.
+2. **R4 hardware test** — flash R4, confirm `help` + WiFi + Telnet; unblocks Phase R.
+3. **Roomba module** — start Phase R1 (`modules/roomba/`); robot-focused.
 
 ## Board pin reference
 
-| Signal    | Arduino Uno | Pico W (Grove) | ESP32-S3-N16R8 |
-|-----------|-------------|----------------|----------------|
-| I2C SDA   | A4          | GP4            | GPIO8          |
-| I2C SCL   | A5          | GP5            | GPIO9          |
-| Sonar     | D4          | GP6            | GPIO4          |
-| IR recv   | D5          | GP7 (PIO)      | GPIO5 (RMT)    |
-| UART TX   | —           | —              | GPIO43 (fixed) |
-| UART RX   | —           | —              | GPIO44 (fixed) |
+| Signal    | Arduino Uno | Pico W (Grove) | Pico 2 W (Grove) | ESP32-S3-N16R8 |
+|-----------|-------------|----------------|------------------|----------------|
+| I2C SDA   | A4          | GP4            | GP4              | GPIO4          |
+| I2C SCL   | A5          | GP5            | GP5              | GPIO5          |
+| Sonar     | D4          | GP6            | GP6              | —              |
+| IR recv   | D5          | GP22 (PIO)     | GP22 (PIO)       | — (RMT todo)   |
+| UART TX   | —           | GP20 (stdio)   | GP20 (stdio)     | GPIO43         |
+| UART RX   | —           | GP21 (stdio)   | GP21 (stdio)     | GPIO44         |
