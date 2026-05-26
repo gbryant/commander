@@ -90,8 +90,7 @@ target_link_libraries(commander_transport_telnet PUBLIC
 add_library(commander::transport_telnet ALIAS commander_transport_telnet)
 
 # ── Runners ───────────────────────────────────────────────────────────────────
-# Step 2 will add runner targets here, e.g.:
-#   add_subdirectory(${COMMANDER_ROOT}/runners/pico)
-# Each runner owns FreeRTOSConfig.h, lwipopts.h, and platform entry (main()).
-# External apps link a single runner target; pins/WiFi are passed via
-# commander_config() / commander_setup() defined in the app.
+# Each runner owns FreeRTOSConfig.h, lwipopts.h, and the platform entry (main()).
+# External apps link a single runner target and provide commander_config() /
+# commander_setup() in their own source.
+add_subdirectory(${COMMANDER_ROOT}/runners/pico)

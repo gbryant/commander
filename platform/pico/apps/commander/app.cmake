@@ -1,7 +1,8 @@
-# Commander app: full module set, OTA, UART + telnet transports.
+# Commander app: full module set, OTA, UART + WiFi/telnet transports.
+# Framework boilerplate (main, WiFi, FreeRTOS wiring) comes from commander::pico_runner.
 set(APP_USE_PFB ON)
 
-# App-specific sources only — framework sources come from library targets below.
+# App-specific sources — modules, OTA, platform helpers
 list(APPEND APP_SOURCES
     ${PICO_PLATFORM_DIR}/BootselModule.cpp
 )
@@ -11,16 +12,11 @@ list(APPEND APP_PIO
 )
 
 list(APPEND APP_LINK_LIBS
-    commander::core
-    commander::hal_pico
-    commander::transport_uart
-    commander::transport_telnet
-    commander::modules
-    pico_lwip_mdns
+    commander::pico_runner
     hardware_pio
     hardware_clocks
+    pico_multicore
     hardware_flash
     hardware_sync
-    pico_multicore
     pico_fota_bootloader_lib
 )
