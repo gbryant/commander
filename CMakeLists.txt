@@ -14,6 +14,7 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
 endif()
 
 set(COMMANDER_ROOT ${CMAKE_CURRENT_LIST_DIR})
+include(${COMMANDER_ROOT}/cmake/GenerateScripts.cmake)
 
 # ── commander_core ────────────────────────────────────────────────────────────
 # Pure C++ — CommandRegistry, Writer, IModule. No platform dependencies.

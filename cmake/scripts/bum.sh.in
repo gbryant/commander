@@ -1,0 +1,6 @@
+#!/bin/bash
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$DIR/build-@CMDR_BOARD_SHORT@"
+"$DIR/upload-@CMDR_BOARD_SHORT@"
+"$DIR/monitor-@CMDR_BOARD_SHORT@"

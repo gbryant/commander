@@ -7,106 +7,22 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST="${1:-pico.local}"
 OTA_PORT=8000
 
-cd "$REPO"
 echo "==> Building..."
-./build-pico
+"$REPO/build-pico"
 
-BIN="platform/pico/build/commander_fota_image.bin"
+BIN="$REPO/platform/pico/build/commander_fota_image.bin"
 [[ -f "$BIN" ]] || { echo "OTA image not found after build."; exit 1; }
 
 IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
 [[ -n "$IP" ]] || { echo "Could not determine local IP — check en0/en1."; exit 1; }
 URL="http://$IP:$OTA_PORT/commander_fota_image.bin"
 
-# Keep the HTTP server alive for the full OTA: erase (~30s) + download + reboot.
-# It is killed by the EXIT trap only after the poll succeeds or times out.
-python3 -m http.server "$OTA_PORT" --directory platform/pico/build &
+python3 -m http.server "$OTA_PORT" --directory "$REPO/platform/pico/build" &
 SERVER_PID=$!
 trap "kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null" EXIT
 sleep 1
 
 echo "==> Serving $URL"
 echo "==> Connecting to $HOST..."
-
-OTA_HOST="$HOST" OTA_URL="$URL" python3 <<'PYEOF'
-import os, socket, time, sys
-
-def strip_iac(data):
-    out, i = bytearray(), 0
-    while i < len(data):
-        if data[i] == 0xFF and i + 1 < len(data):
-            i += 3 if data[i+1] >= 0xFB else 2
-        else:
-            out.append(data[i])
-            i += 1
-    return bytes(out)
-
-def try_connect(host, timeout=5):
-    try:
-        s = socket.create_connection((host, 23), timeout=timeout)
-        s.settimeout(timeout)
-        banner = strip_iac(s.recv(256)).decode('utf-8', errors='ignore').strip()
-        s.close()
-        return banner
-    except OSError:
-        return None
-
-host = os.environ['OTA_HOST']
-url  = os.environ['OTA_URL']
-
-# Connect with retries
-sock = None
-for attempt in range(10):
-    try:
-        sock = socket.create_connection((host, 23), timeout=10)
-        break
-    except OSError as e:
-        if attempt < 9:
-            print(f"  waiting for {host}... ({e})", flush=True)
-            time.sleep(3)
-        else:
-            print(f"error: could not connect to {host}:23", file=sys.stderr)
-            sys.exit(1)
-
-# Wait for initial prompt
-sock.settimeout(15.0)
-raw = b''
-while True:
-    try:
-        chunk = sock.recv(256)
-    except OSError:
-        break
-    if not chunk:
-        break
-    raw += chunk
-    if strip_iac(raw).endswith(b'> '):
-        break
-
-# Send command then close immediately.
-# The telnet connection will drop when the sector-by-sector erase begins, but
-# WiFi stays alive (each sector is only ~100ms IRQ disabled). The device
-# downloads firmware from the HTTP server (still running below) and reboots.
-sock.sendall(f'ota {url}\r\n'.encode())
-print(f"==> sent: ota {url}", flush=True)
-print("==> download+erase interleaved — HTTP hit should appear immediately...", flush=True)
-try:
-    sock.close()
-except OSError:
-    pass
-
-# Poll for device to reboot with new firmware.
-# Timeline: ~30s erase + ~15s download + ~20s reboot/WiFi = ~65s typical.
-for attempt in range(40):
-    time.sleep(3)
-    banner = try_connect(host)
-    if banner and 'commander' in banner:
-        print(f"==> OTA complete — device is back: {banner}", flush=True)
-        sys.exit(0)
-    if attempt % 5 == 4:
-        print(f"  still waiting... ({(attempt+1)*3}s)", flush=True)
-
-print("==> timeout: device did not return. Check serial for details.", file=sys.stderr)
-sys.exit(1)
-PYEOF
-
+OTA_HOST="$HOST" OTA_URL="$URL" python3 "$REPO/scripts/ota_push.py"
 echo "==> Done."

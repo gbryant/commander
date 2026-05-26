@@ -1,0 +1,10 @@
+#!/bin/bash
+set -e
+for i in $(seq 1 20); do
+    PORT=$(python3 "@CMDR_SCRIPTS@/find_port.py" @CMDR_PORT_HINT@ 2>/dev/null) && break
+    [ $i -eq 1 ] && echo "Waiting for @CMDR_BOARD_SHORT@..."
+    sleep 0.5
+done
+[ -n "$PORT" ] || { echo "error: @CMDR_BOARD_SHORT@ CDC port did not appear" >&2; exit 1; }
+echo "Connecting to $PORT  (Ctrl-T q to quit)"
+tio "$PORT"
