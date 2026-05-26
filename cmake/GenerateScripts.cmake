@@ -1,7 +1,7 @@
 # commander_generate_scripts(TARGET)
 #
-# Generates bum-<board>, build-<board>, upload-<board>, monitor-<board>, and
-# bum-ota-<board> scripts in CMAKE_SOURCE_DIR (the consumer's project root).
+# Generates bum, build, upload, monitor, and bum-ota scripts in
+# CMAKE_SOURCE_DIR (the consumer's project root).
 #
 # Call after add_executable and target_link_libraries:
 #
@@ -45,7 +45,7 @@ function(commander_generate_scripts TARGET)
     set(CMDR_SCRIPTS     ${_CMDR_REPO_SCRIPTS_DIR})
 
     foreach(_name build upload monitor bum bum-ota)
-        set(_out "${CMAKE_SOURCE_DIR}/${_name}-${_short}")
+        set(_out "${CMAKE_SOURCE_DIR}/${_name}")
         configure_file(
             "${_CMDR_TEMPLATE_DIR}/${_name}.sh.in"
             "${_out}"
@@ -60,5 +60,5 @@ function(commander_generate_scripts TARGET)
     endforeach()
 
     message(STATUS "[commander] Scripts written to ${CMAKE_SOURCE_DIR}:")
-    message(STATUS "  bum-${_short}  build-${_short}  upload-${_short}  monitor-${_short}  bum-ota-${_short}")
+    message(STATUS "  bum  build  upload  monitor  bum-ota")
 endfunction()
