@@ -100,7 +100,7 @@ def scaffold(target: str, name: str, out_dir: Path) -> None:
     print(f"Edit {out_dir}/secrets.h with your WiFi credentials\n")
 
     subprocess.run(
-        ["cmake", "-B", "build", "-S", ".", f"-DPICO_BOARD={board}"],
+        ["cmake", "-B", f"build-{target}", "-S", ".", f"-DPICO_BOARD={board}"],
         cwd=out_dir,
         check=True,
     )
