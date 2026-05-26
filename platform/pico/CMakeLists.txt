@@ -10,6 +10,14 @@ set(CMAKE_CXX_STANDARD 17)
 
 pico_sdk_init()
 
+# ── Commander library targets ─────────────────────────────────────────────────
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../.. commander_lib)
+
+# FreeRTOSConfig.h and lwipopts.h live here until they move to runners/pico/ in
+# step 2. Provide them to library targets that need platform config at compile time.
+target_include_directories(commander_hal_pico      PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+target_include_directories(commander_transport_telnet PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+
 # --------------------------------------------------------------------------
 # App selection — must be set explicitly at configure time.
 # Example: cmake -B build -DCOMMANDER_APP=commander -DPICO_BOARD=pico_w
@@ -94,10 +102,8 @@ target_compile_definitions(commander PRIVATE
 )
 
 target_include_directories(commander PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}       # FreeRTOSConfig.h, lwipopts.h, secrets.h
-    ${CMAKE_CURRENT_LIST_DIR}/../.. # project root: core/, hal/, modules/, transport/
-    ${CMAKE_CURRENT_LIST_DIR}/../../include
-    ${APP_DIR}                      # app-local headers
+    ${CMAKE_CURRENT_LIST_DIR}  # FreeRTOSConfig.h, lwipopts.h, secrets.h
+    ${APP_DIR}                 # app-local headers
 )
 
 if(APP_USE_FREERTOS)
