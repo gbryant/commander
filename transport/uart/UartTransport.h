@@ -5,7 +5,10 @@
 
 class UartTransport {
 public:
-    void begin(CommandRegistry &reg, uint32_t baud = 115200, const char *greeting = nullptr);
+    // Call with baud to initialize UART hardware (e.g. Uno).
+    // Call without baud on platforms where the framework already initialized Serial.
+    void begin(CommandRegistry &reg, uint32_t baud, const char *greeting = nullptr);
+    void begin(CommandRegistry &reg, const char *greeting = nullptr);
     void addTicker(IModule &m);
 
     // Pass this instance as the FreeRTOS task parameter.

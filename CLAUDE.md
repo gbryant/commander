@@ -53,6 +53,18 @@ Port is hardcoded to `/dev/cu.usbmodem1413301` in `platformio.ini`.
 `scripts/patch_freertos.py` runs pre-build to disable the FreeRTOS timer task
 (saves ~480 bytes of heap) and reduce `configMINIMAL_STACK_SIZE` to 128.
 
+### Arduino R4 WiFi
+```bash
+pio run -e r4                          # build only
+pio run -e r4 -t upload                # upload via USB
+pio run -e r4 -t upload --upload-port <ip>  # OTA upload
+pio device monitor -e r4              # serial monitor
+```
+FreeRTOS via `Arduino_FreeRTOS` library. WiFi + OTA (ArduinoOTA on port 65280)
++ Telnet (port 23). WiFi credentials from `include/secrets.h`.
+The `ArduinoTelnetTransport` in `transport/telnet/arduino/` uses `WiFiServer`
+instead of lwIP sockets.
+
 ### Pico W
 Build system is CMake + Pico SDK. `pico_sdk_import.cmake` and
 `FreeRTOS_Kernel_import.cmake` are checked in at the repo root.
@@ -61,6 +73,18 @@ Build system is CMake + Pico SDK. `pico_sdk_import.cmake` and
 ./bum-pico           # build + upload + monitor in one command
 ./build-pico         # cmake build only
 ```
+
+### Pico 2 W (RP2350)
+Same CMakeLists as Pico W — board is overridden via `-DPICO_BOARD=pico2_w`.
+Uses a separate build directory (`platform/pico/build-pico2/`).
+
+```bash
+./bum-pico2          # build + upload + monitor in one command
+./build-pico2        # cmake build only
+```
+BOOTSEL volume is `/Volumes/RP2350` (vs `/Volumes/RPI-RP2` on RP2040).
+`FreeRTOSConfig.h` auto-detects `PICO_RP2350` and enables dual-core SMP,
+Cortex-M33 FPU, and 200 KB heap (vs 128 KB on RP2040).
 
 ### ESP32-S3-N16R8
 Uses ESP-IDF v5. Project root is `platform/esp32/`; component sources are in `platform/esp32/main/`.
@@ -105,17 +129,29 @@ commander/
 │   ├── SonarModule.h            # PING-style sonar via hal_gpio_* + hal_pulse_in_us
 │   └── ir/IIRModule.h           # abstract interface — implement per platform
 ├── transport/
-│   └── uart/
-│       ├── UartTransport.h      # line editor + dispatch; no FreeRTOS dep
-│       └── UartTransport.cpp    # uses hal_uart_* only
+│   ├── uart/
+│   │   ├── UartTransport.h      # line editor + dispatch; no FreeRTOS dep
+│   │   └── UartTransport.cpp    # uses hal_uart_* only
+│   └── telnet/
+│       ├── TelnetTransport.h    # lwIP BSD sockets — for Pico/ESP32
+│       ├── TelnetTransport.cpp
+│       └── arduino/
+│           ├── ArduinoTelnetTransport.h   # WiFiServer — for Arduino WiFi platforms
+│           └── ArduinoTelnetTransport.cpp
 └── platform/
     ├── arduino/
     │   ├── main.cpp
     │   ├── FreeRTOSConfig.h     # project-owned Uno config (overrides library)
     │   └── platformio.ini       # empty — use root platformio.ini
+    ├── arduino-r4/
+    │   ├── main.cpp             # R4 WiFi: FreeRTOS + WiFi + OTA + Telnet
+    │   └── platformio.ini       # empty — use root platformio.ini -e r4
     ├── pico/
-    │   ├── main.cpp
-    │   └── CMakeLists.txt
+    │   ├── main.cpp             # shared by Pico W (RP2040) and Pico 2 W (RP2350)
+    │   ├── CMakeLists.txt       # PICO_BOARD=pico_w default; override with -DPICO_BOARD=pico2_w
+    │   ├── FreeRTOSConfig.h     # auto-detects PICO_RP2350 for SMP + M33 config
+    │   └── build/               # Pico W build dir
+    │   └── build-pico2/         # Pico 2 W build dir (gitignored)
     └── esp32/
         ├── CMakeLists.txt
         ├── sdkconfig.defaults       # 16 MB flash, 8 MB OPI PSRAM, UART0 console
@@ -127,12 +163,18 @@ commander/
 ## What's working
 
 - Arduino Uno: builds, uploads, `help` command works over serial.
+- Arduino R4 WiFi: builds clean (33% flash, 65% RAM). Needs hardware test.
 - Pico W: builds clean, `help` confirmed over USB CDC serial.
+- Pico 2 W (RP2350): builds clean via `./build-pico2`. Needs hardware test.
 - ESP32-S3-N16R8: builds clean, `help` confirmed over native USB CDC (USB Serial/JTAG).
 
 ## What's next
 
-Phase 2 — sensor modules on Pico W and ESP32-S3:
-- Prove `CompassModule` and `SonarModule` work unchanged on Pico W
-- Add Pico-native IR module (PIO) implementing `IIRModule`
-- Add ESP32-native IR module (RMT) implementing `IIRModule`
+Phase R0 — flash and confirm the two new platforms:
+- Flash Arduino R4 and confirm `help` + WiFi + Telnet
+- Flash Pico 2 W and confirm `help` + WiFi
+
+Phase R1 — Roomba driver module:
+- `modules/roomba/Roomba.h` — OI protocol driver using `hal_uart_*`
+- Define I2C bridge registers in `i2c_ids.h`
+- Arduino R4 becomes Roomba I2C bridge (I2C slave → Roomba OI)

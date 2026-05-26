@@ -1,0 +1,6 @@
+#!/bin/bash
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$DIR/build-pico2"
+"$DIR/upload-pico2"
+"$DIR/monitor-pico2"

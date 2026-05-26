@@ -1,16 +1,16 @@
 #!/bin/bash
-# Flash Pico W via picotool.
+# Flash Pico 2 W via picotool.
 # If a pfb bootloader is found in the build tree: two-step flash (bootloader + app).
 # Otherwise: single-step flash (app only).
 set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-BUILD_DIR="$REPO_ROOT/platform/pico/build"
+BUILD_DIR="$REPO_ROOT/platform/pico/build-pico2"
 APP_UF2="$BUILD_DIR/commander.uf2"
 BOOT_UF2=$(find "$BUILD_DIR" -name "pico_fota_bootloader.uf2" 2>/dev/null | head -1)
 
 enter_bootsel() {
-    PORT=$(python3 "$REPO_ROOT/scripts/find_port.py" pico 2>/dev/null || true)
+    PORT=$(python3 "$REPO_ROOT/scripts/find_port.py" pico2 2>/dev/null || true)
     if [ -n "$PORT" ]; then
         echo "Sending bootloader command to $PORT..."
         python3 - "$PORT" <<'EOF'

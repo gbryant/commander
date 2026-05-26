@@ -17,6 +17,8 @@
 #include "transport/telnet/TelnetTransport.h"
 #include "BootselModule.h"
 #include "PicoIRModule.h"
+#include "pico_fota_bootloader/core.h"
+#include "ota_cmd.h"
 
 static CommandRegistry registry;
 static SystemModule    systemModule;
@@ -46,9 +48,12 @@ extern "C" {
         watchdog_reboot(0, 0, 0);
         for (;;) {}
     }
+    void vApplicationIdleHook(void) {}
 }
 
 static void mainTask(void *) {
+    pfb_firmware_commit();  // firmware is running — prevent rollback on next reboot
+
     hal_i2c_init(4, 5, 100000);  // SDA=GP4, SCL=GP5
 
     registry.registerModule(systemModule);
@@ -57,6 +62,7 @@ static void mainTask(void *) {
     registry.registerModule(sonarModule);
     registry.registerModule(bootselModule);
     registry.registerModule(irModule);
+    registry.registerCommand(CMD("ota", "flash firmware from URL (http)", I2C_NONE, cmdOta, nullptr));
     registry.validateIds();
 
     uart.addTicker(irModule);
@@ -67,16 +73,30 @@ static void mainTask(void *) {
     if (cyw43_arch_init() == 0) {
         cyw43_arch_enable_sta_mode();
 
-        int err = cyw43_arch_wifi_connect_timeout_ms(
-            WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_MIXED_PSK, 30000);
-        printf("[wifi] connect=%d\n", err);
+        int err = -1;
+        for (int attempt = 0; attempt < 3 && err != 0; attempt++) {
+            if (attempt > 0) {
+                printf("[wifi] retry %d...\n", attempt);
+                vTaskDelay(pdMS_TO_TICKS(5000));
+            }
+            err = cyw43_arch_wifi_connect_timeout_ms(
+                WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_MIXED_PSK, 15000);
+            printf("[wifi] connect=%d\n", err);
+        }
         if (err == 0) {
+#ifdef PICO_RP2350
+            static const char* hostname = "pico2";
+            static const char* greeting = "commander/pico2";
+#else
+            static const char* hostname = "pico";
+            static const char* greeting = "commander/pico";
+#endif
             cyw43_arch_lwip_begin();
             mdns_resp_init();
-            mdns_resp_add_netif(netif_default, "pico");
+            mdns_resp_add_netif(netif_default, hostname);
             cyw43_arch_lwip_end();
 
-            telnet.begin(registry, "commander/pico");
+            telnet.begin(registry, greeting);
             xTaskCreate(TelnetTransport::taskBody, "telnet", 4096, &telnet, 2, nullptr);
         } else {
             printf("[wifi] connect failed (%d)\n", err);
@@ -98,7 +118,11 @@ int main() {
     if (panic_code == PANIC_MAGIC_MALLOC) printf("[PANIC] malloc failed — rebooted\n");
     if (panic_code == PANIC_MAGIC_STACK)  printf("[PANIC] stack overflow — rebooted\n");
 
+#ifdef PICO_RP2350
+    uart.begin(registry, 115200, "commander/pico2");
+#else
     uart.begin(registry, 115200, "commander/pico");
+#endif
 
     xTaskCreate(mainTask, "main", 8192, nullptr, 1, nullptr);
     vTaskStartScheduler();

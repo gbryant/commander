@@ -2,17 +2,10 @@
 #include <assert.h>
 #define configASSERT(x) assert(x)
 
-// RP2040: force single-core. cyw43_arch_lwip_sys_freertos creates the CYW43
-// async_context task without core affinity; under SMP it can migrate to core1
-// and miss SPI IRQs that fire on core0, corrupting the WPA2 handshake.
-// RP2350: SMP across both cores is safe and desired.
-#ifdef PICO_RP2350
-#define configNUMBER_OF_CORES                       2
-#define configUSE_CORE_AFFINITY                     1
-#define configRUN_MULTIPLE_PRIORITIES               1
-#else
+// Both RP2040 and RP2350 run single-core FreeRTOS.
+// RP2040: CYW43 async_context migrates to core1 under SMP and misses SPI IRQs.
+// RP2350: RP2350_ARM_NTZ port is single-core only; configNUMBER_OF_CORES must be 1.
 #define configNUMBER_OF_CORES                       1
-#endif
 
 // Pico-SDK interop: lets pico-sdk sync primitives and time functions
 // yield correctly under FreeRTOS instead of busy-waiting
@@ -45,7 +38,7 @@
 #define configENABLE_BACKWARD_COMPATIBILITY         0
 // lwIP FreeRTOS port (pico-sdk/lib/lwip) references the pre-v8.0 name
 #define portTICK_RATE_MS                            portTICK_PERIOD_MS
-#define configUSE_IDLE_HOOK                         0
+#define configUSE_IDLE_HOOK                         1
 #define configUSE_TICK_HOOK                         0
 #define configUSE_PASSIVE_IDLE_HOOK                 0
 #define configUSE_MALLOC_FAILED_HOOK                1
@@ -62,6 +55,10 @@
 #define configENABLE_FPU                            1
 #define configENABLE_MPU                            0
 #define configENABLE_TRUSTZONE                      0  // NTZ port
+// RP2350 boots into Secure state (rp2350-arm-s). Without TrustZone, all tasks
+// run Secure. The RP2350_ARM_NTZ port uses portINITIAL_EXC_RETURN=0xffffffbc
+// (Non-Secure bit 0=0) unless this is set, causing INVPC on first context switch.
+#define configRUN_FREERTOS_SECURE_ONLY              1
 #endif
 
 // Interrupt priority bits: M33 (RP2350) has 3, M0+ (RP2040) has 2

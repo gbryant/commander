@@ -66,8 +66,10 @@ using their native SDKs — no Arduino core on production targets.
 | `platform/arduino/IRModule` | ⬜ todo     | port from nano-commander (IRremote)        |
 | `platform/pico/IRModule`    | ⬜ todo     | PIO-based implementation                   |
 | `platform/esp32/IRModule`   | ⬜ todo     | RMT-based implementation                   |
-| `transport/telnet/`         | ⬜ todo     | port from micro-commander (lwIP)           |
-| Locomotion module           | ⬜ todo     |                                            |
+| `transport/telnet/`         | ✅ done     | lwIP (Pico/ESP32) + ArduinoTelnet (R4)    |
+| `platform/arduino-r4/`      | ✅ builds   | WiFi + OTA + Telnet; needs hardware test   |
+| `platform/pico2/`           | ✅ builds   | RP2350 via -DPICO_BOARD=pico2_w; needs hw test |
+| Roomba driver module        | ⬜ todo     | modules/roomba/ — OI protocol, hal_uart_* |
 | Bluetooth module            | ⬜ todo     |                                            |
 
 ## Roadmap
@@ -87,8 +89,8 @@ using their native SDKs — no Arduino core on production targets.
 - [ ] Add Pico-native IR module (PIO) implementing `IIRModule`
 
 ### Phase 3 — telnet transport on Pico W
-- [ ] Port `TelnetServer` from micro-commander into `transport/telnet/`
-- [ ] Wire into `platform/pico/main.cpp` alongside UART
+- [x] Port `TelnetTransport` from micro-commander (lwIP BSD sockets)
+- [x] Wire into `platform/pico/main.cpp` alongside UART
 
 ### Phase 4 — ESP32
 - [ ] Verify sensor modules on ESP32
@@ -98,6 +100,36 @@ using their native SDKs — no Arduino core on production targets.
 ### Phase 5 — retire nano-commander and micro-commander
 - [ ] Confirm all nano-commander functionality covered
 - [ ] Confirm all micro-commander functionality covered
+
+### Phase R — robot integration (new)
+
+The goal is to migrate the Roomba robot project to this framework with:
+- Pico 2 W as the main controller (running commander + FreeRTOS)
+- Arduino R4 as the Roomba bridge (I2C slave → Roomba OI over Serial1)
+- Bluetooth controller TBD (ESP32, dedicated Pico W, or native Pico 2 W BLE)
+
+#### Phase R0 — platform proofs (current)
+- [x] `platform/arduino-r4/` builds (WiFi + OTA + Telnet + UART shell)
+- [x] `platform/pico2/` builds (RP2350 via `-DPICO_BOARD=pico2_w`)
+- [ ] Flash R4 and confirm `help` + telnet work
+- [x] Flash Pico 2 W and confirm `help` + WiFi + Telnet work
+      Root cause of FreeRTOS hang: missing `configRUN_FREERTOS_SECURE_ONLY 1` in
+      FreeRTOSConfig.h — RP2350_ARM_NTZ port used non-secure EXC_RETURN (0xFFFFFFBC,
+      bit0=0) causing INVPC UsageFault on first context switch. Fixed 2026-05-25.
+
+#### Phase R1 — Roomba driver module
+- [ ] `modules/roomba/Roomba.h` — OI protocol driver using `hal_uart_*` (no Arduino APIs)
+- [ ] Wire into `platform/arduino-r4/main.cpp` (Arduino speaks OI on Serial1)
+- [ ] `i2c_ids.h` — add Roomba bridge command/sensor registers
+
+#### Phase R2 — Pico 2 W as Roomba bridge master
+- [ ] Arduino R4 becomes I2C slave (accepts roomba commands, returns sensor data)
+- [ ] Pico 2 W `RoombaModule` talks to Arduino bridge via `hal_i2c_*`
+- [ ] Basic drive + stop commands working from Pico shell
+
+#### Phase R3 — Bluetooth controller
+- [ ] Decide: dedicated Pico W slave / Pico 2 W native BLE / ESP32
+- [ ] Controller input → locomotion commands
 
 ## Board pin reference
 

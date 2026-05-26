@@ -15,6 +15,11 @@ void UartTransport::begin(CommandRegistry &reg, uint32_t baud, const char *greet
     hal_uart_init(baud);
 }
 
+void UartTransport::begin(CommandRegistry &reg, const char *greeting) {
+    _reg      = &reg;
+    _greeting = greeting;
+}
+
 void UartTransport::prompt() {
     hal_uart_puts("> ");
 }
@@ -57,6 +62,7 @@ void UartTransport::addTicker(IModule &m) {
 
 void UartTransport::taskBody(void *self) {
     auto *t = static_cast<UartTransport *>(self);
+    hal_delay_ms(1500);  // let USB CDC settle before printing
     if (t->_greeting) { hal_uart_puts(t->_greeting); hal_uart_puts("\r\n"); }
     t->prompt();
     for (;;) {

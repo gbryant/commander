@@ -1,5 +1,6 @@
 .pio/
 build/
+build-*/
 .cache/
 platform/esp32/sdkconfig
 *.o

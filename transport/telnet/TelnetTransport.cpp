@@ -5,9 +5,14 @@
 namespace {
 struct TelnetWriter : Writer {
     int fd;
+    bool _ok = true;
     explicit TelnetWriter(int f) : fd(f) {}
-    void write(const char *s)   override { lwip_send(fd, s, strlen(s), 0); }
+    void write(const char *s) override {
+        if (!_ok) return;
+        if (lwip_send(fd, s, strlen(s), 0) < 0) _ok = false;
+    }
     void writeln(const char *s) override { write(s); write("\r\n"); }
+    bool ok() override { return _ok; }
 };
 
 void cmdDisconnect(const char *, Writer &out, void *ctx) {

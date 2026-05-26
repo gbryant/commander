@@ -1,0 +1,9 @@
+#!/bin/bash
+# Build R4 firmware and push via OTA (ArduinoOTA, port 65280).
+# Usage: ./bum-ota-r4 [host]   default host: commander-r4.local
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST="${1:-r4.local}"
+
+"$DIR/build-r4"
+pio run -e r4 -t upload --upload-port "$HOST"

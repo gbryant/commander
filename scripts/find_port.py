@@ -15,10 +15,20 @@ BOARDS = {
         (0x1A86, 0x7523),  # CH340 clone
     ],
     "pico": [
-        (0x2E8A, 0x000A),  # Pico / Pico W running CDC firmware
+        (0x2E8A, 0x000A),  # Pico W (RP2040) CDC runtime
     ],
     "pico-boot": [
         (0x2E8A, 0x0003),  # Pico in BOOTSEL mass storage mode
+    ],
+    "pico2": [
+        (0x2E8A, 0x0009),  # Pico 2 W (RP2350) CDC runtime
+    ],
+    "pico2-boot": [
+        (0x2E8A, 0x000F),  # Pico 2 / Pico 2 W in BOOTSEL mass storage mode
+    ],
+    "r4": [
+        (0x2341, 0x006D),  # Arduino Uno R4 WiFi (CDC runtime)
+        (0x2341, 0x1002),  # Arduino Uno R4 WiFi (bootloader)
     ],
     "esp32": [
         (0x10C4, 0xEA60),  # Silicon Labs CP2102
