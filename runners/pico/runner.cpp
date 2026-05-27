@@ -1,8 +1,5 @@
 #include "commander.h"
 #include "BootselModule.h"
-#ifdef COMMANDER_ENABLE_OTA
-#include "ota_cmd.h"
-#endif
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
 #include "hardware/watchdog.h"
@@ -13,6 +10,12 @@
 #include "hal/hal.h"
 #include "transport/telnet/TelnetTransport.h"
 #include <stdio.h>
+// ota_cmd.h includes lwip/sockets.h which defines poll() as a macro.
+// Must come after pico/cyw43_arch.h (which uses poll as an identifier in
+// async_context.h) to avoid the macro clobbering the function pointer name.
+#ifdef COMMANDER_ENABLE_OTA
+#include "ota_cmd.h"
+#endif
 
 static CommanderConfig _cfg;
 static CommandRegistry _registry;
