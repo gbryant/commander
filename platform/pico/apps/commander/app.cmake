@@ -2,11 +2,6 @@
 # Framework boilerplate (main, WiFi, FreeRTOS wiring) comes from commander::pico_runner.
 set(APP_USE_PFB ON)
 
-# App-specific sources — modules, OTA, platform helpers
-list(APPEND APP_SOURCES
-    ${PICO_PLATFORM_DIR}/BootselModule.cpp
-)
-
 list(APPEND APP_PIO
     ${PICO_PLATFORM_DIR}/ir_rx.pio
 )

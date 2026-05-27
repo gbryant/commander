@@ -11,6 +11,7 @@ target_include_directories(commander_transport_telnet PRIVATE ${CMAKE_CURRENT_LI
 
 add_library(commander_pico_runner STATIC
     runner.cpp
+    BootselModule.cpp
 )
 
 target_include_directories(commander_pico_runner PUBLIC

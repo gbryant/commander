@@ -4,7 +4,6 @@
 #include "modules/CompassModule.h"
 #include "modules/I2cModule.h"
 #include "modules/SonarModule.h"
-#include "BootselModule.h"
 #include "PicoIRModule.h"
 #include "pico_fota_bootloader/core.h"
 #include "ota_cmd.h"
@@ -13,12 +12,7 @@ static SystemModule  systemModule;
 static CompassModule compassModule;
 static I2cModule     i2cModule;
 static SonarModule   sonarModule(6);        // Grove GP6
-static BootselModule bootselModule;
 static PicoIRModule  irModule(22);          // Grove IR Receiver v1.2 on GP22
-
-extern "C" void commander_early_init() {
-    BootselModule::checkAtBoot();
-}
 
 extern "C" CommanderConfig commander_config() {
     return {
@@ -49,7 +43,6 @@ extern "C" void commander_setup(CommandRegistry &reg) {
     reg.registerModule(compassModule);
     reg.registerModule(i2cModule);
     reg.registerModule(sonarModule);
-    reg.registerModule(bootselModule);
     reg.registerModule(irModule);
     reg.registerCommand(CMD("ota", "flash firmware from URL (http)", I2C_NONE, cmdOta, nullptr));
 }

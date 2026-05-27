@@ -1,4 +1,5 @@
 #include "commander.h"
+#include "BootselModule.h"
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
 #include "hardware/watchdog.h"
@@ -14,6 +15,7 @@ static CommanderConfig _cfg;
 static CommandRegistry _registry;
 static UartTransport   _uart;
 static TelnetTransport _telnet;
+static BootselModule   _bootsel;
 
 // ── FreeRTOS panic hooks ──────────────────────────────────────────────────
 // These run from the tick ISR — printf is unsafe (may deadlock on the stdio
@@ -47,6 +49,7 @@ static void runnerTask(void *) {
     if (_cfg.i2c_sda >= 0)
         hal_i2c_init((uint8_t)_cfg.i2c_sda, (uint8_t)_cfg.i2c_scl, _cfg.i2c_hz);
 
+    _registry.registerModule(_bootsel);
     commander_setup(_registry);
     _registry.validateIds();
 
@@ -90,6 +93,7 @@ static void runnerTask(void *) {
 
 // ── Entry point ───────────────────────────────────────────────────────────
 int main() {
+    BootselModule::checkAtBoot();
     commander_early_init();
     _cfg = commander_config();
 
