@@ -89,9 +89,7 @@ static void runnerTask(void *) {
                     xTaskCreate(TelnetTransport::taskBody, "telnet", 4096, &_telnet, 2, nullptr);
                 }
                 commander_on_wifi_connected();
-#ifdef COMMANDER_DEBUG
-                printf("[wifi] ready (mdns+telnet up)\n");
-#endif
+                if (_cfg.debug) printf("[wifi] ready (mdns+telnet up)\n");
             } else {
                 printf("[wifi] connect failed (%d)\n", err);
             }

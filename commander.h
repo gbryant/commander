@@ -22,6 +22,8 @@ struct CommanderConfig {
     // Telnet transport — started when WiFi connects
     bool        enable_telnet   = true;
     const char *telnet_greeting = nullptr;  // falls back to hostname if null
+
+    bool debug = false;
 };
 
 // ── Required app callbacks ────────────────────────────────────────────────
