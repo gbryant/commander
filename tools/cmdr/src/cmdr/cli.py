@@ -373,6 +373,24 @@ def cmd_enable(args: argparse.Namespace) -> None:
         enable_ota()
 
 
+def cmd_pull() -> None:
+    import shutil
+    build_dirs = [d for d in Path(".").iterdir()
+                  if d.is_dir() and (d / "CMakeCache.txt").exists()]
+    if not build_dirs:
+        die("no build directory found — run cmake to configure first")
+
+    for build_dir in build_dirs:
+        for dep in ("commander-src", "commander-build", "commander-subbuild"):
+            dep_path = build_dir / "_deps" / dep
+            if dep_path.exists():
+                shutil.rmtree(dep_path)
+                print(f"Removed {dep_path}")
+        print(f"Reconfiguring {build_dir}/...")
+        subprocess.run(["cmake", "-B", str(build_dir)], check=True)
+    print("\nDone — commander updated.")
+
+
 def cmd_config(args: argparse.Namespace) -> None:
     cfg = load_config()
     if not cfg.has_section("wifi"):
@@ -415,6 +433,9 @@ def main() -> None:
         help="feature to enable",
     )
 
+    # ── pull ──────────────────────────────────────────────────────────────────
+    sub.add_parser("pull", help="update commander to latest and reconfigure")
+
     # ── config ────────────────────────────────────────────────────────────────
     config_p = sub.add_parser("config", help="set global cmdr preferences")
     config_sub = config_p.add_subparsers(dest="setting", metavar="<setting>")
@@ -430,6 +451,8 @@ def main() -> None:
             cmd_init(args)
         elif args.command == "enable":
             cmd_enable(args)
+        elif args.command == "pull":
+            cmd_pull()
         elif args.command == "config":
             cmd_config(args)
     except subprocess.CalledProcessError as exc:
