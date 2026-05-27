@@ -436,6 +436,13 @@ def cmd_disable(args: argparse.Namespace) -> None:
         disable_ota()
 
 
+def cmd_update() -> None:
+    subprocess.run([
+        sys.executable, "-m", "pip", "install", "--force-reinstall",
+        "git+https://github.com/gbryant/commander.git#subdirectory=tools/cmdr",
+    ], check=True)
+
+
 def cmd_pull() -> None:
     import shutil
     build_dirs = [d for d in Path(".").iterdir()
@@ -495,8 +502,9 @@ def main() -> None:
     disable_p = sub.add_parser("disable", help="disable a feature in the current project")
     disable_p.add_argument("feature", choices=["ota"], help="feature to disable")
 
-    # ── pull ──────────────────────────────────────────────────────────────────
-    sub.add_parser("pull", help="update commander to latest and reconfigure")
+    # ── update / pull ─────────────────────────────────────────────────────────
+    sub.add_parser("update", help="update cmdr itself to latest")
+    sub.add_parser("pull",   help="update commander library in current project and reconfigure")
 
     # ── config ────────────────────────────────────────────────────────────────
     config_p = sub.add_parser("config", help="set global cmdr preferences")
@@ -515,6 +523,8 @@ def main() -> None:
             cmd_enable(args)
         elif args.command == "disable":
             cmd_disable(args)
+        elif args.command == "update":
+            cmd_update()
         elif args.command == "pull":
             cmd_pull()
         elif args.command == "config":
