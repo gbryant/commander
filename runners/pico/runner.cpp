@@ -76,24 +76,22 @@ static void runnerTask(void *) {
                 printf("[wifi] connect=%d\n", err);
             }
             if (err == 0) {
-                printf("[wifi] mdns init\n");
                 cyw43_arch_lwip_begin();
                 mdns_resp_init();
                 mdns_resp_add_netif(netif_default, _cfg.hostname);
                 cyw43_arch_lwip_end();
-                printf("[wifi] mdns ok\n");
 
                 if (_cfg.enable_telnet) {
-                    printf("[wifi] telnet start\n");
                     const char *tgreeting = _cfg.telnet_greeting
                                           ? _cfg.telnet_greeting
                                           : _cfg.hostname;
                     _telnet.begin(_registry, tgreeting);
                     xTaskCreate(TelnetTransport::taskBody, "telnet", 4096, &_telnet, 2, nullptr);
-                    printf("[wifi] telnet ok\n");
                 }
                 commander_on_wifi_connected();
-                printf("[wifi] ready\n");
+#ifdef COMMANDER_DEBUG
+                printf("[wifi] ready (mdns+telnet up)\n");
+#endif
             } else {
                 printf("[wifi] connect failed (%d)\n", err);
             }
