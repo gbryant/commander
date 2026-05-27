@@ -235,10 +235,10 @@ ARDUINO_MAIN_CPP_TEMPLATE = """\
 static SystemModule sysModule;
 
 extern "C" CommanderConfig commander_config() {
-    return {
-        .uart_baud     = 115200,
-        .uart_greeting = "__NAME__",
-    };
+    CommanderConfig cfg;
+    cfg.uart_baud     = 115200;
+    cfg.uart_greeting = "__NAME__";
+    return cfg;
 }
 
 extern "C" void commander_setup(CommandRegistry& reg) {

@@ -12,7 +12,7 @@ Import("env")
 import os
 import re
 
-config = os.path.join(".pio", "libdeps", "uno", "FreeRTOS", "src", "FreeRTOSConfig.h")
+config = os.path.join(".pio", "libdeps", env["PIOENV"], "FreeRTOS", "src", "FreeRTOSConfig.h")
 
 PATCHES = [
     ("configUSE_TIMERS",             "1",   "0",   "timer task exhausts heap on Uno"),
