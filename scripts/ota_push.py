@@ -87,7 +87,7 @@ def main() -> int:
     for attempt in range(40):
         time.sleep(3)
         banner = try_connect(host)
-        if banner and "commander" in banner:
+        if banner:
             print(f"==> OTA complete — device is back: {banner}", flush=True)
             return 0
         if attempt % 5 == 4:
