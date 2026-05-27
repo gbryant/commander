@@ -351,6 +351,64 @@ def enable_ota() -> None:
         subprocess.run(["cmake", "-B", str(build_dir)], check=True)
 
 
+# ── disable ota ───────────────────────────────────────────────────────────────
+
+def disable_ota() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        die("no CMakeLists.txt in current directory — run from your project root")
+
+    content = cmake.read_text()
+
+    if "COMMANDER_ENABLE_OTA" not in content:
+        print("OTA already disabled.")
+        return
+
+    m = re.search(r"add_executable\((\S+)", content)
+    if not m:
+        die("could not find add_executable in CMakeLists.txt")
+    name = m.group(1)
+
+    # 1. Remove COMMANDER_ENABLE_OTA line
+    content = content.replace(
+        "set(COMMANDER_ENABLE_OTA ON CACHE BOOL \"\" FORCE)\n",
+        "",
+    )
+
+    # 2. Remove PFB block
+    content = content.replace(f"\n\n{PFB_BLOCK}", "")
+
+    # 3. Remove pico_fota_bootloader_lib from target_link_libraries
+    content = re.sub(
+        r"(target_link_libraries\([^)]*commander::pico_runner) pico_fota_bootloader_lib([^)]*\))",
+        r"\1\2",
+        content,
+    )
+
+    # 4. Remove pfb_compile_with_bootloader line
+    content = re.sub(
+        rf"\npfb_compile_with_bootloader\({re.escape(name)}\)",
+        "",
+        content,
+    )
+
+    cmake.write_text(content)
+    print("Disabled OTA in CMakeLists.txt:")
+    print("  • COMMANDER_ENABLE_OTA removed")
+    print("  • pico_fota_bootloader block removed")
+    print("  • pico_fota_bootloader_lib unlinked")
+    print(f"  • pfb_compile_with_bootloader({name}) removed")
+
+    build_dirs = [d for d in Path(".").iterdir()
+                  if d.is_dir() and (d / "CMakeCache.txt").exists()]
+    if not build_dirs:
+        print("\nNo build directory found — run cmake manually to configure.")
+        return
+    for build_dir in build_dirs:
+        print(f"\nReconfiguring {build_dir}/...")
+        subprocess.run(["cmake", "-B", str(build_dir)], check=True)
+
+
 # ── CLI entry points ──────────────────────────────────────────────────────────
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -371,6 +429,11 @@ def cmd_init(args: argparse.Namespace) -> None:
 def cmd_enable(args: argparse.Namespace) -> None:
     if args.feature == "ota":
         enable_ota()
+
+
+def cmd_disable(args: argparse.Namespace) -> None:
+    if args.feature == "ota":
+        disable_ota()
 
 
 def cmd_pull() -> None:
@@ -425,13 +488,12 @@ def main() -> None:
     esp.add_argument("--psram", type=int, default=8, choices=sorted(VALID_PSRAM_MB), metavar="MB",
                      help="PSRAM size in MB, 0 for none (default: 8)")
 
-    # ── enable ────────────────────────────────────────────────────────────────
+    # ── enable / disable ──────────────────────────────────────────────────────
     enable_p = sub.add_parser("enable", help="enable a feature in the current project")
-    enable_p.add_argument(
-        "feature",
-        choices=["ota"],
-        help="feature to enable",
-    )
+    enable_p.add_argument("feature", choices=["ota"], help="feature to enable")
+
+    disable_p = sub.add_parser("disable", help="disable a feature in the current project")
+    disable_p.add_argument("feature", choices=["ota"], help="feature to disable")
 
     # ── pull ──────────────────────────────────────────────────────────────────
     sub.add_parser("pull", help="update commander to latest and reconfigure")
@@ -451,6 +513,8 @@ def main() -> None:
             cmd_init(args)
         elif args.command == "enable":
             cmd_enable(args)
+        elif args.command == "disable":
+            cmd_disable(args)
         elif args.command == "pull":
             cmd_pull()
         elif args.command == "config":
