@@ -406,7 +406,7 @@ def disable_ota() -> None:
         return
     for build_dir in build_dirs:
         print(f"\nReconfiguring {build_dir}/...")
-        subprocess.run(["cmake", "-B", str(build_dir)], check=True)
+        subprocess.run(["cmake", "-B", str(build_dir), "-DCOMMANDER_ENABLE_OTA=OFF"], check=True)
 
 
 # ── CLI entry points ──────────────────────────────────────────────────────────
