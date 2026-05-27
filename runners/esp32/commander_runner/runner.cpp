@@ -28,15 +28,29 @@ extern "C" __attribute__((weak)) void commander_on_wifi_connected()            {
 // ── WiFi ──────────────────────────────────────────────────────────────────────
 static EventGroupHandle_t s_wifi_eg;
 #define WIFI_CONNECTED_BIT BIT0
-static volatile bool s_wifi_giving_up = false;
+#define WIFI_FAIL_BIT      BIT1
+#define WIFI_MAX_RETRIES   10
+
+static int s_wifi_retries = 0;
 
 static void on_wifi(void *, esp_event_base_t, int32_t id, void *) {
-    if (id == WIFI_EVENT_STA_DISCONNECTED && !s_wifi_giving_up) esp_wifi_connect();
+    if (id == WIFI_EVENT_STA_START) {
+        esp_wifi_connect();
+    } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
+        if (s_wifi_retries < WIFI_MAX_RETRIES) {
+            esp_wifi_connect();
+            s_wifi_retries++;
+        } else {
+            xEventGroupSetBits(s_wifi_eg, WIFI_FAIL_BIT);
+        }
+    }
 }
 
 static void on_ip(void *, esp_event_base_t, int32_t id, void *) {
-    if (id == IP_EVENT_STA_GOT_IP)
+    if (id == IP_EVENT_STA_GOT_IP) {
+        s_wifi_retries = 0;
         xEventGroupSetBits(s_wifi_eg, WIFI_CONNECTED_BIT);
+    }
 }
 
 static bool wifi_connect(const char *ssid, const char *password) {
@@ -62,13 +76,12 @@ static bool wifi_connect(const char *ssid, const char *password) {
     esp_wifi_set_mode(WIFI_MODE_STA);
     esp_wifi_set_config(WIFI_IF_STA, &wc);
     esp_wifi_start();
-    esp_wifi_connect();
+    // esp_wifi_connect() is called from the WIFI_EVENT_STA_START handler
 
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_eg, WIFI_CONNECTED_BIT,
-                                            pdFALSE, pdTRUE, pdMS_TO_TICKS(15000));
-    if (bits & WIFI_CONNECTED_BIT) return true;
-    s_wifi_giving_up = true;
-    return false;
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_eg,
+                                            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                            pdFALSE, pdFALSE, pdMS_TO_TICKS(30000));
+    return (bits & WIFI_CONNECTED_BIT) != 0;
 }
 
 // ── Main FreeRTOS task ────────────────────────────────────────────────────────
