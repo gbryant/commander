@@ -11,7 +11,5 @@ list(APPEND APP_LINK_LIBS
     hardware_pio
     hardware_clocks
     pico_multicore
-    hardware_flash
-    hardware_sync
     pico_fota_bootloader_lib
 )

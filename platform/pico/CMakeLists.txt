@@ -13,6 +13,7 @@ pico_sdk_init()
 # ── Commander library + runner targets ───────────────────────────────────────
 # Root CMakeLists.txt defines commander::* library targets and commander::pico_runner.
 # runners/pico/ owns FreeRTOSConfig.h and lwipopts.h; no platform/pico/ hacks needed.
+set(COMMANDER_ENABLE_OTA ON CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../.. commander_lib)
 
 # --------------------------------------------------------------------------

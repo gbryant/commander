@@ -1,5 +1,8 @@
 #include "commander.h"
 #include "BootselModule.h"
+#ifdef COMMANDER_ENABLE_OTA
+#include "ota_cmd.h"
+#endif
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
 #include "hardware/watchdog.h"
@@ -51,6 +54,10 @@ static void runnerTask(void *) {
 
     _registry.registerModule(_bootsel);
     commander_setup(_registry);
+#ifdef COMMANDER_ENABLE_OTA
+    pfb_firmware_commit();
+    _registry.registerCommand(CMD("ota", "flash firmware from URL (http)", I2C_NONE, cmdOta, nullptr));
+#endif
     _registry.validateIds();
 
     commander_on_uart_ready(_uart);

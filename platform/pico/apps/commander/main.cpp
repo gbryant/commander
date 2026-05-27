@@ -5,8 +5,6 @@
 #include "modules/I2cModule.h"
 #include "modules/SonarModule.h"
 #include "PicoIRModule.h"
-#include "pico_fota_bootloader/core.h"
-#include "ota_cmd.h"
 
 static SystemModule  systemModule;
 static CompassModule compassModule;
@@ -37,14 +35,11 @@ extern "C" CommanderConfig commander_config() {
 }
 
 extern "C" void commander_setup(CommandRegistry &reg) {
-    pfb_firmware_commit();  // firmware is running — prevent rollback on next reboot
-
     reg.registerModule(systemModule);
     reg.registerModule(compassModule);
     reg.registerModule(i2cModule);
     reg.registerModule(sonarModule);
     reg.registerModule(irModule);
-    reg.registerCommand(CMD("ota", "flash firmware from URL (http)", I2C_NONE, cmdOta, nullptr));
 }
 
 extern "C" void commander_on_uart_ready(UartTransport &uart) {

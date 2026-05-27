@@ -32,3 +32,24 @@ target_link_libraries(commander_pico_runner PUBLIC
 )
 
 add_library(commander::pico_runner ALIAS commander_pico_runner)
+
+# ── OTA (optional) ────────────────────────────────────────────────────────────
+# Requires pico_fota_bootloader to be added via add_subdirectory() by the app's
+# CMakeLists before the build runs. Set COMMANDER_ENABLE_OTA=ON before
+# FetchContent_MakeAvailable(commander) or add_subdirectory(commander).
+option(COMMANDER_ENABLE_OTA "Enable OTA update command (requires pico_fota_bootloader)" OFF)
+
+if(COMMANDER_ENABLE_OTA)
+    target_compile_definitions(commander_pico_runner PUBLIC COMMANDER_ENABLE_OTA)
+    target_link_libraries(commander_pico_runner PUBLIC
+        hardware_flash
+        hardware_sync
+        pico_multicore
+    )
+    # PFB headers come from pico_fota_bootloader_lib, added by the app.
+    # Generator expression is safe here — evaluated at generation time after all
+    # add_subdirectory() calls have run, so the target is guaranteed to exist.
+    target_include_directories(commander_pico_runner PRIVATE
+        $<TARGET_PROPERTY:pico_fota_bootloader_lib,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+endif()
