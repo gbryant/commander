@@ -257,7 +257,7 @@ def scaffold_pico(target: str, name: str, out_dir: Path) -> None:
         cwd=out_dir,
         check=True,
     )
-    print(f"\nDone. Run ./{out_dir}/bum to build, upload, and monitor.")
+    print(f"\nDone.\n  cd {out_dir}\n  ./bum")
 
 
 def scaffold_esp32(name: str, out_dir: Path, chip: str, flash_mb: int, psram_mb: int) -> None:
@@ -283,7 +283,7 @@ def scaffold_esp32(name: str, out_dir: Path, chip: str, flash_mb: int, psram_mb:
     psram_str = f"{psram_mb} MB PSRAM" if psram_mb else "no PSRAM"
     print(f"Created {out_dir}/ [{chip}, {flash_mb} MB flash, {psram_str}]")
     print(f"Edit {out_dir}/secrets.h with your WiFi credentials")
-    print(f"\nDone. Run ./{out_dir}/bum to build, upload, and monitor.")
+    print(f"\nDone.\n  cd {out_dir}\n  ./bum")
     print(f"(First build runs 'idf.py set-target {chip}' automatically)")
 
 
