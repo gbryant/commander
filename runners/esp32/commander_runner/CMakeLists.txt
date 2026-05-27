@@ -10,23 +10,6 @@ if(NOT DEFINED COMMANDER_ROOT)
     get_filename_component(COMMANDER_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 endif()
 
-set(_requires
-    esp_driver_i2c
-    esp_driver_gpio
-    esp_driver_usb_serial_jtag
-    esp_timer
-    freertos
-    nvs_flash
-    esp_netif
-    esp_wifi
-    esp_event
-    espressif__mdns
-)
-
-if(COMMANDER_ENABLE_OTA)
-    list(APPEND _requires esp_ota_ops esp_http_client)
-endif()
-
 idf_component_register(
     SRCS
         "runner.cpp"
@@ -38,7 +21,19 @@ idf_component_register(
         "${COMMANDER_ROOT}"
         "${COMMANDER_ROOT}/include"
         "${CMAKE_CURRENT_LIST_DIR}"
-    REQUIRES ${_requires}
+    REQUIRES
+        esp_driver_i2c
+        esp_driver_gpio
+        esp_driver_usb_serial_jtag
+        esp_timer
+        freertos
+        nvs_flash
+        esp_netif
+        esp_wifi
+        esp_event
+        esp_ota_ops
+        esp_http_client
+        espressif__mdns
 )
 
 if(COMMANDER_ENABLE_OTA)
