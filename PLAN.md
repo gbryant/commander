@@ -98,7 +98,11 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | **`commander.h` API**             | ✅ done      | `CommanderConfig`, required + optional callbacks    |
 | **FetchContent validation**       | ✅ done      | scratch project at `/tmp/commander-test-app` builds |
 | **`commander_generate_scripts()`**| ✅ done      | generates bum/build/upload/monitor/bum-ota scripts  |
-| `runners/esp32/`                  | ⬜ todo      | ESP-IDF component wrapper for runner pattern        |
+| **`runners/esp32/`**              | ✅ done      | IDF component; UART + WiFi + Telnet confirmed       |
+| **`commander-new` tool**          | ✅ done      | pip install; pico/pico2/esp32 targets; --chip/--flash/--psram |
+| OTA — Pico                        | ⬜ todo      | bum-ota script exists; needs end-to-end test        |
+| OTA — ESP32                       | ⬜ todo      | ota_cmd.h exists in platform/esp32; not in runner   |
+| Board commands — Pico             | ⬜ todo      | reboot-to-bootloader via SystemModule or hook       |
 | `modules/ir/IIRModule.h`          | ✅ done      | interface only                                      |
 | `platform/arduino/IRModule`       | ⬜ todo      | IRremote                                            |
 | `platform/pico/IRModule` (PIO)    | ✅ done      | PicoIRModule — ring buffer, NEC + Sony              |
@@ -117,12 +121,16 @@ Commander is now consumable as a CMake FetchContent library.
       `commander::transport_telnet`, `commander::modules`
 - [x] `runners/pico/runner.cpp` owns `main()`, WiFi/mDNS init, FreeRTOS task
       wiring, watchdog panic hooks; `FreeRTOSConfig.h` + `lwipopts.h` live here
+- [x] `runners/esp32/commander_runner/` — IDF component; same API; UART + WiFi +
+      Telnet confirmed on XIAO ESP32-S3 (2026-05-26)
 - [x] `commander.h` public API: `CommanderConfig`, `commander_config()`,
       `commander_setup()`, three optional weak hooks
 - [x] `cmake/GenerateScripts.cmake`: `commander_generate_scripts(TARGET)` writes
-      bum/build/upload/monitor/bum-ota scripts on cmake configure
+      bum/build/upload/monitor/bum-ota scripts on cmake configure; no board suffix
 - [x] `scripts/ota_push.py` extracted from inline Python in bum-ota scripts
 - [x] FetchContent validated: scratch project builds `test_app.uf2` cleanly
+- [x] `tools/commander-new`: pip-installable scaffolding tool; pico/pico2/esp32
+      targets; `--chip/--flash/--psram` for ESP32 memory config
 
 ### Phase R — robot integration
 
@@ -149,12 +157,14 @@ Goal: migrate Roomba robot to this framework.
 - [ ] Decide: Pico 2 W native BLE / dedicated Pico W / ESP32
 - [ ] Controller input → locomotion commands
 
-### What's next (step 4 candidates)
+### What's next
 
-1. **ESP32 runner** — `runners/esp32/` using ESP-IDF component model; same
-   `commander_config/setup` API. Completes multi-platform library story.
-2. **R4 hardware test** — flash R4, confirm `help` + WiFi + Telnet; unblocks Phase R.
-3. **Roomba module** — start Phase R1 (`modules/roomba/`); robot-focused.
+1. **OTA test** — exercise bum-ota on Pico W / Pico 2 W; wire ota_cmd into
+   ESP32 runner so `ota <url>` works from the shell.
+2. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
+   on ESP32 (esp_restart into download mode or DFU).
+3. **R4 hardware test** — flash R4, confirm `help` + WiFi + Telnet; unblocks Phase R.
+4. **Roomba module** — start Phase R1 (`modules/roomba/`); robot-focused.
 
 ## Board pin reference
 
