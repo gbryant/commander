@@ -75,7 +75,8 @@ static bool wifi_connect(const char *ssid, const char *password) {
     wifi_config_t wc = {};
     strlcpy((char *)wc.sta.ssid,     ssid,     sizeof(wc.sta.ssid));
     strlcpy((char *)wc.sta.password, password, sizeof(wc.sta.password));
-    wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    wc.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
+    wc.sta.sae_pwe_h2e        = WPA3_SAE_PWE_BOTH;
     wc.sta.pmf_cfg.capable    = true;
     wc.sta.pmf_cfg.required   = false;
     esp_wifi_set_mode(WIFI_MODE_STA);
