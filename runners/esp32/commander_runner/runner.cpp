@@ -28,14 +28,17 @@ extern "C" __attribute__((weak)) void commander_on_wifi_connected()            {
 // ── WiFi ──────────────────────────────────────────────────────────────────────
 static EventGroupHandle_t s_wifi_eg;
 #define WIFI_CONNECTED_BIT BIT0
+static bool s_wifi_ever_connected = false;
 
 static void on_wifi(void *, esp_event_base_t, int32_t id, void *) {
-    if (id == WIFI_EVENT_STA_DISCONNECTED) esp_wifi_connect();
+    if (id == WIFI_EVENT_STA_DISCONNECTED && s_wifi_ever_connected) esp_wifi_connect();
 }
 
 static void on_ip(void *, esp_event_base_t, int32_t id, void *) {
-    if (id == IP_EVENT_STA_GOT_IP)
+    if (id == IP_EVENT_STA_GOT_IP) {
+        s_wifi_ever_connected = true;
         xEventGroupSetBits(s_wifi_eg, WIFI_CONNECTED_BIT);
+    }
 }
 
 static bool wifi_connect(const char *ssid, const char *password) {
