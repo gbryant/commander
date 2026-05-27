@@ -28,17 +28,15 @@ extern "C" __attribute__((weak)) void commander_on_wifi_connected()            {
 // ── WiFi ──────────────────────────────────────────────────────────────────────
 static EventGroupHandle_t s_wifi_eg;
 #define WIFI_CONNECTED_BIT BIT0
-static bool s_wifi_ever_connected = false;
+static volatile bool s_wifi_giving_up = false;
 
 static void on_wifi(void *, esp_event_base_t, int32_t id, void *) {
-    if (id == WIFI_EVENT_STA_DISCONNECTED && s_wifi_ever_connected) esp_wifi_connect();
+    if (id == WIFI_EVENT_STA_DISCONNECTED && !s_wifi_giving_up) esp_wifi_connect();
 }
 
 static void on_ip(void *, esp_event_base_t, int32_t id, void *) {
-    if (id == IP_EVENT_STA_GOT_IP) {
-        s_wifi_ever_connected = true;
+    if (id == IP_EVENT_STA_GOT_IP)
         xEventGroupSetBits(s_wifi_eg, WIFI_CONNECTED_BIT);
-    }
 }
 
 static bool wifi_connect(const char *ssid, const char *password) {
@@ -68,7 +66,9 @@ static bool wifi_connect(const char *ssid, const char *password) {
 
     EventBits_t bits = xEventGroupWaitBits(s_wifi_eg, WIFI_CONNECTED_BIT,
                                             pdFALSE, pdTRUE, pdMS_TO_TICKS(15000));
-    return (bits & WIFI_CONNECTED_BIT) != 0;
+    if (bits & WIFI_CONNECTED_BIT) return true;
+    s_wifi_giving_up = true;
+    return false;
 }
 
 // ── Main FreeRTOS task ────────────────────────────────────────────────────────
