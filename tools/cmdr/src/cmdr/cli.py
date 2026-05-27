@@ -1,11 +1,27 @@
 """cmdr — Commander framework project manager."""
 
 import argparse
+import configparser
 import importlib.resources
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+CONFIG_PATH = Path.home() / ".cmdr" / "config"
+
+
+def load_config() -> configparser.ConfigParser:
+    cfg = configparser.ConfigParser()
+    if CONFIG_PATH.exists():
+        cfg.read(CONFIG_PATH)
+    return cfg
+
+
+def save_config(cfg: configparser.ConfigParser) -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(CONFIG_PATH, "w") as f:
+        cfg.write(f)
 
 REPO_URL = "https://github.com/gbryant/commander.git"
 
@@ -77,8 +93,8 @@ extern "C" void commander_setup(CommandRegistry& reg) {
 
 SECRETS_H_TEMPLATE = """\
 #pragma once
-#define WIFI_SSID     "your-network"
-#define WIFI_PASSWORD "your-password"
+#define WIFI_SSID     "__SSID__"
+#define WIFI_PASSWORD "__PASSWORD__"
 """
 
 # ── ESP32 templates (placeholders: __NAME__, __CHIP__) ───────────────────────
@@ -213,17 +229,28 @@ def die(msg: str) -> None:
     sys.exit(1)
 
 
+def wifi_credentials() -> tuple[str, str]:
+    cfg = load_config()
+    ssid     = cfg.get("wifi", "ssid",     fallback="your-network")
+    password = cfg.get("wifi", "password", fallback="your-password")
+    return ssid, password
+
+
 # ── Scaffold functions ────────────────────────────────────────────────────────
 
 def scaffold_pico(target: str, name: str, out_dir: Path) -> None:
     board = PICO_TARGETS[target]
+    ssid, password = wifi_credentials()
     (out_dir / "CMakeLists.txt").write_text(render(PICO_CMAKE_TEMPLATE, name=name, board=board))
     (out_dir / "main.cpp").write_text(render(MAIN_CPP_TEMPLATE, name=name))
-    (out_dir / "secrets.h").write_text(SECRETS_H_TEMPLATE)
+    (out_dir / "secrets.h").write_text(render(SECRETS_H_TEMPLATE, ssid=ssid, password=password))
     copy_template("FreeRTOS_Kernel_import.cmake", out_dir / "FreeRTOS_Kernel_import.cmake")
 
     print(f"Created {out_dir}/ for {board}")
-    print(f"Edit {out_dir}/secrets.h with your WiFi credentials\n")
+    if ssid == "your-network":
+        print(f"Edit {out_dir}/secrets.h with your WiFi credentials\n")
+    else:
+        print(f"WiFi credentials pre-filled from ~/.cmdr/config\n")
 
     subprocess.run(
         ["cmake", "-B", f"build-{target}", "-S", ".", f"-DPICO_BOARD={board}"],
@@ -234,9 +261,10 @@ def scaffold_pico(target: str, name: str, out_dir: Path) -> None:
 
 
 def scaffold_esp32(name: str, out_dir: Path, chip: str, flash_mb: int, psram_mb: int) -> None:
+    ssid, password = wifi_credentials()
     (out_dir / "CMakeLists.txt").write_text(render(ESP32_CMAKE_TEMPLATE, name=name))
     (out_dir / "sdkconfig.defaults").write_text(make_sdkconfig(chip, flash_mb, psram_mb))
-    (out_dir / "secrets.h").write_text(SECRETS_H_TEMPLATE)
+    (out_dir / "secrets.h").write_text(render(SECRETS_H_TEMPLATE, ssid=ssid, password=password))
 
     main_dir = out_dir / "main"
     main_dir.mkdir()
@@ -345,6 +373,16 @@ def cmd_enable(args: argparse.Namespace) -> None:
         enable_ota()
 
 
+def cmd_config(args: argparse.Namespace) -> None:
+    cfg = load_config()
+    if not cfg.has_section("wifi"):
+        cfg.add_section("wifi")
+    cfg.set("wifi", "ssid",     args.ssid)
+    cfg.set("wifi", "password", args.password)
+    save_config(cfg)
+    print(f"Saved WiFi credentials to {CONFIG_PATH}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="cmdr",
@@ -377,6 +415,14 @@ def main() -> None:
         help="feature to enable",
     )
 
+    # ── config ────────────────────────────────────────────────────────────────
+    config_p = sub.add_parser("config", help="set global cmdr preferences")
+    config_sub = config_p.add_subparsers(dest="setting", metavar="<setting>")
+    config_sub.required = True
+    wifi_p = config_sub.add_parser("wifi", help="set default WiFi credentials")
+    wifi_p.add_argument("ssid",     help="WiFi network name")
+    wifi_p.add_argument("password", help="WiFi password")
+
     args = parser.parse_args()
 
     try:
@@ -384,6 +430,8 @@ def main() -> None:
             cmd_init(args)
         elif args.command == "enable":
             cmd_enable(args)
+        elif args.command == "config":
+            cmd_config(args)
     except subprocess.CalledProcessError as exc:
         die(f"cmake step failed (exit {exc.returncode})")
     except Exception as exc:
