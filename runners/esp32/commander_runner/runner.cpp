@@ -69,24 +69,26 @@ static bool wifi_connect(const char *ssid, const char *password) {
     esp_wifi_init(&cfg);
 
     s_wifi_eg = xEventGroupCreate();
-    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,    on_wifi, nullptr);
-    esp_event_handler_register(IP_EVENT,   IP_EVENT_STA_GOT_IP, on_ip,   nullptr);
+    esp_event_handler_instance_t inst_any_id;
+    esp_event_handler_instance_t inst_got_ip;
+    esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,    on_wifi, nullptr, &inst_any_id);
+    esp_event_handler_instance_register(IP_EVENT,   IP_EVENT_STA_GOT_IP, on_ip,   nullptr, &inst_got_ip);
 
     wifi_config_t wc = {};
     strlcpy((char *)wc.sta.ssid,     ssid,     sizeof(wc.sta.ssid));
     strlcpy((char *)wc.sta.password, password, sizeof(wc.sta.password));
-    wc.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
-    wc.sta.sae_pwe_h2e        = WPA3_SAE_PWE_BOTH;
+    wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wc.sta.pmf_cfg.capable    = true;
     wc.sta.pmf_cfg.required   = false;
     esp_wifi_set_mode(WIFI_MODE_STA);
     esp_wifi_set_config(WIFI_IF_STA, &wc);
     esp_wifi_start();
+    esp_wifi_set_max_tx_power(20);
     // esp_wifi_connect() is called from the WIFI_EVENT_STA_START handler
 
     EventBits_t bits = xEventGroupWaitBits(s_wifi_eg,
                                             WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-                                            pdFALSE, pdFALSE, pdMS_TO_TICKS(30000));
+                                            pdFALSE, pdFALSE, portMAX_DELAY);
     return (bits & WIFI_CONNECTED_BIT) != 0;
 }
 
