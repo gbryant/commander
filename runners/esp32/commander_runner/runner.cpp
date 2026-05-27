@@ -33,10 +33,12 @@ static EventGroupHandle_t s_wifi_eg;
 
 static int s_wifi_retries = 0;
 
-static void on_wifi(void *, esp_event_base_t, int32_t id, void *) {
+static void on_wifi(void *, esp_event_base_t, int32_t id, void *data) {
     if (id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
+        auto *d = (wifi_event_sta_disconnected_t *)data;
+        ESP_LOGW(TAG, "disconnected reason: %d", (int)d->reason);
         if (s_wifi_retries < WIFI_MAX_RETRIES) {
             esp_wifi_connect();
             s_wifi_retries++;
