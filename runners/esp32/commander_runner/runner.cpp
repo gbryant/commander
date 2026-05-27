@@ -1,4 +1,7 @@
 #include "commander.h"
+#ifdef COMMANDER_ENABLE_OTA
+#include "ota_cmd.h"
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -98,6 +101,9 @@ static void runnerTask(void *) {
         hal_i2c_init((uint8_t)_cfg.i2c_sda, (uint8_t)_cfg.i2c_scl, _cfg.i2c_hz);
 
     commander_setup(_registry);
+#ifdef COMMANDER_ENABLE_OTA
+    _registry.registerCommand(CMD("ota", "flash firmware from URL (http)", I2C_NONE, cmdOta, nullptr));
+#endif
     _registry.validateIds();
 
     commander_on_uart_ready(_uart);

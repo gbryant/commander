@@ -185,6 +185,21 @@ set(PFB_WITH_SHA256_HASHING   ON  CACHE BOOL "" FORCE)
 add_subdirectory(${PFB_PATH} pfb_build)\
 """
 
+# ── partition table generation ────────────────────────────────────────────────
+
+def make_ota_partitions_csv(flash_mb: int) -> str:
+    app_size = 0x1B0000 if flash_mb <= 4 else 0x300000
+    app1_offset = 0x10000 + app_size
+    return (
+        f"# {flash_mb} MB flash — dual OTA\n"
+        "# Name,   Type, SubType, Offset,   Size\n"
+        f"nvs,      data, nvs,     0x9000,   0x5000\n"
+        f"otadata,  data, ota,     0xe000,   0x2000\n"
+        f"app0,     app,  ota_0,   0x10000,  {hex(app_size)}\n"
+        f"app1,     app,  ota_1,   {hex(app1_offset)}, {hex(app_size)}\n"
+    )
+
+
 # ── sdkconfig generation ──────────────────────────────────────────────────────
 
 def make_sdkconfig(chip: str, flash_mb: int, psram_mb: int) -> str:
@@ -289,20 +304,7 @@ def scaffold_esp32(name: str, out_dir: Path, chip: str, flash_mb: int, psram_mb:
 
 # ── enable ota ────────────────────────────────────────────────────────────────
 
-def enable_ota() -> None:
-    cmake = Path("CMakeLists.txt")
-    if not cmake.exists():
-        die("no CMakeLists.txt in current directory — run from your project root")
-
-    content = cmake.read_text()
-
-    if "COMMANDER_ENABLE_OTA" in content:
-        print("OTA already enabled.")
-        return
-
-    if "FetchContent_MakeAvailable(commander)" not in content:
-        die("CMakeLists.txt does not use FetchContent_MakeAvailable(commander) — is this a Pico commander project?")
-
+def _enable_ota_pico(cmake: Path, content: str) -> None:
     # 1. Insert COMMANDER_ENABLE_OTA flag before FetchContent_MakeAvailable
     content = content.replace(
         "FetchContent_MakeAvailable(commander)",
@@ -351,19 +353,75 @@ def enable_ota() -> None:
         subprocess.run(["cmake", "-B", str(build_dir)], check=True)
 
 
-# ── disable ota ───────────────────────────────────────────────────────────────
+def _enable_ota_esp32(cmake: Path, content: str) -> None:
+    # 1. Add COMMANDER_ENABLE_OTA before IDF include
+    content = content.replace(
+        "include($ENV{IDF_PATH}/tools/cmake/project.cmake)",
+        "set(COMMANDER_ENABLE_OTA ON CACHE BOOL \"\" FORCE)\n"
+        "include($ENV{IDF_PATH}/tools/cmake/project.cmake)",
+    )
+    cmake.write_text(content)
 
-def disable_ota() -> None:
+    # 2. Detect flash size and write partitions.csv
+    flash_mb = 16
+    sdk = Path("sdkconfig.defaults")
+    if sdk.exists():
+        for line in sdk.read_text().splitlines():
+            m = re.match(r"CONFIG_ESPTOOLPY_FLASHSIZE_(\d+)MB=y", line)
+            if m:
+                flash_mb = int(m.group(1))
+                break
+    app_size = 0x1B0000 if flash_mb <= 4 else 0x300000
+    Path("partitions.csv").write_text(make_ota_partitions_csv(flash_mb))
+
+    # 3. Add partition config to sdkconfig.defaults
+    sdk_content = sdk.read_text() if sdk.exists() else ""
+    if "CONFIG_PARTITION_TABLE_CUSTOM" not in sdk_content:
+        sdk_content += (
+            "\nCONFIG_PARTITION_TABLE_CUSTOM=y\n"
+            'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"\n'
+        )
+        sdk.write_text(sdk_content)
+
+    # 4. Delete sdkconfig so it regenerates with the new partition table
+    for f in [Path("sdkconfig"), Path("build-esp32") / "sdkconfig"]:
+        if f.exists():
+            f.unlink()
+
+    print("Enabled OTA in CMakeLists.txt:")
+    print("  • COMMANDER_ENABLE_OTA set")
+    print(f"  • partitions.csv written ({flash_mb} MB flash, {hex(app_size)} per OTA slot)")
+    print("  • sdkconfig.defaults updated with custom partition table")
+
+    build_dirs = [d for d in Path(".").iterdir()
+                  if d.is_dir() and (d / "CMakeCache.txt").exists()]
+    if not build_dirs:
+        print("\nNo build directory found — run cmake manually to configure.")
+        return
+    for build_dir in build_dirs:
+        print(f"\nReconfiguring {build_dir}/...")
+        subprocess.run(["cmake", "-B", str(build_dir)], check=True)
+
+
+def enable_ota() -> None:
     cmake = Path("CMakeLists.txt")
     if not cmake.exists():
         die("no CMakeLists.txt in current directory — run from your project root")
-
     content = cmake.read_text()
-
-    if "COMMANDER_ENABLE_OTA" not in content:
-        print("OTA already disabled.")
+    if "COMMANDER_ENABLE_OTA" in content:
+        print("OTA already enabled.")
         return
+    if "FetchContent_MakeAvailable(commander)" in content:
+        _enable_ota_pico(cmake, content)
+    elif "FetchContent_Populate(commander)" in content:
+        _enable_ota_esp32(cmake, content)
+    else:
+        die("CMakeLists.txt does not reference commander — is this a commander project?")
 
+
+# ── disable ota ───────────────────────────────────────────────────────────────
+
+def _disable_ota_pico(cmake: Path, content: str) -> None:
     m = re.search(r"add_executable\((\S+)", content)
     if not m:
         die("could not find add_executable in CMakeLists.txt")
@@ -407,6 +465,66 @@ def disable_ota() -> None:
     for build_dir in build_dirs:
         print(f"\nReconfiguring {build_dir}/...")
         subprocess.run(["cmake", "-B", str(build_dir), "-DCOMMANDER_ENABLE_OTA=OFF"], check=True)
+
+
+def _disable_ota_esp32(cmake: Path, content: str) -> None:
+    # 1. Remove COMMANDER_ENABLE_OTA line
+    content = content.replace(
+        "set(COMMANDER_ENABLE_OTA ON CACHE BOOL \"\" FORCE)\n",
+        "",
+    )
+    cmake.write_text(content)
+
+    # 2. Remove partitions.csv
+    p = Path("partitions.csv")
+    if p.exists():
+        p.unlink()
+
+    # 3. Remove partition config from sdkconfig.defaults
+    sdk = Path("sdkconfig.defaults")
+    if sdk.exists():
+        sdk_content = sdk.read_text()
+        sdk_content = sdk_content.replace(
+            "\nCONFIG_PARTITION_TABLE_CUSTOM=y\n"
+            'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"\n',
+            "",
+        )
+        sdk.write_text(sdk_content)
+
+    # 4. Delete sdkconfig so it regenerates without the partition table override
+    for f in [Path("sdkconfig"), Path("build-esp32") / "sdkconfig"]:
+        if f.exists():
+            f.unlink()
+
+    print("Disabled OTA in CMakeLists.txt:")
+    print("  • COMMANDER_ENABLE_OTA removed")
+    print("  • partitions.csv removed")
+    print("  • sdkconfig.defaults partition config removed")
+
+    build_dirs = [d for d in Path(".").iterdir()
+                  if d.is_dir() and (d / "CMakeCache.txt").exists()]
+    if not build_dirs:
+        print("\nNo build directory found — run cmake manually to configure.")
+        return
+    for build_dir in build_dirs:
+        print(f"\nReconfiguring {build_dir}/...")
+        subprocess.run(["cmake", "-B", str(build_dir), "-DCOMMANDER_ENABLE_OTA=OFF"], check=True)
+
+
+def disable_ota() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        die("no CMakeLists.txt in current directory — run from your project root")
+    content = cmake.read_text()
+    if "COMMANDER_ENABLE_OTA" not in content:
+        print("OTA already disabled.")
+        return
+    if "FetchContent_MakeAvailable(commander)" in content:
+        _disable_ota_pico(cmake, content)
+    elif "FetchContent_Populate(commander)" in content:
+        _disable_ota_esp32(cmake, content)
+    else:
+        die("CMakeLists.txt does not reference commander — is this a commander project?")
 
 
 # ── CLI entry points ──────────────────────────────────────────────────────────
