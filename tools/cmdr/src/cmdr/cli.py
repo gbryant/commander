@@ -754,6 +754,26 @@ def cmd_update() -> None:
 
 def cmd_pull() -> None:
     import shutil
+
+    # ── PlatformIO project ────────────────────────────────────────────────────
+    if Path("platformio.ini").exists():
+        libdeps = Path(".pio") / "libdeps"
+        removed_any = False
+        if libdeps.is_dir():
+            for env_dir in libdeps.iterdir():
+                commander_dir = env_dir / "commander"
+                if commander_dir.is_dir():
+                    shutil.rmtree(commander_dir)
+                    print(f"Removed {commander_dir}")
+                    removed_any = True
+        if not removed_any:
+            print("No cached commander found in .pio/libdeps/ — nothing to remove.")
+        print("Updating packages...")
+        subprocess.run(["pio", "pkg", "update"], check=True)
+        print("\nDone — commander updated.")
+        return
+
+    # ── CMake project (Pico / ESP32) ──────────────────────────────────────────
     build_dirs = [d for d in Path(".").iterdir()
                   if d.is_dir() and (d / "CMakeCache.txt").exists()]
     if not build_dirs:
