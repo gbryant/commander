@@ -312,7 +312,15 @@ def enable_ota() -> None:
     print("  • pico_fota_bootloader added (reads $PFB_PATH or ~/u-developer/pico_fota_bootloader)")
     print("  • pico_fota_bootloader_lib linked to target")
     print(f"  • pfb_compile_with_bootloader({name}) added")
-    print(f"\nRe-run cmake to apply changes.")
+
+    build_dirs = [d for d in Path(".").iterdir()
+                  if d.is_dir() and (d / "CMakeCache.txt").exists()]
+    if not build_dirs:
+        print("\nNo build directory found — run cmake manually to configure.")
+        return
+    for build_dir in build_dirs:
+        print(f"\nReconfiguring {build_dir}/...")
+        subprocess.run(["cmake", "-B", str(build_dir)], check=True)
 
 
 # ── CLI entry points ──────────────────────────────────────────────────────────
