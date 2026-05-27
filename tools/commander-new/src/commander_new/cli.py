@@ -18,6 +18,8 @@ VALID_FLASH_MB  = {2, 4, 8, 16, 32}
 VALID_PSRAM_MB  = {0, 2, 4, 8}
 # Chips with native USB Serial/JTAG console
 USB_JTAG_CHIPS  = {"esp32s3", "esp32s2", "esp32c3", "esp32c6", "esp32h2"}
+# Chips whose PSRAM uses octal (OPI) mode; all others use quad
+PSRAM_OCT_CHIPS = {"esp32s3"}
 
 # ── Pico templates (placeholders: __NAME__, __BOARD__) ────────────────────────
 
@@ -171,10 +173,12 @@ def make_sdkconfig(chip: str, flash_mb: int, psram_mb: int) -> str:
 
     # PSRAM
     if psram_mb:
+        mode = "OCT" if chip in PSRAM_OCT_CHIPS else "QUAD"
         lines += [
             "CONFIG_SPIRAM=y",
+            f"CONFIG_SPIRAM_MODE_{mode}=y",
             "CONFIG_SPIRAM_SPEED_80M=y",
-            "CONFIG_SPIRAM_TYPE_AUTO=y",   # let IDF detect quad vs octal
+            "CONFIG_SPIRAM_TYPE_AUTO=y",
         ]
 
     # Console
