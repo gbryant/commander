@@ -1,0 +1,24 @@
+{
+  "name": "commander",
+  "version": "0.1.0",
+  "description": "Portable embedded command shell (Arduino targets)",
+  "keywords": ["commander", "shell", "uart", "freertos"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gbryant/commander.git"
+  },
+  "build": {
+    "srcFilter": [
+      "-<*>",
+      "+<core/CommandRegistry.cpp>",
+      "+<hal/arduino/hal.cpp>",
+      "+<transport/uart/UartTransport.cpp>",
+      "+<runners/arduino-uno/runner.cpp>",
+      "+<runners/arduino-r4/runner.cpp>"
+    ],
+    "flags": ["-I.", "-I./include"],
+    "libArchive": false
+  },
+  "frameworks": ["arduino"],
+  "platforms": ["atmelavr", "renesas-ra"]
+}

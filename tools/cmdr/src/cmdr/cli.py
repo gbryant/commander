@@ -29,7 +29,8 @@ PICO_TARGETS = {
     "pico":  "pico_w",
     "pico2": "pico2_w",
 }
-TARGETS = {**PICO_TARGETS, "esp32": "esp32"}
+ARDUINO_TARGETS = {"uno": "uno", "r4": "r4"}
+TARGETS = {**PICO_TARGETS, "esp32": "esp32", **ARDUINO_TARGETS}
 
 VALID_FLASH_MB  = {2, 4, 8, 16, 32}
 VALID_PSRAM_MB  = {0, 2, 4, 8}
@@ -190,6 +191,111 @@ OTA_HOST="$HOST" OTA_URL="$URL" python3 "$DIR/scripts/ota_push.py"
 echo "==> Done."
 """
 
+# ── Arduino templates (placeholders: __NAME__, __BOARD_ID__) ─────────────────
+
+ARDUINO_UNO_PIO_TEMPLATE = """\
+[platformio]
+src_dir = src
+
+[env:__NAME__]
+platform = atmelavr
+board = uno
+framework = arduino
+monitor_speed = 115200
+extra_scripts =
+    pre:scripts/patch_freertos.py
+build_flags =
+    -DCOMMANDER_UNO_RUNNER
+    -DMAX_COMMANDS=12
+lib_deps =
+    """ + REPO_URL + """
+    https://github.com/feilipu/Arduino_FreeRTOS_Library.git
+"""
+
+ARDUINO_R4_PIO_TEMPLATE = """\
+[platformio]
+src_dir = src
+
+[env:__NAME__]
+platform = renesas-ra
+board = uno_r4_wifi
+framework = arduino
+monitor_speed = 115200
+build_flags =
+    -DCOMMANDER_R4_RUNNER
+    -DMAX_COMMANDS=12
+lib_deps =
+    """ + REPO_URL + """
+"""
+
+ARDUINO_MAIN_CPP_TEMPLATE = """\
+#include "commander.h"
+#include "core/SystemModule.h"
+
+static SystemModule sysModule;
+
+extern "C" CommanderConfig commander_config() {
+    return {
+        .uart_baud     = 115200,
+        .uart_greeting = "__NAME__",
+    };
+}
+
+extern "C" void commander_setup(CommandRegistry& reg) {
+    reg.registerModule(sysModule);
+}
+"""
+
+ARDUINO_BUM_SCRIPT = """\
+#!/bin/bash
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$DIR/build"
+"$DIR/upload"
+"$DIR/monitor"
+"""
+
+ARDUINO_BUILD_SCRIPT = """\
+#!/bin/bash
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
+pio run -e __NAME__
+"""
+
+ARDUINO_UPLOAD_SCRIPT = """\
+#!/bin/bash
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORT=$(python3 "$DIR/scripts/find_port.py" __BOARD_ID__)
+pio run -e __NAME__ -t upload --upload-port "$PORT"
+"""
+
+ARDUINO_MONITOR_SCRIPT = """\
+#!/bin/bash
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORT=""
+for i in $(seq 1 20); do
+    PORT=$(python3 "$DIR/scripts/find_port.py" __BOARD_ID__ 2>/dev/null) && break
+    [ $i -eq 1 ] && echo "Waiting for __BOARD_ID__..."
+    sleep 0.5
+done
+[ -n "$PORT" ] || { echo "error: __BOARD_ID__ port did not appear" >&2; exit 1; }
+echo "Connecting to $PORT  (Ctrl-T q to quit)"
+tio --baudrate 115200 "$PORT"
+"""
+
+ARDUINO_R4_BUM_OTA_SCRIPT = """\
+#!/bin/bash
+# Build __NAME__ and push via OTA (ArduinoOTA on the R4).
+# Usage: ./bum-ota [host]   default: __NAME__.local
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST="${1:-__NAME__.local}"
+"$DIR/build"
+pio run -e __NAME__ -t upload --upload-port "$HOST"
+"""
+
 ESP32_MONITOR_SCRIPT = """\
 #!/bin/bash
 set -e
@@ -303,6 +409,45 @@ def scaffold_pico(target: str, name: str, out_dir: Path) -> None:
         cwd=out_dir,
         check=True,
     )
+    print(f"\nDone.\n  cd {out_dir}\n  ./bum")
+
+
+def scaffold_arduino(target: str, name: str, out_dir: Path) -> None:
+    board_id = target  # "uno" or "r4"
+    is_r4 = target == "r4"
+
+    pio_tmpl = ARDUINO_R4_PIO_TEMPLATE if is_r4 else ARDUINO_UNO_PIO_TEMPLATE
+    (out_dir / "platformio.ini").write_text(render(pio_tmpl, name=name))
+
+    src_dir = out_dir / "src"
+    src_dir.mkdir()
+    if is_r4:
+        ssid, password = wifi_credentials()
+        (out_dir / "secrets.h").write_text(render(SECRETS_H_TEMPLATE, ssid=ssid, password=password))
+        (src_dir / "main.cpp").write_text(render(MAIN_CPP_TEMPLATE, name=name))
+    else:
+        (src_dir / "main.cpp").write_text(render(ARDUINO_MAIN_CPP_TEMPLATE, name=name))
+
+    scripts_dir = out_dir / "scripts"
+    scripts_dir.mkdir()
+    copy_template("find_port.py", scripts_dir / "find_port.py")
+    if not is_r4:
+        copy_template("patch_freertos.py", scripts_dir / "patch_freertos.py")
+
+    write_script(out_dir / "bum",     ARDUINO_BUM_SCRIPT)
+    write_script(out_dir / "build",   render(ARDUINO_BUILD_SCRIPT,  name=name))
+    write_script(out_dir / "upload",  render(ARDUINO_UPLOAD_SCRIPT, name=name, board_id=board_id))
+    write_script(out_dir / "monitor", render(ARDUINO_MONITOR_SCRIPT, board_id=board_id))
+    if is_r4:
+        write_script(out_dir / "bum-ota", render(ARDUINO_R4_BUM_OTA_SCRIPT, name=name))
+
+    print(f"Created {out_dir}/ for Arduino {'R4 WiFi' if is_r4 else 'Uno'}")
+    if is_r4:
+        ssid, _ = wifi_credentials()
+        if ssid == "your-network":
+            print(f"Edit {out_dir}/secrets.h with your WiFi credentials")
+        else:
+            print("WiFi credentials pre-filled from ~/.cmdr/config")
     print(f"\nDone.\n  cd {out_dir}\n  ./bum")
 
 
@@ -584,6 +729,8 @@ def cmd_init(args: argparse.Namespace) -> None:
     out_dir.mkdir(parents=True)
     if args.target == "esp32":
         scaffold_esp32(args.name, out_dir, chip=args.chip, flash_mb=args.flash, psram_mb=args.psram)
+    elif args.target in ARDUINO_TARGETS:
+        scaffold_arduino(args.target, args.name, out_dir)
     else:
         scaffold_pico(args.target, args.name, out_dir)
 
