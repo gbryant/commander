@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "commander-new"
+name = "cmdr"
 version = "0.1.0"
-description = "Project scaffolding tool for the commander embedded framework"
+description = "Project manager for the commander embedded framework"
 requires-python = ">=3.8"
 dependencies = []
 
 [project.scripts]
-commander-new = "commander_new.cli:main"
+cmdr = "cmdr.cli:main"
 
 [tool.hatchling.build.targets.wheel]
-packages = ["src/commander_new"]
+packages = ["src/cmdr"]

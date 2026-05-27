@@ -1,7 +1,8 @@
-"""commander-new — scaffold a new commander framework project."""
+"""cmdr — Commander framework project manager."""
 
 import argparse
 import importlib.resources
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -16,9 +17,7 @@ TARGETS = {**PICO_TARGETS, "esp32": "esp32"}
 
 VALID_FLASH_MB  = {2, 4, 8, 16, 32}
 VALID_PSRAM_MB  = {0, 2, 4, 8}
-# Chips with native USB Serial/JTAG console
 USB_JTAG_CHIPS  = {"esp32s3", "esp32s2", "esp32c3", "esp32c6", "esp32h2"}
-# Chips whose PSRAM uses octal (OPI) mode; all others use quad
 PSRAM_OCT_CHIPS = {"esp32s3"}
 
 # ── Pico templates (placeholders: __NAME__, __BOARD__) ────────────────────────
@@ -124,7 +123,6 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "$DIR/monitor"
 """
 
-# Placeholders: __CHIP__
 ESP32_BUILD_SCRIPT = """\
 #!/bin/bash
 set -e
@@ -160,18 +158,24 @@ echo "Connecting to $PORT  (Ctrl-T q to quit)"
 tio --baudrate 115200 "$PORT"
 """
 
+PFB_BLOCK = """\
+if(DEFINED ENV{PFB_PATH})
+    set(PFB_PATH "$ENV{PFB_PATH}")
+else()
+    set(PFB_PATH "$ENV{HOME}/u-developer/pico_fota_bootloader")
+endif()
+set(PFB_WITH_IMAGE_ENCRYPTION OFF CACHE BOOL "" FORCE)
+set(PFB_WITH_SHA256_HASHING   ON  CACHE BOOL "" FORCE)
+add_subdirectory(${PFB_PATH} pfb_build)\
+"""
 
 # ── sdkconfig generation ──────────────────────────────────────────────────────
 
 def make_sdkconfig(chip: str, flash_mb: int, psram_mb: int) -> str:
     lines = [f"# {chip} — {flash_mb} MB flash"
              + (f", {psram_mb} MB PSRAM" if psram_mb else "")]
-
-    # Flash size
     lines.append(f"CONFIG_ESPTOOLPY_FLASHSIZE_{flash_mb}MB=y")
     lines.append(f'CONFIG_ESPTOOLPY_FLASHSIZE="{flash_mb}MB"')
-
-    # PSRAM
     if psram_mb:
         mode = "OCT" if chip in PSRAM_OCT_CHIPS else "QUAD"
         lines += [
@@ -180,11 +184,8 @@ def make_sdkconfig(chip: str, flash_mb: int, psram_mb: int) -> str:
             "CONFIG_SPIRAM_SPEED_80M=y",
             "CONFIG_SPIRAM_TYPE_AUTO=y",
         ]
-
-    # Console
     if chip in USB_JTAG_CHIPS:
         lines.append("CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y")
-
     return "\n".join(lines) + "\n"
 
 
@@ -203,15 +204,19 @@ def write_script(path: Path, content: str) -> None:
 
 
 def copy_template(name: str, dest: Path) -> None:
-    data = importlib.resources.files("commander_new.templates").joinpath(name)
+    data = importlib.resources.files("cmdr.templates").joinpath(name)
     dest.write_bytes(data.read_bytes())
+
+
+def die(msg: str) -> None:
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(1)
 
 
 # ── Scaffold functions ────────────────────────────────────────────────────────
 
 def scaffold_pico(target: str, name: str, out_dir: Path) -> None:
     board = PICO_TARGETS[target]
-
     (out_dir / "CMakeLists.txt").write_text(render(PICO_CMAKE_TEMPLATE, name=name, board=board))
     (out_dir / "main.cpp").write_text(render(MAIN_CPP_TEMPLATE, name=name))
     (out_dir / "secrets.h").write_text(SECRETS_H_TEMPLATE)
@@ -225,7 +230,6 @@ def scaffold_pico(target: str, name: str, out_dir: Path) -> None:
         cwd=out_dir,
         check=True,
     )
-
     print(f"\nDone. Run ./{out_dir}/bum to build, upload, and monitor.")
 
 
@@ -255,72 +259,127 @@ def scaffold_esp32(name: str, out_dir: Path, chip: str, flash_mb: int, psram_mb:
     print(f"(First build runs 'idf.py set-target {chip}' automatically)")
 
 
-def scaffold(target: str, name: str, out_dir: Path, **kwargs) -> None:
-    out_dir.mkdir(parents=True, exist_ok=False)
-    if target == "esp32":
-        scaffold_esp32(name, out_dir, **kwargs)
+# ── enable ota ────────────────────────────────────────────────────────────────
+
+def enable_ota() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        die("no CMakeLists.txt in current directory — run from your project root")
+
+    content = cmake.read_text()
+
+    if "COMMANDER_ENABLE_OTA" in content:
+        print("OTA already enabled.")
+        return
+
+    if "FetchContent_MakeAvailable(commander)" not in content:
+        die("CMakeLists.txt does not use FetchContent_MakeAvailable(commander) — is this a Pico commander project?")
+
+    # 1. Insert COMMANDER_ENABLE_OTA flag before FetchContent_MakeAvailable
+    content = content.replace(
+        "FetchContent_MakeAvailable(commander)",
+        "set(COMMANDER_ENABLE_OTA ON CACHE BOOL \"\" FORCE)\nFetchContent_MakeAvailable(commander)",
+    )
+
+    # 2. Insert PFB setup block after FetchContent_MakeAvailable
+    content = content.replace(
+        "FetchContent_MakeAvailable(commander)",
+        f"FetchContent_MakeAvailable(commander)\n\n{PFB_BLOCK}",
+    )
+
+    # 3. Add pico_fota_bootloader_lib to target_link_libraries
+    content = re.sub(
+        r"(target_link_libraries\([^)]*commander::pico_runner)([^)]*\))",
+        r"\1 pico_fota_bootloader_lib\2",
+        content,
+    )
+
+    # 4. Append pfb_compile_with_bootloader after pico_add_extra_outputs
+    m = re.search(r"add_executable\((\S+)", content)
+    if not m:
+        die("could not find add_executable in CMakeLists.txt")
+    name = m.group(1)
+
+    content = re.sub(
+        rf"(pico_add_extra_outputs\({re.escape(name)}\))",
+        rf"\1\npfb_compile_with_bootloader({name})",
+        content,
+    )
+
+    cmake.write_text(content)
+    print("Enabled OTA in CMakeLists.txt:")
+    print("  • COMMANDER_ENABLE_OTA set before FetchContent_MakeAvailable")
+    print("  • pico_fota_bootloader added (reads $PFB_PATH or ~/u-developer/pico_fota_bootloader)")
+    print("  • pico_fota_bootloader_lib linked to target")
+    print(f"  • pfb_compile_with_bootloader({name}) added")
+    print(f"\nRe-run cmake to apply changes.")
+
+
+# ── CLI entry points ──────────────────────────────────────────────────────────
+
+def cmd_init(args: argparse.Namespace) -> None:
+    if not args.name.replace("-", "_").replace("_", "").isalnum():
+        die(f"project name '{args.name}' contains invalid characters")
+
+    out_dir = Path(args.name)
+    if out_dir.exists():
+        die(f"'{out_dir}' already exists")
+
+    out_dir.mkdir(parents=True)
+    if args.target == "esp32":
+        scaffold_esp32(args.name, out_dir, chip=args.chip, flash_mb=args.flash, psram_mb=args.psram)
     else:
-        scaffold_pico(target, name, out_dir)
+        scaffold_pico(args.target, args.name, out_dir)
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+def cmd_enable(args: argparse.Namespace) -> None:
+    if args.feature == "ota":
+        enable_ota()
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="commander-new",
-        description="Scaffold a new commander framework project.",
+        prog="cmdr",
+        description="Commander framework project manager.",
     )
-    parser.add_argument(
+    sub = parser.add_subparsers(dest="command", metavar="<command>")
+    sub.required = True
+
+    # ── init ──────────────────────────────────────────────────────────────────
+    init_p = sub.add_parser("init", help="scaffold a new commander project")
+    init_p.add_argument(
         "target",
         choices=list(TARGETS.keys()),
-        help=f"Hardware target ({', '.join(TARGETS)})",
+        help=f"hardware target ({', '.join(TARGETS)})",
     )
-    parser.add_argument("name", help="Project name (becomes the directory and build target)")
+    init_p.add_argument("name", help="project name (becomes the directory and build target)")
+    esp = init_p.add_argument_group("ESP32 options")
+    esp.add_argument("--chip", default="esp32s3", metavar="CHIP",
+                     help="IDF chip target (default: esp32s3)")
+    esp.add_argument("--flash", type=int, default=16, choices=sorted(VALID_FLASH_MB), metavar="MB",
+                     help="flash size in MB (default: 16)")
+    esp.add_argument("--psram", type=int, default=8, choices=sorted(VALID_PSRAM_MB), metavar="MB",
+                     help="PSRAM size in MB, 0 for none (default: 8)")
 
-    esp = parser.add_argument_group("ESP32 options")
-    esp.add_argument(
-        "--chip",
-        default="esp32s3",
-        metavar="CHIP",
-        help="IDF chip target (default: esp32s3)",
-    )
-    esp.add_argument(
-        "--flash",
-        type=int,
-        default=16,
-        choices=sorted(VALID_FLASH_MB),
-        metavar="MB",
-        help="Flash size in MB (default: 16)",
-    )
-    esp.add_argument(
-        "--psram",
-        type=int,
-        default=8,
-        choices=sorted(VALID_PSRAM_MB),
-        metavar="MB",
-        help="PSRAM size in MB, 0 for none (default: 8)",
+    # ── enable ────────────────────────────────────────────────────────────────
+    enable_p = sub.add_parser("enable", help="enable a feature in the current project")
+    enable_p.add_argument(
+        "feature",
+        choices=["ota"],
+        help="feature to enable",
     )
 
     args = parser.parse_args()
 
-    if not args.name.replace("-", "_").replace("_", "").isalnum():
-        print(f"error: project name '{args.name}' contains invalid characters", file=sys.stderr)
-        sys.exit(1)
-
-    out_dir = Path(args.name)
-    if out_dir.exists():
-        print(f"error: '{out_dir}' already exists", file=sys.stderr)
-        sys.exit(1)
-
     try:
-        scaffold(args.target, args.name, out_dir,
-                 chip=args.chip, flash_mb=args.flash, psram_mb=args.psram)
+        if args.command == "init":
+            cmd_init(args)
+        elif args.command == "enable":
+            cmd_enable(args)
     except subprocess.CalledProcessError as exc:
-        print(f"\nerror: cmake step failed (exit {exc.returncode})", file=sys.stderr)
-        sys.exit(exc.returncode)
+        die(f"cmake step failed (exit {exc.returncode})")
     except Exception as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        die(str(exc))
 
 
 if __name__ == "__main__":
