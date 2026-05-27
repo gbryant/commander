@@ -159,6 +159,37 @@ echo "Flashing $PORT..."
 idf.py -B "$DIR/build-esp32" -p "$PORT" flash
 """
 
+ESP32_BUM_OTA_SCRIPT = """\
+#!/bin/bash
+# Build __NAME__ and push firmware via OTA.
+# Usage: ./bum-ota [host]   default: __NAME__.local
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST="${1:-__NAME__.local}"
+OTA_PORT=8000
+
+echo "==> Building..."
+"$DIR/build"
+
+BIN="$DIR/build-esp32/__NAME__.bin"
+[[ -f "$BIN" ]] || { echo "Binary not found: $BIN"; exit 1; }
+
+IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+[[ -n "$IP" ]] || { echo "Could not determine local IP — check en0/en1."; exit 1; }
+URL="http://$IP:$OTA_PORT/__NAME__.bin"
+
+python3 -m http.server "$OTA_PORT" --directory "$DIR/build-esp32" &
+SERVER_PID=$!
+trap "kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null" EXIT
+sleep 1
+
+echo "==> Serving $URL"
+echo "==> Connecting to $HOST..."
+OTA_HOST="$HOST" OTA_URL="$URL" python3 "$DIR/scripts/ota_push.py"
+echo "==> Done."
+"""
+
 ESP32_MONITOR_SCRIPT = """\
 #!/bin/bash
 set -e
@@ -388,10 +419,17 @@ def _enable_ota_esp32(cmake: Path, content: str) -> None:
         if f.exists():
             f.unlink()
 
+    # 5. Detect project name and write bum-ota script
+    m = re.search(r"project\((\S+)\)", content)
+    name = m.group(1) if m else "app"
+    write_script(Path("bum-ota"), render(ESP32_BUM_OTA_SCRIPT, name=name))
+    copy_template("ota_push.py", Path("scripts") / "ota_push.py")
+
     print("Enabled OTA in CMakeLists.txt:")
     print("  • COMMANDER_ENABLE_OTA set")
     print(f"  • partitions.csv written ({flash_mb} MB flash, {hex(app_size)} per OTA slot)")
     print("  • sdkconfig.defaults updated with custom partition table")
+    print(f"  • bum-ota written (usage: ./bum-ota [host]  default: {name}.local)")
 
     build_dirs = [d for d in Path(".").iterdir()
                   if d.is_dir() and (d / "CMakeCache.txt").exists()]
@@ -496,10 +534,16 @@ def _disable_ota_esp32(cmake: Path, content: str) -> None:
         if f.exists():
             f.unlink()
 
+    # 5. Remove bum-ota script
+    bum_ota = Path("bum-ota")
+    if bum_ota.exists():
+        bum_ota.unlink()
+
     print("Disabled OTA in CMakeLists.txt:")
     print("  • COMMANDER_ENABLE_OTA removed")
     print("  • partitions.csv removed")
     print("  • sdkconfig.defaults partition config removed")
+    print("  • bum-ota removed")
 
     build_dirs = [d for d in Path(".").iterdir()
                   if d.is_dir() and (d / "CMakeCache.txt").exists()]
