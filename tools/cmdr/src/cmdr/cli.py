@@ -224,6 +224,7 @@ monitor_speed = 115200
 build_flags =
     -DCOMMANDER_R4_RUNNER
     -DMAX_COMMANDS=12
+    -I${PROJECT_DIR}
 lib_deps =
     """ + REPO_URL + """
 """
