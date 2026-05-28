@@ -42,12 +42,13 @@ void setup() {
     if (_cfg.wifi_ssid) {
         Serial.print("[wifi] connecting");
         WiFi.begin(_cfg.wifi_ssid, _cfg.wifi_password);
-        for (int i = 0; i < 40 && WiFi.status() != WL_CONNECTED; i++) {
+        for (int i = 0; i < 40 && (WiFi.status() != WL_CONNECTED ||
+                                    WiFi.localIP() == IPAddress(0, 0, 0, 0)); i++) {
             delay(500);
             Serial.print(".");
         }
         Serial.println();
-        if (WiFi.status() == WL_CONNECTED) {
+        if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
             Serial.print("[wifi] ");
             Serial.println(WiFi.localIP());
             if (_cfg.enable_telnet) {
