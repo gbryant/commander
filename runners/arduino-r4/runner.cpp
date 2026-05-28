@@ -18,6 +18,35 @@ extern "C" __attribute__((weak)) void commander_early_init()                   {
 extern "C" __attribute__((weak)) void commander_on_uart_ready(UartTransport &) {}
 extern "C" __attribute__((weak)) void commander_on_wifi_connected()            {}
 
+static void wifiTask(void *) {
+    // Match the UART task's 1500ms settle — USB CDC must be ready before first print.
+    // WiFi SPI is also slow on R4 (~5x slower than R3); running in a task lets the
+    // UART task and USB interrupt handler stay live during the connection loop.
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    Serial.print("[wifi] connecting");
+    WiFi.begin(_cfg.wifi_ssid, _cfg.wifi_password);
+    for (int i = 0; i < 40 && (WiFi.status() != WL_CONNECTED ||
+                                WiFi.localIP() == IPAddress(0, 0, 0, 0)); i++) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        Serial.print(".");
+    }
+    Serial.println();
+    if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
+        Serial.print("[wifi] ");
+        Serial.println(WiFi.localIP());
+        if (_cfg.enable_telnet) {
+            const char *tg = _cfg.telnet_greeting ? _cfg.telnet_greeting : _cfg.hostname;
+            _server.begin();
+            _telnet.begin(_registry, _server, tg);
+            xTaskCreate(ArduinoTelnetTransport::taskBody, "telnet", 256, &_telnet, 2, nullptr);
+        }
+        commander_on_wifi_connected();
+    } else {
+        Serial.println("[wifi] failed — telnet disabled");
+    }
+    vTaskDelete(nullptr);
+}
+
 void setup() {
     commander_early_init();
     _cfg = commander_config();
@@ -31,37 +60,16 @@ void setup() {
     commander_setup(_registry);
     _registry.validateIds();
 
-    // R4 USB CDC: write() and read() both return 0/-1 until the terminal
-    // asserts DTR. Wait here (pre-scheduler, busy-wait) so the greeting and
-    // prompt land correctly. Timeout after 10 s for headless / OTA use.
-    for (uint32_t t = millis(); !Serial && (millis() - t) < 10000; ) delay(10);
+    // R4 USB CDC: SerialUSB::write() and read() return 0/-1 when DTR is not
+    // asserted. Calling dtr() sets ignore_dtr=true so reads/writes work
+    // regardless of terminal state — no need to busy-wait before the scheduler.
+    Serial.dtr();
 
     commander_on_uart_ready(_uart);
     xTaskCreate(UartTransport::taskBody, "uart", 256, &_uart, 2, nullptr);
 
-    if (_cfg.wifi_ssid) {
-        Serial.print("[wifi] connecting");
-        WiFi.begin(_cfg.wifi_ssid, _cfg.wifi_password);
-        for (int i = 0; i < 40 && (WiFi.status() != WL_CONNECTED ||
-                                    WiFi.localIP() == IPAddress(0, 0, 0, 0)); i++) {
-            delay(500);
-            Serial.print(".");
-        }
-        Serial.println();
-        if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-            Serial.print("[wifi] ");
-            Serial.println(WiFi.localIP());
-            if (_cfg.enable_telnet) {
-                const char *tg = _cfg.telnet_greeting ? _cfg.telnet_greeting : _cfg.hostname;
-                _server.begin();
-                _telnet.begin(_registry, _server, tg);
-                xTaskCreate(ArduinoTelnetTransport::taskBody, "telnet", 256, &_telnet, 2, nullptr);
-            }
-            commander_on_wifi_connected();
-        } else {
-            Serial.println("[wifi] failed — telnet disabled");
-        }
-    }
+    if (_cfg.wifi_ssid)
+        xTaskCreate(wifiTask, "wifi", 512, nullptr, 1, nullptr);
 
     vTaskStartScheduler();
 }
