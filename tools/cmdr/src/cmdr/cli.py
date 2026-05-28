@@ -80,8 +80,6 @@ extern "C" CommanderConfig commander_config() {
     cfg.wifi_ssid     = WIFI_SSID;
     cfg.wifi_password = WIFI_PASSWORD;
     cfg.hostname      = "__NAME__";
-    cfg.i2c_sda       = 4;
-    cfg.i2c_scl       = 5;
     cfg.uart_baud     = 115200;
     cfg.uart_greeting = "__NAME__";
     return cfg;

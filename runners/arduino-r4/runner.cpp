@@ -31,6 +31,11 @@ void setup() {
     commander_setup(_registry);
     _registry.validateIds();
 
+    // R4 USB CDC: write() and read() both return 0/-1 until the terminal
+    // asserts DTR. Wait here (pre-scheduler, busy-wait) so the greeting and
+    // prompt land correctly. Timeout after 10 s for headless / OTA use.
+    for (uint32_t t = millis(); !Serial && (millis() - t) < 10000; ) delay(10);
+
     commander_on_uart_ready(_uart);
     xTaskCreate(UartTransport::taskBody, "uart", 256, &_uart, 2, nullptr);
 
