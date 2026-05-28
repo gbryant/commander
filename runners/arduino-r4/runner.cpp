@@ -122,17 +122,25 @@ static void wifiTask(void *) {
     if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
         Serial.print("[wifi] ");
         Serial.println(WiFi.localIP());
-        if (_cfg.hostname) {
-            _mdns_udp.beginMulticast(kMdnsGroup, kMdnsPort);
-            mdns_announce();
-            xTaskCreate(mdnsTask, "mdns", 512, nullptr, 1, nullptr);
-        }
+
+        // Telnet first — must not be blocked by mDNS setup.
         if (_cfg.enable_telnet) {
             const char *tg = _cfg.telnet_greeting ? _cfg.telnet_greeting : _cfg.hostname;
             _server.begin();
             _telnet.begin(_registry, _server, tg);
             xTaskCreate(ArduinoTelnetTransport::taskBody, "telnet", 256, &_telnet, 2, nullptr);
         }
+
+        // setHostname after connect: the ESP32-S3 runs ESP-IDF which has native
+        // mDNS; calling AT+HOSTNAME once the modem is fully up may enable it.
+        // Also start the inline responder to handle A-record queries directly.
+        if (_cfg.hostname) {
+            WiFi.setHostname(_cfg.hostname);
+            _mdns_udp.beginMulticast(kMdnsGroup, kMdnsPort);
+            mdns_announce();
+            xTaskCreate(mdnsTask, "mdns", 512, nullptr, 1, nullptr);
+        }
+
         commander_on_wifi_connected();
     } else {
         Serial.println("[wifi] failed — telnet disabled");
