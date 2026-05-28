@@ -111,7 +111,6 @@ static void wifiTask(void *) {
     // WiFi SPI is slow on R4 (~5x slower than R3); running in a task keeps the
     // UART task and USB interrupt handler live during the connection loop.
     vTaskDelay(pdMS_TO_TICKS(1500));
-    if (_cfg.hostname) WiFi.setHostname(_cfg.hostname);  // DHCP hostname (before begin)
     Serial.print("[wifi] connecting");
     WiFi.begin(_cfg.wifi_ssid, _cfg.wifi_password);
     for (int i = 0; i < 40 && (WiFi.status() != WL_CONNECTED ||
