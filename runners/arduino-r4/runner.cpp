@@ -60,11 +60,6 @@ void setup() {
     commander_setup(_registry);
     _registry.validateIds();
 
-    // R4 USB CDC: SerialUSB::write() and read() return 0/-1 when DTR is not
-    // asserted. Calling dtr() sets ignore_dtr=true so reads/writes work
-    // regardless of terminal state — no need to busy-wait before the scheduler.
-    Serial.dtr();
-
     commander_on_uart_ready(_uart);
     xTaskCreate(UartTransport::taskBody, "uart", 256, &_uart, 2, nullptr);
 
