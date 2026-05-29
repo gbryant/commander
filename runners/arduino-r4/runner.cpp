@@ -127,11 +127,7 @@ static void net_poll() {
     uint32_t now = millis();
     if (now - last < 100) return;
     last = now;
-    int pkt = _mdns_udp.parsePacket();
-    if (pkt >= 12) {
-        Serial.print("[mdns] query "); Serial.print(pkt); Serial.println("b");
-    }
-    mdns_run(pkt);
+    mdns_run(_mdns_udp.parsePacket());
 }
 
 // mDNS-only networking task — used when telnet is disabled but a hostname is set.
