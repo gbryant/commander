@@ -108,7 +108,8 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | `platform/arduino/IRModule`       | ⬜ todo      | IRremote                                            |
 | `platform/pico/IRModule` (PIO)    | ✅ done      | PicoIRModule — ring buffer, NEC + Sony              |
 | `platform/esp32/IRModule` (RMT)   | ⬜ todo      |                                                     |
-| Roomba driver module              | ⬜ todo      | `modules/roomba/` — OI protocol, `hal_uart_*`       |
+| `modules/roomba/Roomba`           | ✅ done      | portable OI driver via abstract `RoombaPort`        |
+| `modules/roomba/RoombaModule`     | ✅ done      | `oi` shell command; drove a real Roomba from R4     |
 | Bluetooth module                  | ⬜ todo      |                                                     |
 
 ## Roadmap
@@ -146,10 +147,13 @@ Goal: migrate Roomba robot to this framework.
 - [x] **Flash R4 and confirm `help` + WiFi + Telnet** — done via `runners/arduino-r4`;
       also `mDNS` (`r4-test.local` resolves; telnet-by-name confirmed) (2026-05-29)
 
-#### Phase R1 — Roomba driver module
-- [ ] `modules/roomba/Roomba.h` — OI protocol driver using `hal_uart_*`
-- [ ] Wire into `platform/arduino-r4/main.cpp` (OI on Serial1)
-- [ ] `i2c_ids.h` — Roomba bridge command/sensor registers
+#### Phase R1 — Roomba driver module — driver + shell done (2026-05-29)
+- [x] `modules/roomba/Roomba.h` — portable OI driver via abstract `RoombaPort`
+      (byte I/O + timing + optional BRC); no Arduino/HAL deps
+- [x] `modules/roomba/RoombaModule.h` — `oi` shell command (drive/clean/dock/sensors)
+- [x] R4 `Serial1` (D0/D1) adapter; **drove a real Roomba from the console** (2026-05-29)
+- [ ] `i2c_ids.h` — Roomba bridge command/sensor registers (deferred; revisit
+      whether `MOD_LOCOMOTION` is the right fit when building the I2C bridge)
 
 #### Phase R2 — Pico 2 W as main controller
 - [ ] R4 becomes I2C slave; Pico 2 W `RoombaModule` via `hal_i2c_*`
@@ -161,8 +165,9 @@ Goal: migrate Roomba robot to this framework.
 
 ### What's next
 
-1. **Roomba module** — start Phase R1 (`modules/roomba/`); R4 hardware is
-   confirmed, so Phase R is unblocked. This is the robot-focused priority.
+1. **I2C bridge protocol** — define how the Pico 2 W drives the R4 Roomba
+   bridge over I2C (Phase R2). Revisit the `i2c_ids.h` module-ID layout for
+   locomotion while doing it.
 2. **OTA test** — exercise bum-ota on Pico W / Pico 2 W; wire ota_cmd into
    ESP32 runner so `ota <url>` works from the shell.
 3. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent

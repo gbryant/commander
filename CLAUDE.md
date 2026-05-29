@@ -165,6 +165,8 @@ commander/
 - Arduino Uno: builds, uploads, `help` command works over serial.
 - Arduino R4 WiFi: hardware-confirmed — `help` + WiFi + Telnet + mDNS
   (`r4-test.local` resolves; telnet-by-name works) via `runners/arduino-r4`.
+- Roomba OI: `modules/roomba/` (portable `Roomba` driver + `oi` shell command)
+  drove a real Roomba from the R4 over `Serial1` (D0/D1). Hardware-confirmed.
 - Pico W: builds clean, `help` confirmed over USB CDC serial.
 - Pico 2 W (RP2350): builds clean via `./build-pico2`. Needs hardware test.
 - ESP32-S3-N16R8: builds clean, `help` confirmed over native USB CDC (USB Serial/JTAG).
@@ -175,7 +177,10 @@ Phase R0 — flash and confirm the two new platforms:
 - ~~Flash Arduino R4 and confirm `help` + WiFi + Telnet~~ ✅ done (2026-05-29)
 - Flash Pico 2 W and confirm `help` + WiFi
 
-Phase R1 — Roomba driver module (next priority — R4 hardware is unblocked):
-- `modules/roomba/Roomba.h` — OI protocol driver using `hal_uart_*`
-- Define I2C bridge registers in `i2c_ids.h`
+Phase R1 — Roomba driver module: ✅ done (2026-05-29)
+- `modules/roomba/Roomba.h` (portable OI driver) + `RoombaModule.h` (`oi` command)
+  drove a real Roomba from the R4 over `Serial1` (D0/D1).
+
+Phase R2 — Pico 2 W as main controller (next):
+- Define I2C bridge registers in `i2c_ids.h` (revisit `MOD_LOCOMOTION` fit)
 - Arduino R4 becomes Roomba I2C bridge (I2C slave → Roomba OI)
