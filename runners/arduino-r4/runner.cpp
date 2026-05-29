@@ -75,8 +75,7 @@ static void mdns_announce() {
 }
 
 // Check for incoming mDNS queries and reply to A/ANY for <hostname>.local.
-static void mdns_run() {
-    int len = _mdns_udp.parsePacket();
+static void mdns_run(int len) {
     if (len < 12 || len > 255) return;
     uint8_t buf[256];
     len = _mdns_udp.read(buf, sizeof(buf));
@@ -100,7 +99,11 @@ static void mdns_run() {
 
 static void mdnsTask(void*) {
     for (;;) {
-        mdns_run();
+        int pkt = _mdns_udp.parsePacket();
+        if (pkt >= 12) {
+            Serial.print("[mdns] query "); Serial.print(pkt); Serial.println("b");
+        }
+        mdns_run(pkt);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -131,14 +134,13 @@ static void wifiTask(void *) {
             xTaskCreate(ArduinoTelnetTransport::taskBody, "telnet", 256, &_telnet, 2, nullptr);
         }
 
-        // setHostname after connect: the ESP32-S3 runs ESP-IDF which has native
-        // mDNS; calling AT+HOSTNAME once the modem is fully up may enable it.
-        // Also start the inline responder to handle A-record queries directly.
         if (_cfg.hostname) {
-            WiFi.setHostname(_cfg.hostname);
-            _mdns_udp.beginMulticast(kMdnsGroup, kMdnsPort);
-            mdns_announce();
-            xTaskCreate(mdnsTask, "mdns", 512, nullptr, 1, nullptr);
+            bool mdns_ok = _mdns_udp.beginMulticast(kMdnsGroup, kMdnsPort);
+            Serial.print("[mdns] "); Serial.println(mdns_ok ? "ok" : "socket failed");
+            if (mdns_ok) {
+                mdns_announce();
+                xTaskCreate(mdnsTask, "mdns", 512, nullptr, 1, nullptr);
+            }
         }
 
         commander_on_wifi_connected();
