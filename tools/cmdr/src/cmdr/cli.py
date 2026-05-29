@@ -223,6 +223,11 @@ build_flags =
     -DCOMMANDER_R4_RUNNER
     -DMAX_COMMANDS=12
     -I${PROJECT_DIR}
+    ; FreeRTOS hardening: report stack overflow / heap exhaustion instead of a
+    ; silent corruption that wedges the ESP32-S3 bridge. Hooks live in the runner.
+    -DconfigCHECK_FOR_STACK_OVERFLOW=2
+    -DconfigUSE_MALLOC_FAILED_HOOK=1
+    -DconfigTOTAL_HEAP_SIZE=0x2800
 lib_deps =
     """ + REPO_URL + """
 """

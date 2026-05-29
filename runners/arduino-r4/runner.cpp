@@ -19,6 +19,28 @@ extern "C" __attribute__((weak)) void commander_early_init()                   {
 extern "C" __attribute__((weak)) void commander_on_uart_ready(UartTransport &) {}
 extern "C" __attribute__((weak)) void commander_on_wifi_connected()            {}
 
+// FreeRTOS fault hooks. Active when the project's platformio.ini sets
+// configCHECK_FOR_STACK_OVERFLOW=2 and configUSE_MALLOC_FAILED_HOOK=1. Without
+// them, a stack overflow or heap exhaustion corrupts memory silently and can
+// wedge the ESP32-S3 bridge (no serial, slow-pulse LED, needs a power cycle).
+// With them, the offending task is named on Serial before the board halts.
+extern "C" void vApplicationStackOverflowHook(TaskHandle_t, char *pcTaskName) {
+    Serial.println();
+    Serial.print("!! FreeRTOS STACK OVERFLOW in task: ");
+    Serial.println(pcTaskName);
+    Serial.flush();
+    taskDISABLE_INTERRUPTS();
+    for (;;) {}
+}
+
+extern "C" void vApplicationMallocFailedHook(void) {
+    Serial.println();
+    Serial.println("!! FreeRTOS heap exhausted (pvPortMalloc failed)");
+    Serial.flush();
+    taskDISABLE_INTERRUPTS();
+    for (;;) {}
+}
+
 // ── Minimal mDNS A-record responder ──────────────────────────────────────────
 // Joins 224.0.0.251:5353 and responds to A/ANY queries for <hostname>.local.
 // No external library needed — uses WiFiUDP multicast (AT+UDPBEGINMULTI).
@@ -119,6 +141,19 @@ static void mdnsTask(void*) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
+// One connection attempt: WiFi.begin then poll up to ~20s for association +
+// a valid DHCP lease. Returns true on success.
+static bool wifi_attempt() {
+    Serial.print("[wifi] connecting");
+    WiFi.begin(_cfg.wifi_ssid, _cfg.wifi_password);
+    for (int i = 0; i < 40 && (WiFi.status() != WL_CONNECTED ||
+                                WiFi.localIP() == IPAddress(0, 0, 0, 0)); i++) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        Serial.print(".");
+    }
+    Serial.println();
+    return WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0);
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 static void wifiTask(void *) {
@@ -139,43 +174,41 @@ static void wifiTask(void *) {
     Serial.print(_cfg.hostname ? _cfg.hostname : "boot");
     Serial.println(" ===");
 
-    Serial.print("[wifi] connecting");
-    WiFi.begin(_cfg.wifi_ssid, _cfg.wifi_password);
-    for (int i = 0; i < 40 && (WiFi.status() != WL_CONNECTED ||
-                                WiFi.localIP() == IPAddress(0, 0, 0, 0)); i++) {
-        vTaskDelay(pdMS_TO_TICKS(500));
-        Serial.print(".");
+    // Retry until associated. A single WiFi.begin often fails transiently on the
+    // R4 (modem warm-up, AP timing) — one run reports "failed", the next works.
+    // The UART shell runs in its own task, so it stays usable while we retry.
+    for (int attempt = 1; !wifi_attempt(); attempt++) {
+        Serial.print("[wifi] attempt "); Serial.print(attempt);
+        Serial.println(" failed — retrying in 5s");
+        WiFi.disconnect();
+        vTaskDelay(pdMS_TO_TICKS(5000));
     }
-    Serial.println();
-    if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-        Serial.print("[wifi] ");
-        Serial.println(WiFi.localIP());
 
-        // One networking task owns ALL modem access (telnet + mDNS). WiFiS3's
-        // modem is a single global with no locking, so two tasks polling it
-        // concurrently interleave AT command/response framing on Serial2 and
-        // can wedge the ESP32-S3 — which also kills Serial (the UART bridge).
-        bool mdns_ok = false;
-        if (_cfg.hostname) {
-            mdns_ok = _mdns_udp.beginMulticast(kMdnsGroup, kMdnsPort);
-            Serial.print("[mdns] "); Serial.println(mdns_ok ? "ok" : "socket failed");
-            if (mdns_ok) mdns_announce();
-        }
+    Serial.print("[wifi] ");
+    Serial.println(WiFi.localIP());
 
-        if (_cfg.enable_telnet) {
-            const char *tg = _cfg.telnet_greeting ? _cfg.telnet_greeting : _cfg.hostname;
-            _server.begin();
-            _telnet.begin(_registry, _server, tg);
-            if (mdns_ok) _telnet.setPollFn(net_poll);   // mDNS runs in the telnet task
-            xTaskCreate(ArduinoTelnetTransport::taskBody, "net", 512, &_telnet, 2, nullptr);
-        } else if (mdns_ok) {
-            xTaskCreate(mdnsTask, "mdns", 512, nullptr, 2, nullptr);
-        }
-
-        commander_on_wifi_connected();
-    } else {
-        Serial.println("[wifi] failed — telnet disabled");
+    // One networking task owns ALL modem access (telnet + mDNS). WiFiS3's
+    // modem is a single global with no locking, so two tasks polling it
+    // concurrently interleave AT command/response framing on Serial2 and
+    // can wedge the ESP32-S3 — which also kills Serial (the UART bridge).
+    bool mdns_ok = false;
+    if (_cfg.hostname) {
+        mdns_ok = _mdns_udp.beginMulticast(kMdnsGroup, kMdnsPort);
+        Serial.print("[mdns] "); Serial.println(mdns_ok ? "ok" : "socket failed");
+        if (mdns_ok) mdns_announce();
     }
+
+    if (_cfg.enable_telnet) {
+        const char *tg = _cfg.telnet_greeting ? _cfg.telnet_greeting : _cfg.hostname;
+        _server.begin();
+        _telnet.begin(_registry, _server, tg);
+        if (mdns_ok) _telnet.setPollFn(net_poll);   // mDNS runs in the telnet task
+        xTaskCreate(ArduinoTelnetTransport::taskBody, "net", 512, &_telnet, 2, nullptr);
+    } else if (mdns_ok) {
+        xTaskCreate(mdnsTask, "mdns", 512, nullptr, 2, nullptr);
+    }
+
+    commander_on_wifi_connected();
     vTaskDelete(nullptr);
 }
 
