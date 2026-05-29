@@ -173,6 +173,19 @@ void setup() {
     const char *greeting = _cfg.uart_greeting ? _cfg.uart_greeting : "commander";
     _uart.begin(_registry, _cfg.uart_baud, greeting);
 
+    // Wait for the serial link, capped at 3s, then announce boot before bringing
+    // up peripherals. On USB-CDC boards `Serial` stays false until the terminal
+    // opens (DTR); on the R4's ESP32-S3 UART bridge `operator bool` is always
+    // true, so this returns at once — the board having just reset on tio attach,
+    // the banner is still caught by the freshly-attached monitor.
+    uint32_t boot_start = millis();
+    while (!Serial && (millis() - boot_start) < 3000) delay(10);
+    Serial.println();
+    Serial.print("=== commander: ");
+    Serial.print(_cfg.hostname ? _cfg.hostname : "boot");
+    Serial.println(" ===");
+    Serial.println("serial up — initializing wifi...");
+
     if (_cfg.i2c_sda >= 0)
         hal_i2c_init((uint8_t)_cfg.i2c_sda, (uint8_t)_cfg.i2c_scl, _cfg.i2c_hz);
 
