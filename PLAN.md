@@ -89,7 +89,7 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | `transport/telnet/`               | ✅ done      | lwIP BSD sockets (Pico/ESP32)                       |
 | `transport/telnet/arduino/`       | ✅ done      | WiFiServer-based (R4)                               |
 | `platform/arduino/`               | ✅ done      | Uno: builds clean; `help` confirmed over serial     |
-| `platform/arduino-r4/`            | ✅ builds    | WiFi + OTA + Telnet; **needs hardware test**        |
+| `platform/arduino-r4/`            | ✅ done      | `help` + WiFi + Telnet + mDNS confirmed on hardware |
 | `platform/pico/` (Pico W)         | ✅ done      | `help` confirmed over USB CDC; WiFi + Telnet live   |
 | `platform/pico/` (Pico 2W)        | ✅ done      | `help` + WiFi + Telnet confirmed; RP2350 INVPC fix  |
 | `platform/esp32/`                 | ✅ done      | `help` confirmed over native USB CDC                |
@@ -99,6 +99,7 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | **FetchContent validation**       | ✅ done      | scratch project at `/tmp/commander-test-app` builds |
 | **`commander_generate_scripts()`**| ✅ done      | generates bum/build/upload/monitor/bum-ota scripts  |
 | **`runners/esp32/`**              | ✅ done      | IDF component; UART + WiFi + Telnet confirmed       |
+| **`runners/arduino-r4/`**         | ✅ done      | FreeRTOS; UART + WiFi + Telnet + mDNS confirmed     |
 | **`commander-new` tool**          | ✅ done      | pip install; pico/pico2/esp32 targets; --chip/--flash/--psram |
 | OTA — Pico                        | ⬜ todo      | bum-ota script exists; needs end-to-end test        |
 | OTA — ESP32                       | ⬜ todo      | ota_cmd.h exists in platform/esp32; not in runner   |
@@ -139,10 +140,11 @@ Goal: migrate Roomba robot to this framework.
 - Arduino R4 = Roomba OI bridge (I2C slave → Serial1 → Roomba)
 - BT controller TBD
 
-#### Phase R0 — platform proofs
+#### Phase R0 — platform proofs ✅ done (2026-05-29)
 - [x] `platform/arduino-r4/` builds (WiFi + OTA + Telnet + UART shell)
 - [x] `platform/pico2/` builds and runs (RP2350 INVPC fault fixed 2026-05-25)
-- [ ] **Flash R4 and confirm `help` + WiFi + Telnet** ← next hardware task
+- [x] **Flash R4 and confirm `help` + WiFi + Telnet** — done via `runners/arduino-r4`;
+      also `mDNS` (`r4-test.local` resolves; telnet-by-name confirmed) (2026-05-29)
 
 #### Phase R1 — Roomba driver module
 - [ ] `modules/roomba/Roomba.h` — OI protocol driver using `hal_uart_*`
@@ -159,12 +161,12 @@ Goal: migrate Roomba robot to this framework.
 
 ### What's next
 
-1. **OTA test** — exercise bum-ota on Pico W / Pico 2 W; wire ota_cmd into
+1. **Roomba module** — start Phase R1 (`modules/roomba/`); R4 hardware is
+   confirmed, so Phase R is unblocked. This is the robot-focused priority.
+2. **OTA test** — exercise bum-ota on Pico W / Pico 2 W; wire ota_cmd into
    ESP32 runner so `ota <url>` works from the shell.
-2. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
+3. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
    on ESP32 (esp_restart into download mode or DFU).
-3. **R4 hardware test** — flash R4, confirm `help` + WiFi + Telnet; unblocks Phase R.
-4. **Roomba module** — start Phase R1 (`modules/roomba/`); robot-focused.
 
 ## Board pin reference
 
