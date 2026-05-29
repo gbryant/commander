@@ -122,10 +122,23 @@ static void mdnsTask(void*) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 static void wifiTask(void *) {
-    // Match the UART task's 1500ms settle — Serial must be ready before first print.
-    // WiFi SPI is slow on R4 (~5x slower than R3); running in a task keeps the
-    // UART task and USB interrupt handler live during the connection loop.
+    // Wait for the serial link (cap 3s), then settle. On USB-CDC boards `Serial`
+    // stays false until the terminal opens (DTR); on the R4's ESP32-S3 UART
+    // bridge `operator bool` is always true, so this returns at once. The 1500ms
+    // settle that follows is essential: the board just reset when tio attached,
+    // and anything printed before the bridge re-establishes UART forwarding is
+    // lost — which is why the boot banner is announced here, not in setup().
+    // WiFi SPI is also slow on R4 (~5x R3); running in a task keeps the UART
+    // task and USB interrupt handler live during the connection loop.
+    uint32_t boot_start = millis();
+    while (!Serial && (millis() - boot_start) < 3000) vTaskDelay(pdMS_TO_TICKS(10));
     vTaskDelay(pdMS_TO_TICKS(1500));
+
+    Serial.println();
+    Serial.print("=== commander: ");
+    Serial.print(_cfg.hostname ? _cfg.hostname : "boot");
+    Serial.println(" ===");
+
     Serial.print("[wifi] connecting");
     WiFi.begin(_cfg.wifi_ssid, _cfg.wifi_password);
     for (int i = 0; i < 40 && (WiFi.status() != WL_CONNECTED ||
@@ -172,19 +185,6 @@ void setup() {
 
     const char *greeting = _cfg.uart_greeting ? _cfg.uart_greeting : "commander";
     _uart.begin(_registry, _cfg.uart_baud, greeting);
-
-    // Wait for the serial link, capped at 3s, then announce boot before bringing
-    // up peripherals. On USB-CDC boards `Serial` stays false until the terminal
-    // opens (DTR); on the R4's ESP32-S3 UART bridge `operator bool` is always
-    // true, so this returns at once — the board having just reset on tio attach,
-    // the banner is still caught by the freshly-attached monitor.
-    uint32_t boot_start = millis();
-    while (!Serial && (millis() - boot_start) < 3000) delay(10);
-    Serial.println();
-    Serial.print("=== commander: ");
-    Serial.print(_cfg.hostname ? _cfg.hostname : "boot");
-    Serial.println(" ===");
-    Serial.println("serial up — initializing wifi...");
 
     if (_cfg.i2c_sda >= 0)
         hal_i2c_init((uint8_t)_cfg.i2c_sda, (uint8_t)_cfg.i2c_scl, _cfg.i2c_hz);
