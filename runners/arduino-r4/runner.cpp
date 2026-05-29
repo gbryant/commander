@@ -97,13 +97,25 @@ static void mdns_run(int len) {
     }
 }
 
+// One mDNS tick, rate-limited to ~100ms. Installed as the telnet task's poll
+// hook so a single task owns all modem access — WiFiS3's modem singleton has
+// no locking, so polling it from two tasks corrupts AT framing on Serial2.
+static void net_poll() {
+    static uint32_t last = 0;
+    uint32_t now = millis();
+    if (now - last < 100) return;
+    last = now;
+    int pkt = _mdns_udp.parsePacket();
+    if (pkt >= 12) {
+        Serial.print("[mdns] query "); Serial.print(pkt); Serial.println("b");
+    }
+    mdns_run(pkt);
+}
+
+// mDNS-only networking task — used when telnet is disabled but a hostname is set.
 static void mdnsTask(void*) {
     for (;;) {
-        int pkt = _mdns_udp.parsePacket();
-        if (pkt >= 12) {
-            Serial.print("[mdns] query "); Serial.print(pkt); Serial.println("b");
-        }
-        mdns_run(pkt);
+        net_poll();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -126,21 +138,25 @@ static void wifiTask(void *) {
         Serial.print("[wifi] ");
         Serial.println(WiFi.localIP());
 
-        // Telnet first — must not be blocked by mDNS setup.
+        // One networking task owns ALL modem access (telnet + mDNS). WiFiS3's
+        // modem is a single global with no locking, so two tasks polling it
+        // concurrently interleave AT command/response framing on Serial2 and
+        // can wedge the ESP32-S3 — which also kills Serial (the UART bridge).
+        bool mdns_ok = false;
+        if (_cfg.hostname) {
+            mdns_ok = _mdns_udp.beginMulticast(kMdnsGroup, kMdnsPort);
+            Serial.print("[mdns] "); Serial.println(mdns_ok ? "ok" : "socket failed");
+            if (mdns_ok) mdns_announce();
+        }
+
         if (_cfg.enable_telnet) {
             const char *tg = _cfg.telnet_greeting ? _cfg.telnet_greeting : _cfg.hostname;
             _server.begin();
             _telnet.begin(_registry, _server, tg);
-            xTaskCreate(ArduinoTelnetTransport::taskBody, "telnet", 256, &_telnet, 2, nullptr);
-        }
-
-        if (_cfg.hostname) {
-            bool mdns_ok = _mdns_udp.beginMulticast(kMdnsGroup, kMdnsPort);
-            Serial.print("[mdns] "); Serial.println(mdns_ok ? "ok" : "socket failed");
-            if (mdns_ok) {
-                mdns_announce();
-                xTaskCreate(mdnsTask, "mdns", 512, nullptr, 1, nullptr);
-            }
+            if (mdns_ok) _telnet.setPollFn(net_poll);   // mDNS runs in the telnet task
+            xTaskCreate(ArduinoTelnetTransport::taskBody, "net", 512, &_telnet, 2, nullptr);
+        } else if (mdns_ok) {
+            xTaskCreate(mdnsTask, "mdns", 512, nullptr, 2, nullptr);
         }
 
         commander_on_wifi_connected();
