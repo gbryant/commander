@@ -102,8 +102,8 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | **`runners/arduino-r4/`**         | ✅ done      | FreeRTOS; UART + WiFi + Telnet + mDNS confirmed     |
 | **`commander-new` tool**          | ✅ done      | pip install; pico/pico2/esp32 targets; --chip/--flash/--psram |
 | OTA — R4 (on-demand)              | ✅ done      | `cmdr enable ota`; `ota start` hands off telnet→OTA; push confirmed on hardware (2026-05-29) |
-| OTA — Pico                        | ⬜ todo      | bum-ota script exists; needs end-to-end test        |
-| OTA — ESP32                       | ⬜ todo      | ota_cmd.h exists in platform/esp32; not in runner   |
+| OTA — Pico (pull `ota <url>`)     | 🟡 untested  | runner wires `ota` + pfb_firmware_commit (COMMANDER_ENABLE_OTA); needs hardware test |
+| OTA — ESP32 (pull `ota <url>`)    | 🟡 untested  | runner registers `ota` (COMMANDER_ENABLE_OTA); needs hardware test  |
 | Board commands — Pico             | ⬜ todo      | reboot-to-bootloader via SystemModule or hook       |
 | `modules/ir/IIRModule.h`          | ✅ done      | interface only                                      |
 | `platform/arduino/IRModule`       | ⬜ todo      | IRremote                                            |
@@ -169,8 +169,9 @@ Goal: migrate Roomba robot to this framework.
 1. **I2C bridge protocol** — define how the Pico 2 W drives the R4 Roomba
    bridge over I2C (Phase R2). Revisit the `i2c_ids.h` module-ID layout for
    locomotion while doing it.
-2. **OTA test** — exercise bum-ota on Pico W / Pico 2 W; wire ota_cmd into
-   ESP32 runner so `ota <url>` works from the shell.
+2. **OTA hardware test** — pico & esp32 runners already register the pull-based
+   `ota <url>` command (gated by COMMANDER_ENABLE_OTA via `cmdr enable ota`);
+   exercise it end-to-end on Pico W / Pico 2 W / ESP32 hardware.
 3. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
    on ESP32 (esp_restart into download mode or DFU).
 

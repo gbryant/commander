@@ -71,6 +71,13 @@ or resets after 60 s). The push runs from the single networking task (never a
 separate task — modem race). `cmdr enable ota` writes a `bum-ota` script that
 arms the device over Telnet, builds, and HTTP-POSTs via `scripts/upload_ota.py`.
 
+OTA differs by platform. **Pico and ESP32 use a pull model** instead: their
+runners register an `ota <url>` command (gated by `COMMANDER_ENABLE_OTA`, set by
+`cmdr enable ota` on the CMake side) that downloads firmware from a URL and
+self-flashes (pico_fota_bootloader / esp_ota). lwIP has plenty of sockets there,
+so no Telnet hand-off is needed. Both are wired in the runners but not yet
+hardware-tested. R4's push model is the exception, forced by WiFiS3's socket cap.
+
 ### Pico W
 Build system is CMake + Pico SDK. `pico_sdk_import.cmake` and
 `FreeRTOS_Kernel_import.cmake` are checked in at the repo root.
