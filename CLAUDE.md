@@ -117,6 +117,20 @@ The board has no USB-to-serial chip; UART0 (GPIO43/44) is on headers only.
 **ESP-IDF environment:** run `esp` before any `idf.py` or `bum-esp32` command.
 `esp` is a shell alias for `. ~/u-developer/esp-idf/export.sh`.
 
+## Modules (`cmdr module`)
+
+Modules are composed by the `cmdr` tool, not by hand-editing `commander_setup()`.
+`cmdr module enable <name>` asks the module's config questions, records them in a
+per-project `cmdr.toml`, and regenerates `commander_modules.h` — a cmdr-owned
+file (in `src/` for R4/Uno, project root for Pico, `main/` for ESP32) that
+includes only enabled modules, constructs them with the saved answers (incl. any
+board-specific adapter), and exposes `commander_register_modules(reg)`. The app's
+`main.cpp` just calls that hook, so disabled modules aren't compiled (no flags).
+Available: `system` (always), `compass` (HAL I2C — its emitter calls
+`hal_i2c_init`), `sonar` (HAL GPIO, one pin), `roomba` (R4 only — `Serial1`
+adapter). Cross-platform modules use the same emitter on every target; only
+`roomba` is platform-gated. `cmdr module list` shows state per target.
+
 ## File layout (key files)
 
 ```
