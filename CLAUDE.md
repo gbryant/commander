@@ -57,13 +57,19 @@ Port is hardcoded to `/dev/cu.usbmodem1413301` in `platformio.ini`.
 ```bash
 pio run -e r4                          # build only
 pio run -e r4 -t upload                # upload via USB
-pio run -e r4 -t upload --upload-port <ip>  # OTA upload
 pio device monitor -e r4              # serial monitor
 ```
-FreeRTOS via `Arduino_FreeRTOS` library. WiFi + OTA (ArduinoOTA on port 65280)
-+ Telnet (port 23). WiFi credentials from `include/secrets.h`.
-The `ArduinoTelnetTransport` in `transport/telnet/arduino/` uses `WiFiServer`
-instead of lwIP sockets.
+FreeRTOS via `Arduino_FreeRTOS` library. WiFi + Telnet (port 23) live in the
+runner; WiFi credentials from `secrets.h`. The `ArduinoTelnetTransport` in
+`transport/telnet/arduino/` uses `WiFiServer` instead of lwIP sockets.
+
+**OTA is opt-in** via `cmdr enable ota` (gated by `-DCOMMANDER_R4_OTA`, adds the
+`ArduinoOTA` lib). It is **on-demand, not always-on**: WiFiS3's socket pool is
+too small for OTA + Telnet to listen at once, so the `ota start` command closes
+Telnet + mDNS and listens for an ArduinoOTA push on :65280 (reboots on success,
+or resets after 60 s). The push runs from the single networking task (never a
+separate task — modem race). `cmdr enable ota` writes a `bum-ota` script that
+arms the device over Telnet, builds, and HTTP-POSTs via `scripts/upload_ota.py`.
 
 ### Pico W
 Build system is CMake + Pico SDK. `pico_sdk_import.cmake` and

@@ -3,6 +3,9 @@
 #include <Arduino.h>
 #include <Arduino_FreeRTOS.h>
 #include <WiFiS3.h>
+#ifdef COMMANDER_R4_OTA
+#include <ArduinoOTA.h>     // enabled via `cmdr enable ota`
+#endif
 #include "commander.h"
 #include "hal/hal.h"
 // Unity-build: only compiled for R4, keeps it out of library srcFilter
@@ -119,10 +122,49 @@ static void mdns_run(int len) {
     }
 }
 
+#ifdef COMMANDER_R4_OTA
+// On-demand OTA. The `ota start` command only sets this flag; the actual
+// handoff runs from net_poll — i.e. in the networking task — so it never races
+// the modem (the single-task rule). WiFiS3 has a tiny socket pool, so OTA and
+// telnet cannot listen at once: we free the telnet + mDNS sockets first, then
+// listen for an ArduinoOTA push on :65280. ArduinoOTA reboots on success; on
+// timeout we reset to restore the normal telnet/mDNS state cleanly.
+static volatile bool _ota_arm = false;
+
+static void run_ota() {
+    Serial.println("[ota] closing telnet + mDNS, listening 60s on :65280...");
+    _server.end();
+    _mdns_udp.stop();
+    const char *host = _cfg.hostname ? _cfg.hostname : "commander";
+    ArduinoOTA.begin(WiFi.localIP(), host, "", InternalStorage);
+    uint32_t t0 = millis();
+    while (millis() - t0 < 60000) {
+        ArduinoOTA.poll();   // reboots the board on a successful upload
+        delay(20);
+    }
+    Serial.println("[ota] timeout — rebooting to restore telnet");
+    NVIC_SystemReset();
+}
+
+static void otaCmd(const char *args, Writer &out, void *) {
+    while (*args == ' ') ++args;
+    if (strncmp(args, "start", 5) == 0) {
+        out.writeln("ok: arming OTA — telnet will drop; push within 60s");
+        _ota_arm = true;     // handed off to net_poll (networking task)
+    } else {
+        out.writeln("ota: 'ota start' arms a firmware update");
+        out.writeln("     (closes telnet, listens 60s on :65280, reboots on success)");
+    }
+}
+#endif // COMMANDER_R4_OTA
+
 // One mDNS tick, rate-limited to ~100ms. Installed as the telnet task's poll
 // hook so a single task owns all modem access — WiFiS3's modem singleton has
 // no locking, so polling it from two tasks corrupts AT framing on Serial2.
 static void net_poll() {
+#ifdef COMMANDER_R4_OTA
+    if (_ota_arm) { _ota_arm = false; run_ota(); }   // runs in this (net) task
+#endif
     static uint32_t last = 0;
     uint32_t now = millis();
     if (now - last < 100) return;
@@ -219,6 +261,9 @@ void setup() {
         hal_i2c_init((uint8_t)_cfg.i2c_sda, (uint8_t)_cfg.i2c_scl, _cfg.i2c_hz);
 
     commander_setup(_registry);
+#ifdef COMMANDER_R4_OTA
+    _registry.registerCommand(CMD("ota", "OTA firmware update ('ota start')", I2C_NONE, otaCmd, nullptr));
+#endif
     _registry.validateIds();
 
     commander_on_uart_ready(_uart);

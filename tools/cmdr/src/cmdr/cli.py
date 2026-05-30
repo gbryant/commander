@@ -227,7 +227,6 @@ build_flags =
     ; silent corruption that wedges the ESP32-S3 bridge. Hooks live in the runner.
     -DconfigCHECK_FOR_STACK_OVERFLOW=2
     -DconfigUSE_MALLOC_FAILED_HOOK=1
-    -DconfigTOTAL_HEAP_SIZE=0x2800
 lib_deps =
     """ + REPO_URL + """
 """
@@ -313,13 +312,41 @@ tio --baudrate 115200 "$PORT"
 
 ARDUINO_R4_BUM_OTA_SCRIPT = """\
 #!/bin/bash
-# Build __NAME__ and push via OTA (ArduinoOTA on the R4).
+# Build __NAME__ and push via OTA. Arms the device (sends 'ota start' over
+# telnet — the device closes telnet and starts the OTA listener on :65280 so
+# the two never contend for the WiFiS3 socket pool), builds, then HTTP-POSTs
+# the firmware. Requires: pip install requests
 # Usage: ./bum-ota [host]   default: __NAME__.local
 set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST="${1:-__NAME__.local}"
+
+echo "Resolving $HOST..."
+IP=$(python3 -c "import socket,sys; print(socket.gethostbyname(sys.argv[1]))" "$HOST")
+echo "  $HOST -> $IP"
+
+echo "Arming OTA via telnet ($IP:23) — waiting for connection to drop..."
+python3 - "$IP" <<'PYEOF'
+import sys, socket, time
+ip = sys.argv[1]
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect((ip, 23)); s.settimeout(20)
+time.sleep(0.5)
+try: print(s.recv(4096).decode("utf-8", "replace"), end="", flush=True)
+except OSError: pass
+s.sendall(b"ota start\\r\\n")
+try:
+    while True:
+        d = s.recv(1024)
+        if not d: break
+        print(d.decode("utf-8", "replace"), end="", flush=True)
+except OSError: pass
+s.close()
+PYEOF
+echo "OTA mode active."
+
 "$DIR/build"
-pio run -e __NAME__ -t upload --upload-port "$HOST"
+python3 "$DIR/scripts/upload_ota.py" "$IP" "$DIR/.pio/build/__NAME__/firmware.bin"
 """
 
 ESP32_MONITOR_SCRIPT = """\
@@ -817,10 +844,48 @@ def _enable_ota_esp32(cmake: Path, content: str) -> None:
         subprocess.run(["cmake", "-B", str(build_dir)], check=True)
 
 
+def _env_name_from_pio(text: str) -> str:
+    m = re.search(r"\[env:(.+?)\]", text)
+    return m.group(1) if m else "app"
+
+
+def _enable_ota_r4() -> None:
+    pio = Path("platformio.ini")
+    text = pio.read_text()
+    name = _env_name_from_pio(text)
+    if "COMMANDER_R4_OTA" in text:
+        print("OTA already enabled.")
+    else:
+        out = []
+        for line in text.splitlines():
+            out.append(line)
+            s = line.strip()
+            if s.startswith("build_flags"):
+                out.append("    -DCOMMANDER_R4_OTA")
+            elif s.startswith("lib_deps"):
+                out.append("    ArduinoOTA @ ^1.0.0")
+        text = "\n".join(out) + "\n"
+        # OTA needs the RAM — drop any FreeRTOS heap bump above the 8 KB default.
+        text = re.sub(r"\n[^\n]*-DconfigTOTAL_HEAP_SIZE=[^\n]*", "", text)
+        pio.write_text(text)
+        print("Enabled OTA in platformio.ini:")
+        print("  • -DCOMMANDER_R4_OTA build flag")
+        print("  • ArduinoOTA @ ^1.0.0 lib_dep")
+    write_script(Path("bum-ota"), render(ARDUINO_R4_BUM_OTA_SCRIPT, name=name))
+    scripts = Path("scripts")
+    scripts.mkdir(exist_ok=True)
+    copy_template("upload_ota.py", scripts / "upload_ota.py")
+    print("  • bum-ota + scripts/upload_ota.py written  (needs: pip install requests)")
+    print("Flash once over USB, then: ./bum-ota")
+
+
 def enable_ota() -> None:
+    if Path("platformio.ini").exists():
+        _enable_ota_r4()
+        return
     cmake = Path("CMakeLists.txt")
     if not cmake.exists():
-        die("no CMakeLists.txt in current directory — run from your project root")
+        die("no platformio.ini or CMakeLists.txt — run from your project root")
     content = cmake.read_text()
     if "COMMANDER_ENABLE_OTA" in content:
         print("OTA already enabled.")
@@ -931,10 +996,29 @@ def _disable_ota_esp32(cmake: Path, content: str) -> None:
         subprocess.run(["cmake", "-B", str(build_dir), "-DCOMMANDER_ENABLE_OTA=OFF"], check=True)
 
 
+def _disable_ota_r4() -> None:
+    pio = Path("platformio.ini")
+    text = pio.read_text()
+    if "COMMANDER_R4_OTA" not in text:
+        print("OTA already disabled.")
+    else:
+        text = re.sub(r"\n[^\n]*-DCOMMANDER_R4_OTA", "", text)
+        text = re.sub(r"\n[^\n]*ArduinoOTA @ \^1\.0\.0", "", text)
+        pio.write_text(text)
+        print("Disabled OTA in platformio.ini (removed flag + lib_dep)")
+    for f in (Path("bum-ota"), Path("scripts/upload_ota.py")):
+        if f.exists():
+            f.unlink()
+            print(f"  • removed {f}")
+
+
 def disable_ota() -> None:
+    if Path("platformio.ini").exists():
+        _disable_ota_r4()
+        return
     cmake = Path("CMakeLists.txt")
     if not cmake.exists():
-        die("no CMakeLists.txt in current directory — run from your project root")
+        die("no platformio.ini or CMakeLists.txt — run from your project root")
     content = cmake.read_text()
     if "COMMANDER_ENABLE_OTA" not in content:
         print("OTA already disabled.")

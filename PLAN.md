@@ -101,6 +101,7 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | **`runners/esp32/`**              | ✅ done      | IDF component; UART + WiFi + Telnet confirmed       |
 | **`runners/arduino-r4/`**         | ✅ done      | FreeRTOS; UART + WiFi + Telnet + mDNS confirmed     |
 | **`commander-new` tool**          | ✅ done      | pip install; pico/pico2/esp32 targets; --chip/--flash/--psram |
+| OTA — R4 (on-demand)              | ✅ built     | `cmdr enable ota`; `ota start` hands off telnet→OTA; needs hardware confirm |
 | OTA — Pico                        | ⬜ todo      | bum-ota script exists; needs end-to-end test        |
 | OTA — ESP32                       | ⬜ todo      | ota_cmd.h exists in platform/esp32; not in runner   |
 | Board commands — Pico             | ⬜ todo      | reboot-to-bootloader via SystemModule or hook       |
