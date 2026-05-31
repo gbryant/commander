@@ -678,7 +678,7 @@ def _install_tools(spec: dict) -> None:
     for d in spec.get("tool_dirs", []):
         Path(d).mkdir(exist_ok=True)
         print(f"  • {d}/")
-    # Seed data dirs from template subdirs (e.g. IR's starter button maps).
+    # Seed data dirs from template subdirs (e.g. IR's button-map library).
     # Never clobber existing files — the user's own maps win.
     for dest_dir, tmpl_subdir in spec.get("seed_dirs", []):
         dest = Path(dest_dir)
@@ -692,7 +692,7 @@ def _install_tools(spec: dict) -> None:
             if not target.exists():
                 target.write_bytes(entry.read_bytes())
                 seeded += 1
-        print(f"  • {dest_dir}/ ({seeded} example map(s) seeded)")
+        print(f"  • {dest_dir}/ ({seeded} library map(s))")
 
 
 def _remove_tools(spec: dict) -> None:
