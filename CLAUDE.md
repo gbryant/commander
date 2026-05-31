@@ -142,7 +142,15 @@ templates) into the project's `bin/` (executable) and creates any `tool_dirs`;
 `disable` removes the tools but preserves the data dirs (they may hold user
 data). IR ships `bin/irmap.py` (drive `recv` to build a named JSON button map)
 and `bin/irlookup.py` (identify live presses against `maps/`); run them from the
-project root. They need `pip install pyserial`. `cmdr module list` shows state per target.
+project root. They need `pip install pyserial`.
+
+Host tools auto-detect the serial port the same way the monitor/upload scripts
+do — by the board's USB VID/PID. `find_port.py` is both a CLI (`find_port.py
+<board>`, used by the generated scripts) and a library: `find_for_project()`
+reads the board from the nearest `cmdr.toml` `target` and returns the matching
+port. `cmdr module enable` installs `find_port.py` into `bin/` alongside the
+tools, so they pick the right board even when several USB serial devices are
+attached (don't reintroduce "first `cu.usb*`" guessing). `cmdr module list` shows state per target.
 
 ## File layout (key files)
 

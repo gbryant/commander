@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """
 find_port.py — find the serial port for a known board by USB VID/PID.
-Usage: find_port.py <board>
-Prints the port path and exits 0, or prints to stderr and exits 1.
+
+CLI:     find_port.py <board>     # prints the port, exits 0/1 (used by scripts)
+Library: from find_port import find_for_project
+         port = find_for_project()  # reads the board from the nearest cmdr.toml
+
+Host tools (e.g. bin/irmap.py) call find_for_project() so they pick the same
+board as the monitor/upload scripts even when several USB serial devices are
+attached.
 """
 
 import sys
+from pathlib import Path
 from serial.tools import list_ports
 
 BOARDS = {
@@ -43,28 +50,59 @@ BOARDS = {
     ],
 }
 
+# cmdr.toml `target` → find_port board key.
+TARGET_TO_BOARD = {
+    "uno": "uno", "r4": "r4",
+    "pico": "pico", "pico2": "pico2",
+    "esp32": "esp32s3",
+}
 
-def find(board):
+
+def ports_for(board):
+    """All connected ports matching `board`'s VID/PID list (empty if none,
+    None if the board is unknown)."""
     targets = BOARDS.get(board)
     if targets is None:
-        known = ", ".join(BOARDS)
-        print(f"Unknown board '{board}'. Known boards: {known}", file=sys.stderr)
+        return None
+    return [p.device for p in list_ports.comports()
+            for vid, pid in targets if p.vid == vid and p.pid == pid]
+
+
+def _target_from_cmdr_toml(start):
+    """Walk up from `start` looking for cmdr.toml; return its `target` or None."""
+    for cand in [Path(start).resolve(), *Path(start).resolve().parents]:
+        toml = cand / "cmdr.toml"
+        if toml.exists():
+            for line in toml.read_text().splitlines():
+                s = line.strip()
+                if s.startswith("target"):
+                    return s.partition("=")[2].strip().strip('"')
+            return None
+    return None
+
+
+def find_for_project(start=None):
+    """Serial port for the current cmdr project's board (from cmdr.toml), or
+    None. Same VID/PID detection the monitor/upload scripts use."""
+    target = _target_from_cmdr_toml(start or Path.cwd())
+    if not target:
+        return None
+    matches = ports_for(TARGET_TO_BOARD.get(target, target)) or []
+    return matches[0] if matches else None
+
+
+def find(board):
+    """CLI helper: print the matching port or exit with a message."""
+    matches = ports_for(board)
+    if matches is None:
+        print(f"Unknown board '{board}'. Known boards: {', '.join(BOARDS)}", file=sys.stderr)
         sys.exit(1)
-
-    matches = []
-    for port in list_ports.comports():
-        for vid, pid in targets:
-            if port.vid == vid and port.pid == pid:
-                matches.append(port.device)
-
     if not matches:
-        ids = ", ".join(f"{v:04X}:{p:04X}" for v, p in targets)
+        ids = ", ".join(f"{v:04X}:{p:04X}" for v, p in BOARDS[board])
         print(f"No {board} found (VID:PID candidates: {ids})", file=sys.stderr)
         sys.exit(1)
-
     if len(matches) > 1:
         print(f"Multiple {board} found: {matches} — using {matches[0]}", file=sys.stderr)
-
     print(matches[0])
 
 

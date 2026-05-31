@@ -45,6 +45,17 @@ IR_RE = re.compile(
 # ---------------------------------------------------------------------------
 
 def find_port():
+    # Prefer the project's VID/PID detection (same as the monitor script), via
+    # the find_port.py installed next to this tool — picks the right board when
+    # several USB serial devices are attached. Falls back to first cu.usb*.
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from find_port import find_for_project
+        port = find_for_project(Path(__file__).resolve().parent)
+        if port:
+            return port
+    except Exception:
+        pass
     for p in serial.tools.list_ports.comports():
         if p.device and Path(p.device).name.startswith('cu.usb'):
             return p.device

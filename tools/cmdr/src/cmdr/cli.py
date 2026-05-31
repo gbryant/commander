@@ -665,6 +665,10 @@ def _install_tools(spec: dict) -> None:
     if tools:
         bin_dir = Path("bin")
         bin_dir.mkdir(exist_ok=True)
+        # Shared port detection so tools pick the right board by VID/PID (same
+        # as the monitor script), not just the first cu.usb* device.
+        copy_template("find_port.py", bin_dir / "find_port.py")
+        (bin_dir / "find_port.py").chmod(0o755)
         for tool in tools:
             dest = bin_dir / tool
             copy_template(tool, dest)
@@ -677,15 +681,22 @@ def _install_tools(spec: dict) -> None:
 
 
 def _remove_tools(spec: dict) -> None:
+    bin_dir = Path("bin")
     for tool in spec.get("tools", []):
-        p = Path("bin") / tool
+        p = bin_dir / tool
         if p.exists():
             p.unlink()
             print(f"  • removed bin/{tool}")
-    # Leave tool_dirs (e.g. maps/) — they may hold user-created data.
-    bin_dir = Path("bin")
-    if bin_dir.is_dir() and not any(bin_dir.iterdir()):
-        bin_dir.rmdir()
+    # Drop the shared find_port.py (and bin/ itself) only if no other tools
+    # remain. Leave tool_dirs (e.g. maps/) — they may hold user data.
+    if bin_dir.is_dir():
+        others = [f for f in bin_dir.iterdir() if f.name != "find_port.py"]
+        if not others:
+            fp = bin_dir / "find_port.py"
+            if fp.exists():
+                fp.unlink()
+            if not any(bin_dir.iterdir()):
+                bin_dir.rmdir()
 
 
 def cmd_module(args: argparse.Namespace) -> None:
