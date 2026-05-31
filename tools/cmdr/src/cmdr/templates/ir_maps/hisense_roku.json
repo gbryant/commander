@@ -1,0 +1,149 @@
+[
+  {
+    "name": "power",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x17",
+    "bits": 32
+  },
+  {
+    "name": "back",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x66",
+    "bits": 32
+  },
+  {
+    "name": "home",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x3",
+    "bits": 32
+  },
+  {
+    "name": "volume up",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0xf",
+    "bits": 32
+  },
+  {
+    "name": "volume down",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x10",
+    "bits": 32
+  },
+  {
+    "name": "mute",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x20",
+    "bits": 32
+  },
+  {
+    "name": "up",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x19",
+    "bits": 32
+  },
+  {
+    "name": "down",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x33",
+    "bits": 32
+  },
+  {
+    "name": "left",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x1e",
+    "bits": 32
+  },
+  {
+    "name": "right",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x2d",
+    "bits": 32
+  },
+  {
+    "name": "loop back",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x78",
+    "bits": 32
+  },
+  {
+    "name": "moon",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x62",
+    "bits": 32
+  },
+  {
+    "name": "asterisk",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x61",
+    "bits": 32
+  },
+  {
+    "name": "rewind",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x34",
+    "bits": 32
+  },
+  {
+    "name": "play/pause",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x4c",
+    "bits": 32
+  },
+  {
+    "name": "fast forward",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x55",
+    "bits": 32
+  },
+  {
+    "name": "netflix",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x52",
+    "bits": 32
+  },
+  {
+    "name": "paramount+",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x6b",
+    "bits": 32
+  },
+  {
+    "name": "apple tv+",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x77",
+    "bits": 32
+  },
+  {
+    "name": "hbo max",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x4e",
+    "bits": 32
+  },
+  {
+    "name": "ok",
+    "protocol": "NEC",
+    "address": "0xc7ea",
+    "command": "0x2a",
+    "bits": 32
+  }
+]

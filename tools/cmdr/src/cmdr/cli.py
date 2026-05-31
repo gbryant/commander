@@ -476,7 +476,7 @@ MODULE_SPECS = {
     ]},
     "ir":      {"always": False, "platforms": ["pico", "pico2"], "questions": [
         ("gpio", "IR receive GPIO pin", "22"),
-    ], "tools": ["irmap.py", "irlookup.py"], "tool_dirs": ["maps"]},
+    ], "tools": ["irmap.py", "irlookup.py"], "seed_dirs": [("maps", "ir_maps")]},
     "roomba":  {"always": False, "platforms": ["r4"], "questions": [
         ("baud", "Roomba OI baud rate", "115200"),
         ("brc",  "BRC/wake pin (Mini-DIN 5), -1 if none", "-1"),
@@ -678,6 +678,21 @@ def _install_tools(spec: dict) -> None:
     for d in spec.get("tool_dirs", []):
         Path(d).mkdir(exist_ok=True)
         print(f"  • {d}/")
+    # Seed data dirs from template subdirs (e.g. IR's starter button maps).
+    # Never clobber existing files — the user's own maps win.
+    for dest_dir, tmpl_subdir in spec.get("seed_dirs", []):
+        dest = Path(dest_dir)
+        dest.mkdir(exist_ok=True)
+        src = importlib.resources.files("cmdr.templates").joinpath(tmpl_subdir)
+        seeded = 0
+        for entry in src.iterdir():
+            if not entry.name.endswith(".json"):
+                continue
+            target = dest / entry.name
+            if not target.exists():
+                target.write_bytes(entry.read_bytes())
+                seeded += 1
+        print(f"  • {dest_dir}/ ({seeded} example map(s) seeded)")
 
 
 def _remove_tools(spec: dict) -> None:

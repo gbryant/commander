@@ -142,7 +142,10 @@ templates) into the project's `bin/` (executable) and creates any `tool_dirs`;
 `disable` removes the tools but preserves the data dirs (they may hold user
 data). IR ships `bin/irmap.py` (drive `recv` to build a named JSON button map)
 and `bin/irlookup.py` (identify live presses against `maps/`); run them from the
-project root. They need `pip install pyserial`.
+project root. They need `pip install pyserial`. `enable` also seeds `maps/` with
+example button maps (NEC + Sony, incl. multi-position select switches) from the
+`ir_maps` template dir via the spec's `seed_dirs` — existing maps are never
+overwritten (the user's own maps win).
 
 Host tools auto-detect the serial port the same way the monitor/upload scripts
 do — by the board's USB VID/PID. `find_port.py` is both a CLI (`find_port.py

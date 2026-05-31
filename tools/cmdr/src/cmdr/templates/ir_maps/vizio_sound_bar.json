@@ -1,0 +1,100 @@
+[
+  {
+    "name": "power",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0x40",
+    "bits": 32
+  },
+  {
+    "name": "hdmi in",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0xab",
+    "bits": 32
+  },
+  {
+    "name": "hdmi-arc",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0x9a",
+    "bits": 32
+  },
+  {
+    "name": "bluetooth",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0x22",
+    "bits": 32
+  },
+  {
+    "name": "usb",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0xa1",
+    "bits": 32
+  },
+  {
+    "name": "aux",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0xb1",
+    "bits": 32
+  },
+  {
+    "name": "digital",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0xc9",
+    "bits": 32
+  },
+  {
+    "name": "optical",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0xc8",
+    "bits": 32
+  },
+  {
+    "name": "play/pause",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0x8e",
+    "bits": 32
+  },
+  {
+    "name": "previous",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0x8a",
+    "bits": 32
+  },
+  {
+    "name": "next",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0x8b",
+    "bits": 32
+  },
+  {
+    "name": "volume down",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0x45",
+    "bits": 32
+  },
+  {
+    "name": "volume up",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0x41",
+    "bits": 32
+  },
+  {
+    "name": "mute",
+    "protocol": "NEC",
+    "address": "0x0",
+    "command": "0x48",
+    "bits": 32
+  }
+]
