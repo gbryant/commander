@@ -8,9 +8,12 @@
 #include "pico/multicore.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "ir_rx.pio.h"
 #include "hal/hal.h"
 #include <stdio.h>
+// NOTE: the generated ir_rx.pio.h is included only by PicoIRModule.cpp, so this
+// header stays clean — consumers (e.g. cmdr's commander_modules.h) include it
+// without any PIO build wiring. PicoIRModule.cpp is compiled by the
+// commander_pico_ir CMake target, which owns the pico_generate_pio_header call.
 
 // IR receive runs on core1 (bare-metal spin loop).
 // Decoded codes are passed to core0 via a lock-free SPSC ring buffer in shared SRAM.
@@ -29,19 +32,18 @@ public:
 
     const char *name() const override { return "ir"; }
 
-    void init() override {
-        // Configure PIO but leave SM disabled until launch() — active PIO during
-        // WiFi WPA2 handshake can cause BADAUTH (-7).
-        _pio        = pio1;  // pio0 is reserved for the CYW43 SPI bus
-        _sm         = pio_claim_unused_sm(_pio, true);
-        uint offset = pio_add_program(_pio, &ir_rx_program);
-        ir_rx_program_init(_pio, _sm, offset, _gpio);
-        pio_sm_set_enabled(_pio, _sm, false);
-        gpio_pull_up(_gpio);
-    }
+    // Configure PIO (leaves the SM disabled until launch() — active PIO during
+    // the WiFi WPA2 handshake can cause BADAUTH). Defined in PicoIRModule.cpp,
+    // which owns the generated ir_rx.pio.h include.
+    void init() override;
 
+    // Enable the PIO SM and launch the core1 receive loop. Idempotent and lazy:
+    // called on first use of an IR command (recv / ir diag), by which point WiFi
+    // is connected — so no explicit post-WiFi hook is needed.
     void launch() {
-        s_instance = this;
+        if (_launched) return;
+        _launched   = true;
+        s_instance  = this;
         pio_sm_set_enabled(_pio, _sm, true);
         multicore_launch_core1(core1Entry);
     }
@@ -50,6 +52,7 @@ public:
         reg.registerCommand(CMD("ir diag", "count PIO events and decoded codes over 5 s", I2C_NONE,
             [](const char *, Writer &out, void *ctx) {
                 auto *m = static_cast<PicoIRModule *>(ctx);
+                m->launch();
                 m->ringDrain();
                 m->_pio_events = 0;
                 m->_code_count = 0;
@@ -74,6 +77,7 @@ public:
         reg.registerCommand(CMD("recv", "toggle IR receive mode (NEC/Sony)", CMD_IR_RECV,
             [](const char *, Writer &out, void *ctx) {
                 auto *m = static_cast<PicoIRModule *>(ctx);
+                m->launch();
                 m->_active = !m->_active;
                 if (m->_active) {
                     m->ringDrain();
@@ -234,6 +238,7 @@ private:
     uint8_t  _gpio;
     PIO      _pio  = nullptr;
     uint     _sm   = 0;
+    bool     _launched = false;
 
     bool             _active   = false;
     mutable bool     _available = false;

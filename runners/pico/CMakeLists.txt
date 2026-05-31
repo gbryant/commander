@@ -9,6 +9,32 @@
 target_include_directories(commander_hal_pico         PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 target_include_directories(commander_transport_telnet PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
+# ── commander_pico_ir ─────────────────────────────────────────────────────────
+# IR receive on Pico (PIO + core1). The generated ir_rx.pio.h is needed only by
+# PicoIRModule.cpp, so it's encapsulated here — PicoIRModule.h stays clean and
+# the cmdr-generated commander_modules.h can include it with no PIO wiring. Lives
+# in the runner dir so it picks up FreeRTOSConfig.h. Linked into the runner so
+# enabling IR is pure registration (no per-consumer CMake injection); unused IR
+# code is dropped at link by --gc-sections when no module instantiates it.
+add_library(commander_pico_ir STATIC
+    ${COMMANDER_ROOT}/platform/pico/PicoIRModule.cpp
+)
+pico_generate_pio_header(commander_pico_ir ${COMMANDER_ROOT}/platform/pico/ir_rx.pio)
+target_include_directories(commander_pico_ir
+    PUBLIC  $<BUILD_INTERFACE:${COMMANDER_ROOT}>
+    PRIVATE ${CMAKE_CURRENT_LIST_DIR}        # FreeRTOSConfig.h
+)
+target_link_libraries(commander_pico_ir PUBLIC
+    commander_core
+    commander_hal_pico
+    pico_stdlib
+    hardware_pio
+    pico_multicore
+    FreeRTOS-Kernel
+    FreeRTOS-Kernel-Heap4
+)
+add_library(commander::pico_ir ALIAS commander_pico_ir)
+
 add_library(commander_pico_runner STATIC
     runner.cpp
     BootselModule.cpp
@@ -24,6 +50,7 @@ target_link_libraries(commander_pico_runner PUBLIC
     commander_transport_uart
     commander_transport_telnet
     commander_modules
+    commander_pico_ir
     pico_cyw43_arch_lwip_sys_freertos
     pico_lwip_mdns
     hardware_watchdog

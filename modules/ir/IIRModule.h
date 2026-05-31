@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 #include "core/IModule.h"
 
 // IR receive is platform-specific (Arduino: IRremote, Pico: PIO, ESP32: RMT).

@@ -106,8 +106,8 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | OTA — ESP32 (pull `ota <url>`)    | 🟡 untested  | runner registers `ota` (COMMANDER_ENABLE_OTA); needs hardware test  |
 | Board commands — Pico             | ⬜ todo      | reboot-to-bootloader via SystemModule or hook       |
 | `modules/ir/IIRModule.h`          | ✅ done      | interface only                                      |
-| `platform/arduino/IRModule`       | ⬜ todo      | IRremote                                            |
-| `platform/pico/IRModule` (PIO)    | ✅ done      | PicoIRModule — ring buffer, NEC + Sony              |
+| `platform/pico/IRModule` (PIO)    | ✅ done      | PicoIRModule (PIO+core1); in cmdr module system (`cmdr module enable ir`) |
+| `platform/arduino/IRModule`       | 🟡 exists    | IRremote-based; works in standalone main, not yet in cmdr module system   |
 | `platform/esp32/IRModule` (RMT)   | ⬜ todo      |                                                     |
 | `modules/roomba/Roomba`           | ✅ done      | portable OI driver via abstract `RoombaPort`        |
 | `modules/roomba/RoombaModule`     | ✅ done      | `oi` shell command; drove a real Roomba from R4     |

@@ -474,6 +474,9 @@ MODULE_SPECS = {
     "sonar":   {"always": False, "platforms": None,   "questions": [
         ("pin", "Sonar signal pin (PING-style, single pin)", "6"),
     ]},
+    "ir":      {"always": False, "platforms": ["pico", "pico2"], "questions": [
+        ("gpio", "IR receive GPIO pin", "22"),
+    ]},
     "roomba":  {"always": False, "platforms": ["r4"], "questions": [
         ("baud", "Roomba OI baud rate", "115200"),
         ("brc",  "BRC/wake pin (Mini-DIN 5), -1 if none", "-1"),
@@ -501,6 +504,15 @@ def _emit_module(name: str, opts: dict, target: str):
         return (['#include "modules/SonarModule.h"'],
                 [f"static SonarModule _m_sonar({pin});"],
                 ["reg.registerModule(_m_sonar);"])
+    if name == "ir":
+        # Platform-specific (PIO on Pico). The commander_pico_ir CMake target
+        # (linked into pico_runner) provides the PIO build + clean header.
+        if target in ("pico", "pico2"):
+            gpio = opts.get("gpio", 22)
+            return (['#include "platform/pico/PicoIRModule.h"'],
+                    [f"static PicoIRModule _m_ir({gpio});"],
+                    ["reg.registerModule(_m_ir);"])
+        die(f"ir module is not yet supported on target '{target}'")
     if name == "roomba":
         baud = opts.get("baud", 115200)
         brc  = opts.get("brc", -1)

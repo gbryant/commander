@@ -127,9 +127,11 @@ includes only enabled modules, constructs them with the saved answers (incl. any
 board-specific adapter), and exposes `commander_register_modules(reg)`. The app's
 `main.cpp` just calls that hook, so disabled modules aren't compiled (no flags).
 Available: `system` (always), `compass` (HAL I2C — its emitter calls
-`hal_i2c_init`), `sonar` (HAL GPIO, one pin), `roomba` (R4 only — `Serial1`
-adapter). Cross-platform modules use the same emitter on every target; only
-`roomba` is platform-gated. `cmdr module list` shows state per target.
+`hal_i2c_init`), `sonar` (HAL GPIO, one pin), `ir` (Pico only — `PicoIRModule`
+PIO+core1; the `commander_pico_ir` CMake target encapsulates the PIO build so
+the header stays clean and enabling it is pure registration), `roomba` (R4 only
+— `Serial1` adapter). Cross-platform modules use the same emitter on every
+target; `ir` and `roomba` are platform-gated. `cmdr module list` shows state per target.
 
 ## File layout (key files)
 
