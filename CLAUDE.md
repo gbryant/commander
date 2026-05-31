@@ -130,7 +130,9 @@ Available: `system` (always), `compass` (HAL I2C — its emitter calls
 `hal_i2c_init`), `sonar` (HAL GPIO, one pin), `ir` (Pico via `PicoIRModule` PIO+core1 — the
 `commander_pico_ir` CMake target encapsulates the PIO build; Uno via the
 IRremote-based `platform/arduino/IRModule`, unity-included by the generated file
-with `IRremote` added to `lib_deps`), `roomba` (R4 only — `Serial1` adapter).
+with `IRremote` added to `lib_deps`). IR commands are namespaced consistently on
+both platforms: `ir recv` (NEC/Sony), `ir wall` (Roomba virtual wall), `ir diag`
+(Pico). `roomba` (R4 only — `Serial1` adapter).
 Cross-platform modules use the same emitter on every target; `ir` and `roomba`
 are platform-gated, and a module may declare per-target question defaults (e.g.
 IR pin 22 on Pico, 5 on Uno) and `pio_lib_deps` (PlatformIO libs to add on

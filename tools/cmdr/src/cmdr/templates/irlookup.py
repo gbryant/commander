@@ -168,9 +168,9 @@ def main():
     time.sleep(2)
     ser.reset_input_buffer()
 
-    send(ser, 'recv')
+    send(ser, 'ir recv')
     if not drain_until(ser, 'listening'):
-        send(ser, 'recv')
+        send(ser, 'ir recv')
         if not drain_until(ser, 'listening'):
             print("Warning: could not confirm recv mode. Continuing anyway.")
 
@@ -202,7 +202,7 @@ def main():
 
     finally:
         try:
-            send(ser, 'recv')
+            send(ser, 'ir recv')
             time.sleep(0.2)
             ser.close()
         except Exception:

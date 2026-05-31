@@ -27,6 +27,7 @@ class PicoIRModule : public IIRModule {
 public:
     static constexpr uint8_t PROTO_NEC  = 1;
     static constexpr uint8_t PROTO_SONY = 2;
+    static constexpr uint8_t PROTO_WALL = 3;  // Roomba virtual wall
 
     explicit PicoIRModule(uint gpio) : _gpio(gpio) {}
 
@@ -74,14 +75,29 @@ public:
                 m->ringDrain();
             }, this));
 
-        reg.registerCommand(CMD("recv", "toggle IR receive mode (NEC/Sony)", CMD_IR_RECV,
+        reg.registerCommand(CMD("ir recv", "toggle IR receive mode (NEC/Sony)", CMD_IR_RECV,
             [](const char *, Writer &out, void *ctx) {
                 auto *m = static_cast<PicoIRModule *>(ctx);
                 m->launch();
-                m->_active = !m->_active;
+                m->_wallMode = false;
+                m->_active   = !m->_active;
                 if (m->_active) {
                     m->ringDrain();
-                    out.writeln("listening... (recv to stop)");
+                    out.writeln("listening... (ir recv to stop)");
+                } else {
+                    out.writeln("stopped.");
+                }
+            }, this));
+
+        reg.registerCommand(CMD("ir wall", "detect Roomba virtual wall transmissions", CMD_IR_WALL,
+            [](const char *, Writer &out, void *ctx) {
+                auto *m = static_cast<PicoIRModule *>(ctx);
+                m->launch();
+                m->_active   = false;
+                m->_wallMode = !m->_wallMode;
+                if (m->_wallMode) {
+                    m->ringDrain();
+                    out.writeln("watching for Roomba wall signals... (ir wall to stop)");
                 } else {
                     out.writeln("stopped.");
                 }
@@ -90,7 +106,7 @@ public:
 
     // Called from UartTransport task on core0; outputs decoded codes when active.
     void tick() override {
-        if (!_active) return;
+        if (!_active && !_wallMode) return;
         if (_ring.head == _ring.tail) return;
 
         uint8_t  proto = _ring.proto[_ring.head];
@@ -98,6 +114,12 @@ public:
         uint32_t code  = _ring.code [_ring.head];
         __dmb();
         _ring.head = (_ring.head + 1) % RING_CAP;
+
+        if (proto == PROTO_WALL) {
+            if (_wallMode) hal_uart_puts("\r\n[Roomba] Virtual Wall (0xA5)\r\n");
+            return;
+        }
+        if (!_active) return;   // NEC/Sony code while in wall mode — ignore
 
         char buf[96];
         if (proto == PROTO_NEC) {
@@ -177,9 +199,11 @@ private:
             if (us > 15000) {
                 _expect_mark = true;
                 _state       = IDLE;
+                _wallMarks   = 0;
                 continue;
             }
             decode(us, is_mark);
+            wallTrack(us, is_mark);
         }
     }
 
@@ -235,12 +259,29 @@ private:
         _push_count++;
     }
 
+    // Roomba virtual wall: repeating ~550us mark + ~7350us space bursts. Detected
+    // in parallel with the NEC/Sony state machine — the 550us marks are too short
+    // to trigger NEC/Sony, so the two don't interfere. Emits PROTO_WALL after 3
+    // valid bursts. NOTE: timing window is approximate; tune against hardware.
+    void wallTrack(uint32_t us, bool is_mark) {
+        if (is_mark) {
+            if (us > 360 && us < 760) {            // ~550us mark
+                if (++_wallMarks >= 3) { emit(PROTO_WALL, 0, 0xA5); _wallMarks = 0; }
+            } else {
+                _wallMarks = 0;
+            }
+        } else if (!(us > 4700 && us < 10000)) {   // space must be ~7350us
+            _wallMarks = 0;
+        }
+    }
+
     uint8_t  _gpio;
     PIO      _pio  = nullptr;
     uint     _sm   = 0;
     bool     _launched = false;
 
     bool             _active   = false;
+    bool             _wallMode = false;
     mutable bool     _available = false;
     mutable uint32_t _code      = 0;
     mutable uint8_t  _protocol  = 0;
@@ -255,6 +296,7 @@ private:
     bool     _expect_mark = true;
     uint32_t _shift       = 0;
     uint8_t  _bits        = 0;
+    uint8_t  _wallMarks   = 0;   // consecutive ~550us wall marks seen (core1)
 
     static PicoIRModule *s_instance;
 };
