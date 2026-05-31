@@ -493,6 +493,8 @@ MODULE_SPECS = {
     ]},
     "ir":      {"always": False, "platforms": ["pico", "pico2", "uno", "r4"], "questions": [
         ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5", "r4": "5"}),
+    ], "features": [
+        ("wall", "Roomba virtual-wall detection?", False, "COMMANDER_IR_WALL"),
     ], "tools": ["irmap.py", "irlookup.py"], "seed_dirs": [("maps", "ir_maps")],
         "pio_lib_deps": ["IRremote"]},
     "roomba":  {"always": False, "platforms": ["r4"], "questions": [
@@ -626,6 +628,10 @@ def read_manifest(path: Path):
             k, v = k.strip(), v.strip()
             if v[:1] == '"' and v[-1:] == '"':
                 val = v[1:-1]
+            elif v == "true":
+                val = True
+            elif v == "false":
+                val = False
             else:
                 try:
                     val = int(v, 0)
@@ -643,7 +649,12 @@ def write_manifest(path: Path, target: str, modules: dict) -> None:
     for name in sorted(modules):
         lines.append(f"[module.{name}]")
         for k, v in modules[name].items():
-            lines.append(f"{k} = {v}" if isinstance(v, int) else f'{k} = "{v}"')
+            if isinstance(v, bool):                       # bool before int (bool is an int)
+                lines.append(f"{k} = {'true' if v else 'false'}")
+            elif isinstance(v, int):
+                lines.append(f"{k} = {v}")
+            else:
+                lines.append(f'{k} = "{v}"')
         lines.append("")
     path.write_text("\n".join(lines).rstrip() + "\n")
 
@@ -770,6 +781,47 @@ def _remove_pio_lib_deps(libs: list) -> None:
     pio.write_text(text)
 
 
+# Optional per-module features gated by a build flag. The flag must be set for
+# the whole build (consistent across translation units — on Pico the IR header
+# is compiled in two TUs, so an inconsistent define would be an ODR violation),
+# so it goes in PlatformIO build_flags or a CMake add_compile_definitions().
+def _feature_flags_on(modules: dict) -> set:
+    on = set()
+    for name, opts in modules.items():
+        for key, _prompt, _default, flag in MODULE_SPECS.get(name, {}).get("features", []):
+            if opts.get(key):
+                on.add(flag)
+    return on
+
+
+def _sync_feature_flags(flags_on: set) -> None:
+    """Make the project's build flags exactly match `flags_on` (add the enabled
+    feature flags, strip any disabled ones). Handles PlatformIO and CMake."""
+    all_flags = {f[3] for spec in MODULE_SPECS.values() for f in spec.get("features", [])}
+    pio = Path("platformio.ini")
+    cmake = Path("CMakeLists.txt")
+    if pio.exists():
+        text = pio.read_text()
+        for fl in all_flags:                                   # strip all, re-add the ON ones
+            text = re.sub(rf"\n[ \t]*-D{re.escape(fl)}\b[^\n]*", "", text)
+        out = []
+        for line in text.splitlines():
+            out.append(line)
+            if line.strip().startswith("build_flags"):
+                out += [f"    -D{fl}" for fl in sorted(flags_on)]
+        pio.write_text("\n".join(out) + "\n")
+    elif cmake.exists():
+        text = cmake.read_text()
+        for fl in all_flags:
+            text = re.sub(rf"add_compile_definitions\({re.escape(fl)}\)\n", "", text)
+        if flags_on and "FetchContent_MakeAvailable(commander)" in text:
+            # Before MakeAvailable so it reaches commander's targets and the app.
+            adds = "".join(f"add_compile_definitions({fl})\n" for fl in sorted(flags_on))
+            text = text.replace("FetchContent_MakeAvailable(commander)",
+                                adds + "FetchContent_MakeAvailable(commander)", 1)
+        cmake.write_text(text)
+
+
 def cmd_module(args: argparse.Namespace) -> None:
     manifest = Path("cmdr.toml")
 
@@ -817,11 +869,15 @@ def cmd_module(args: argparse.Namespace) -> None:
                 opts[key] = int(ans, 0)
             except ValueError:
                 opts[key] = ans
+        for key, prompt, fdefault, _flag in spec.get("features", []):
+            ans = input(f"{prompt} [{'Y/n' if fdefault else 'y/N'}]: ").strip().lower()
+            opts[key] = (ans in ("y", "yes")) if ans else fdefault
         modules[name] = opts
         write_manifest(manifest, target, modules)
         _regenerate(target, modules)
         _install_tools(spec)
         _add_pio_lib_deps(spec.get("pio_lib_deps", []))
+        _sync_feature_flags(_feature_flags_on(modules))
         print(f"enabled module: {name}")
     elif args.action == "disable":
         if name not in modules:
@@ -832,6 +888,7 @@ def cmd_module(args: argparse.Namespace) -> None:
         _regenerate(target, modules)
         _remove_tools(spec)
         _remove_pio_lib_deps(spec.get("pio_lib_deps", []))
+        _sync_feature_flags(_feature_flags_on(modules))
         print(f"disabled module: {name}")
 
 

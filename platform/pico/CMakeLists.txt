@@ -14,6 +14,10 @@ pico_sdk_init()
 # Root CMakeLists.txt defines commander::* library targets and commander::pico_runner.
 # runners/pico/ owns FreeRTOSConfig.h and lwipopts.h; no platform/pico/ hacks needed.
 set(COMMANDER_ENABLE_OTA ON CACHE BOOL "" FORCE)
+# Keep IR Roomba-wall detection in this reference build. Before add_subdirectory
+# so it reaches commander_pico_ir + the executable consistently (gated by
+# COMMANDER_IR_WALL — must match across TUs to avoid an ODR mismatch).
+add_compile_definitions(COMMANDER_IR_WALL)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../.. commander_lib)
 
 # --------------------------------------------------------------------------

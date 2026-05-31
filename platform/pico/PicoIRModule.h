@@ -89,6 +89,7 @@ public:
                 }
             }, this));
 
+#ifdef COMMANDER_IR_WALL
         reg.registerCommand(CMD("ir wall", "detect Roomba virtual wall transmissions", CMD_IR_WALL,
             [](const char *, Writer &out, void *ctx) {
                 auto *m = static_cast<PicoIRModule *>(ctx);
@@ -102,6 +103,7 @@ public:
                     out.writeln("stopped.");
                 }
             }, this));
+#endif // COMMANDER_IR_WALL
     }
 
     // Called from UartTransport task on core0; outputs decoded codes when active.
@@ -203,7 +205,9 @@ private:
                 continue;
             }
             decode(us, is_mark);
+#ifdef COMMANDER_IR_WALL
             wallTrack(us, is_mark);
+#endif
         }
     }
 
@@ -259,6 +263,7 @@ private:
         _push_count++;
     }
 
+#ifdef COMMANDER_IR_WALL
     // Roomba virtual wall: repeating ~550us mark + ~7350us space bursts. Detected
     // in parallel with the NEC/Sony state machine — the 550us marks are too short
     // to trigger NEC/Sony, so the two don't interfere. Emits PROTO_WALL after 3
@@ -274,6 +279,7 @@ private:
             _wallMarks = 0;
         }
     }
+#endif // COMMANDER_IR_WALL
 
     uint8_t  _gpio;
     PIO      _pio  = nullptr;

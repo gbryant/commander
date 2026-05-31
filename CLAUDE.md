@@ -136,7 +136,16 @@ both platforms: `ir recv` (NEC/Sony), `ir wall` (Roomba virtual wall), `ir diag`
 Cross-platform modules use the same emitter on every target; `ir` and `roomba`
 are platform-gated, and a module may declare per-target question defaults (e.g.
 IR pin 22 on Pico, 5 on Uno) and `pio_lib_deps` (PlatformIO libs to add on
-enable). Uno is in the module system via a no-WiFi hook main. A module whose `tick()` must be
+enable). Uno is in the module system via a no-WiFi hook main.
+
+A module may also declare optional **`features`** (default off) gated by a build
+flag the tool injects — PlatformIO `build_flags` or a CMake
+`add_compile_definitions`, kept consistent across all TUs (on Pico the IR header
+compiles in two TUs, so an inconsistent define would be an ODR violation). e.g.
+IR's Roomba virtual-wall detection (`ir wall`) is off unless you opt in at
+`cmdr module enable ir`, so it costs no flash/RAM/command-slot otherwise (on the
+Uno that's ~100 bytes RAM + a command slot). Code is gated with
+`#ifdef COMMANDER_IR_WALL`; standalone reference builds define it to keep wall. A module whose `tick()` must be
 pumped by the UART task (e.g. IR `recv`) also emits a strong
 `commander_on_uart_ready()` into the generated file that `uart.addTicker()`s it
 (overriding the runner's weak hook).

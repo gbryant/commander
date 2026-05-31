@@ -17,6 +17,7 @@
 //   ROOMBA_SPACE_TICKS = 147 (~7350µs)
 // ---------------------------------------------------------------------------
 
+#ifdef COMMANDER_IR_WALL
 #define ROOMBA_MARK_TICKS    11
 #define ROOMBA_SPACE_TICKS  147
 #define ROOMBA_TOL_PCT       35
@@ -34,24 +35,28 @@ static int16_t decodeRoomba(const IRRawbufType *raw, uint16_t rawlen) {
     }
     return 0xA5;
 }
+#endif // COMMANDER_IR_WALL
 
 void IRModule::tick() {
     if (!_active && !_wallMode) return;
     if (!IrReceiver.decode()) return;
 
+#ifdef COMMANDER_IR_WALL
     if (_wallMode) {
         int16_t b = decodeRoomba(IrReceiver.irparams.rawbuf,
                                   IrReceiver.decodedIRData.rawlen);
         if (b >= 0) {
             Serial.print(F("\r\n[Roomba] Virtual Wall (0xA5)"));
         }
-    } else {
-        _code      = IrReceiver.decodedIRData.decodedRawData;
-        _protocol  = (uint8_t)IrReceiver.decodedIRData.protocol;
-        _available = true;
-        Serial.print(F("\r\n"));
-        IrReceiver.printIRResultShort(&Serial);
+        IrReceiver.resume();
+        return;
     }
+#endif
+    _code      = IrReceiver.decodedIRData.decodedRawData;
+    _protocol  = (uint8_t)IrReceiver.decodedIRData.protocol;
+    _available = true;
+    Serial.print(F("\r\n"));
+    IrReceiver.printIRResultShort(&Serial);
     IrReceiver.resume();
 }
 
@@ -72,6 +77,7 @@ void IRModule::registerCommands(CommandRegistry &reg) {
             }
         }, this));
 
+#ifdef COMMANDER_IR_WALL
     reg.registerCommand(CMD("ir wall", "detect Roomba virtual wall transmissions", CMD_IR_WALL,
         [](const char *, Writer &out, void *ctx) {
             auto *self = static_cast<IRModule *>(ctx);
@@ -87,4 +93,5 @@ void IRModule::registerCommands(CommandRegistry &reg) {
                 out.writeln("stopped.");
             }
         }, this));
+#endif // COMMANDER_IR_WALL
 }
