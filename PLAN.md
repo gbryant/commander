@@ -107,7 +107,7 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | Board commands — Pico             | ⬜ todo      | reboot-to-bootloader via SystemModule or hook       |
 | `modules/ir/IIRModule.h`          | ✅ done      | interface only                                      |
 | `platform/pico/IRModule` (PIO)    | ✅ done      | PicoIRModule (PIO+core1); in cmdr module system (`cmdr module enable ir`) |
-| `platform/arduino/IRModule`       | ✅ done      | IRremote-based; in cmdr module system on Uno (`cmdr module enable ir`); R4 TODO |
+| `platform/arduino/IRModule`       | ✅ done      | IRremote-based; in cmdr module system on Uno + R4 (`cmdr module enable ir`) |
 | `platform/esp32/IRModule` (RMT)   | ⬜ todo      |                                                     |
 | `modules/roomba/Roomba`           | ✅ done      | portable OI driver via abstract `RoombaPort`        |
 | `modules/roomba/RoombaModule`     | ✅ done      | `oi` shell command; drove a real Roomba from R4     |

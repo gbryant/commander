@@ -491,8 +491,8 @@ MODULE_SPECS = {
     "sonar":   {"always": False, "platforms": None,   "questions": [
         ("pin", "Sonar signal pin (PING-style, single pin)", "6"),
     ]},
-    "ir":      {"always": False, "platforms": ["pico", "pico2", "uno"], "questions": [
-        ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5"}),
+    "ir":      {"always": False, "platforms": ["pico", "pico2", "uno", "r4"], "questions": [
+        ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5", "r4": "5"}),
     ], "tools": ["irmap.py", "irlookup.py"], "seed_dirs": [("maps", "ir_maps")],
         "pio_lib_deps": ["IRremote"]},
     "roomba":  {"always": False, "platforms": ["r4"], "questions": [
@@ -537,10 +537,10 @@ def _emit_module(name: str, opts: dict, target: str):
                     [f"static PicoIRModule _m_ir({gpio});"],
                     ["reg.registerModule(_m_ir);"],
                     ["uart.addTicker(_m_ir);"])
-        if target == "uno":
-            # Arduino IRremote-based. Unity-include the .cpp (like the runner
-            # does for ArduinoTelnetTransport.cpp) so it compiles in the app TU;
-            # IRremote comes from the pio_lib_deps added on enable.
+        if target in ("uno", "r4"):
+            # Arduino IRremote-based (Uno + R4). Unity-include the .cpp (like the
+            # runner does for ArduinoTelnetTransport.cpp) so it compiles in the
+            # app TU; IRremote comes from the pio_lib_deps added on enable.
             pin = opts.get("gpio", 5)
             return (['#include "platform/arduino/IRModule.h"',
                      '#include "platform/arduino/IRModule.cpp"'],
