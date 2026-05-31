@@ -131,7 +131,10 @@ Available: `system` (always), `compass` (HAL I2C — its emitter calls
 PIO+core1; the `commander_pico_ir` CMake target encapsulates the PIO build so
 the header stays clean and enabling it is pure registration), `roomba` (R4 only
 — `Serial1` adapter). Cross-platform modules use the same emitter on every
-target; `ir` and `roomba` are platform-gated. `cmdr module list` shows state per target.
+target; `ir` and `roomba` are platform-gated. A module whose `tick()` must be
+pumped by the UART task (e.g. IR `recv`) also emits a strong
+`commander_on_uart_ready()` into the generated file that `uart.addTicker()`s it
+(overriding the runner's weak hook). `cmdr module list` shows state per target.
 
 ## File layout (key files)
 
