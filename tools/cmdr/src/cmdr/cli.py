@@ -476,7 +476,7 @@ MODULE_SPECS = {
     ]},
     "ir":      {"always": False, "platforms": ["pico", "pico2"], "questions": [
         ("gpio", "IR receive GPIO pin", "22"),
-    ]},
+    ], "tools": ["irmap.py", "irlookup.py"], "tool_dirs": ["maps"]},
     "roomba":  {"always": False, "platforms": ["r4"], "questions": [
         ("baud", "Roomba OI baud rate", "115200"),
         ("brc",  "BRC/wake pin (Mini-DIN 5), -1 if none", "-1"),
@@ -658,6 +658,36 @@ def _regenerate(target: str, modules: dict) -> None:
     print(f"regenerated {out}")
 
 
+# Companion host tooling a module ships (e.g. IR's irmap/irlookup). Tools go in
+# bin/ (executable); tool_dirs are data dirs created empty (e.g. maps/).
+def _install_tools(spec: dict) -> None:
+    tools = spec.get("tools", [])
+    if tools:
+        bin_dir = Path("bin")
+        bin_dir.mkdir(exist_ok=True)
+        for tool in tools:
+            dest = bin_dir / tool
+            copy_template(tool, dest)
+            dest.chmod(0o755)
+            print(f"  • bin/{tool}")
+        print("    (the IR tools need: pip install pyserial)")
+    for d in spec.get("tool_dirs", []):
+        Path(d).mkdir(exist_ok=True)
+        print(f"  • {d}/")
+
+
+def _remove_tools(spec: dict) -> None:
+    for tool in spec.get("tools", []):
+        p = Path("bin") / tool
+        if p.exists():
+            p.unlink()
+            print(f"  • removed bin/{tool}")
+    # Leave tool_dirs (e.g. maps/) — they may hold user-created data.
+    bin_dir = Path("bin")
+    if bin_dir.is_dir() and not any(bin_dir.iterdir()):
+        bin_dir.rmdir()
+
+
 def cmd_module(args: argparse.Namespace) -> None:
     manifest = Path("cmdr.toml")
 
@@ -706,6 +736,7 @@ def cmd_module(args: argparse.Namespace) -> None:
         modules[name] = opts
         write_manifest(manifest, target, modules)
         _regenerate(target, modules)
+        _install_tools(spec)
         print(f"enabled module: {name}")
     elif args.action == "disable":
         if name not in modules:
@@ -714,6 +745,7 @@ def cmd_module(args: argparse.Namespace) -> None:
         del modules[name]
         write_manifest(manifest, target, modules)
         _regenerate(target, modules)
+        _remove_tools(spec)
         print(f"disabled module: {name}")
 
 

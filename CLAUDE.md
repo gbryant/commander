@@ -134,7 +134,15 @@ the header stays clean and enabling it is pure registration), `roomba` (R4 only
 target; `ir` and `roomba` are platform-gated. A module whose `tick()` must be
 pumped by the UART task (e.g. IR `recv`) also emits a strong
 `commander_on_uart_ready()` into the generated file that `uart.addTicker()`s it
-(overriding the runner's weak hook). `cmdr module list` shows state per target.
+(overriding the runner's weak hook).
+
+A module may also ship **companion host tooling** via `tools` (+ optional
+`tool_dirs`) in its spec. `cmdr module enable` copies the tools (shipped as cmdr
+templates) into the project's `bin/` (executable) and creates any `tool_dirs`;
+`disable` removes the tools but preserves the data dirs (they may hold user
+data). IR ships `bin/irmap.py` (drive `recv` to build a named JSON button map)
+and `bin/irlookup.py` (identify live presses against `maps/`); run them from the
+project root. They need `pip install pyserial`. `cmdr module list` shows state per target.
 
 ## File layout (key files)
 
