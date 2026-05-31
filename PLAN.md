@@ -100,7 +100,9 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | **`commander_generate_scripts()`**| ✅ done      | generates bum/build/upload/monitor/bum-ota scripts  |
 | **`runners/esp32/`**              | ✅ done      | IDF component; UART + WiFi + Telnet confirmed       |
 | **`runners/arduino-r4/`**         | ✅ done      | FreeRTOS; UART + WiFi + Telnet + mDNS confirmed     |
-| **`commander-new` tool**          | ✅ done      | pip install; pico/pico2/esp32 targets; --chip/--flash/--psram |
+| **`cmdr` tool**                   | ✅ done      | pip install; `init` all targets; `--chip/--flash/--psram`; `pull`/`update`/`config` |
+| **`cmdr module` system**          | ✅ done      | enable/disable/list; cmdr.toml manifest; generates `commander_modules.h`; system/compass/sonar/ir/roomba |
+| **`cmdr` features + tooling**     | ✅ done      | optional build-flag features (e.g. IR `wall`); per-module host tools in `bin/` + seed dirs; VID/PID port detection |
 | OTA — R4 (on-demand)              | ✅ done      | `cmdr enable ota`; `ota start` hands off telnet→OTA; push confirmed on hardware (2026-05-29) |
 | OTA — Pico (pull `ota <url>`)     | 🟡 untested  | runner wires `ota` + pfb_firmware_commit (COMMANDER_ENABLE_OTA); needs hardware test |
 | OTA — ESP32 (pull `ota <url>`)    | 🟡 untested  | runner registers `ota` (COMMANDER_ENABLE_OTA); needs hardware test  |
@@ -132,8 +134,24 @@ Commander is now consumable as a CMake FetchContent library.
       bum/build/upload/monitor/bum-ota scripts on cmake configure; no board suffix
 - [x] `scripts/ota_push.py` extracted from inline Python in bum-ota scripts
 - [x] FetchContent validated: scratch project builds `test_app.uf2` cleanly
-- [x] `tools/commander-new`: pip-installable scaffolding tool; pico/pico2/esp32
+- [x] `tools/cmdr` (formerly commander-new): pip-installable scaffolding tool; pico/pico2/esp32
       targets; `--chip/--flash/--psram` for ESP32 memory config
+
+### Phase M — cmdr module system ✅ done (2026-05-31)
+
+Modules are composed by `cmdr`, not by hand-editing `commander_setup()`.
+
+- [x] `cmdr module enable/disable/list` → `cmdr.toml` manifest + generated
+      `commander_modules.h` (in `src/`/root/`main/` by target); app `main.cpp`
+      calls `commander_register_modules()`. Uno is in the system via a no-WiFi hook.
+- [x] Modules: `system` (always), `compass`, `sonar` (cross-platform, HAL),
+      `ir` (Pico PIO / Uno+R4 IRremote), `roomba` (R4). Per-target question
+      defaults; `pio_lib_deps`; tick()-driven modules emit `commander_on_uart_ready`.
+- [x] Optional `features` gated by a build flag (PlatformIO/CMake, ODR-consistent);
+      first: IR `ir wall`, default off.
+- [x] Companion host tooling installed to `bin/` (IR `irmap.py`/`irlookup.py`),
+      seed dirs (IR `maps/` library), shared VID/PID port detection (`find_port.py`).
+- [ ] Extend the module system + IR (RMT) to ESP32.
 
 ### Phase R — robot integration
 
@@ -174,6 +192,8 @@ Goal: migrate Roomba robot to this framework.
    exercise it end-to-end on Pico W / Pico 2 W / ESP32 hardware.
 3. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
    on ESP32 (esp_restart into download mode or DFU).
+4. **ESP32 module system + IR** — wire ESP32 into the `cmdr module` system (hook
+   main + target detection) and add an RMT-based IR impl.
 
 ## Board pin reference
 
