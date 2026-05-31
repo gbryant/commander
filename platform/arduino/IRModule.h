@@ -1,11 +1,13 @@
 #pragma once
-#define IR_RECEIVE_PIN 5  // Grove D4/D5 connector — D5 is INT0-capable
+#define IR_RECEIVE_PIN 5  // default: Grove D4/D5 connector
 
 #include "modules/ir/IIRModule.h"
 #include "core/CommandRegistry.h"
 
 class IRModule : public IIRModule {
 public:
+    explicit IRModule(uint8_t pin = IR_RECEIVE_PIN) : _pin(pin) {}
+
     const char *name()  const override { return "ir"; }
     void        init()        override {}
     void        registerCommands(CommandRegistry &reg) override;
@@ -21,6 +23,7 @@ public:
     volatile bool _available = false;
     uint32_t      _code      = 0;
     uint8_t       _protocol  = 0;
+    uint8_t       _pin;
 
 private:
     static void tickTask(void *arg);

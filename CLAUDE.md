@@ -127,11 +127,14 @@ includes only enabled modules, constructs them with the saved answers (incl. any
 board-specific adapter), and exposes `commander_register_modules(reg)`. The app's
 `main.cpp` just calls that hook, so disabled modules aren't compiled (no flags).
 Available: `system` (always), `compass` (HAL I2C — its emitter calls
-`hal_i2c_init`), `sonar` (HAL GPIO, one pin), `ir` (Pico only — `PicoIRModule`
-PIO+core1; the `commander_pico_ir` CMake target encapsulates the PIO build so
-the header stays clean and enabling it is pure registration), `roomba` (R4 only
-— `Serial1` adapter). Cross-platform modules use the same emitter on every
-target; `ir` and `roomba` are platform-gated. A module whose `tick()` must be
+`hal_i2c_init`), `sonar` (HAL GPIO, one pin), `ir` (Pico via `PicoIRModule` PIO+core1 — the
+`commander_pico_ir` CMake target encapsulates the PIO build; Uno via the
+IRremote-based `platform/arduino/IRModule`, unity-included by the generated file
+with `IRremote` added to `lib_deps`), `roomba` (R4 only — `Serial1` adapter).
+Cross-platform modules use the same emitter on every target; `ir` and `roomba`
+are platform-gated, and a module may declare per-target question defaults (e.g.
+IR pin 22 on Pico, 5 on Uno) and `pio_lib_deps` (PlatformIO libs to add on
+enable). Uno is in the module system via a no-WiFi hook main. A module whose `tick()` must be
 pumped by the UART task (e.g. IR `recv`) also emits a strong
 `commander_on_uart_ready()` into the generated file that `uart.addTicker()`s it
 (overriding the runner's weak hook).

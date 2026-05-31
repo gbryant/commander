@@ -63,7 +63,7 @@ void IRModule::registerCommands(CommandRegistry &reg) {
             self->_active   = !self->_active;
             if (self->_active) {
                 if (!self->_started) {
-                    IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
+                    IrReceiver.begin(self->_pin, DISABLE_LED_FEEDBACK);
                     self->_started = true;
                 }
                 out.writeln("listening... (ir recv to stop)");
@@ -79,7 +79,7 @@ void IRModule::registerCommands(CommandRegistry &reg) {
             self->_wallMode = !self->_wallMode;
             if (self->_wallMode) {
                 if (!self->_started) {
-                    IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
+                    IrReceiver.begin(self->_pin, DISABLE_LED_FEEDBACK);
                     self->_started = true;
                 }
                 out.writeln("watching for Roomba wall signals... (ir wall to stop)");
