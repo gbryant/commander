@@ -48,6 +48,12 @@ BOARDS = {
         (0x10C4, 0xEA60),  # Silicon Labs CP2102N
         (0x1A86, 0x7523),  # CH340
     ],
+    "bluepill": [
+        (0x0483, 0x5740),  # STM32F103 native USB CDC (our TinyUSB app console)
+    ],
+    "bluepill-dfu": [
+        (0xDEAD, 0xCA5D),  # davidgfnet DFU bootloader (for dfu-util)
+    ],
 }
 
 # cmdr.toml `target` → find_port board key.
@@ -55,6 +61,7 @@ TARGET_TO_BOARD = {
     "uno": "uno", "r4": "r4",
     "pico": "pico", "pico2": "pico2",
     "esp32": "esp32s3",
+    "bluepill": "bluepill",   # USB-CDC console (USART path uses a manual port)
 }
 
 

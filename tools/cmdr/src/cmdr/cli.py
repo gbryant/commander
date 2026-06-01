@@ -30,7 +30,8 @@ PICO_TARGETS = {
     "pico2": "pico2_w",
 }
 ARDUINO_TARGETS = {"uno": "uno", "r4": "r4"}
-TARGETS = {**PICO_TARGETS, "esp32": "esp32", **ARDUINO_TARGETS}
+STM32_TARGETS = {"bluepill": "bluepill_f103c8"}   # PlatformIO + native CMSIS (not Arduino)
+TARGETS = {**PICO_TARGETS, "esp32": "esp32", **ARDUINO_TARGETS, **STM32_TARGETS}
 
 VALID_FLASH_MB  = {2, 4, 8, 16, 32}
 VALID_PSRAM_MB  = {0, 2, 4, 8}
@@ -381,6 +382,65 @@ echo "Connecting to $PORT  (Ctrl-T q to quit)"
 tio --baudrate 115200 "$PORT"
 """
 
+# ── STM32 Bluepill templates (placeholders: __NAME__) ────────────────────────
+# Native CMSIS + FreeRTOS + raw TinyUSB. Commander source, the FreeRTOS kernel, and
+# TinyUSB are assembled by scripts/stm32_build.py (shipped as a template), so the
+# platformio.ini just needs lib_deps + flags. Console is USB CDC; flashing via ST-Link.
+
+BLUEPILL_PIO_TEMPLATE = """\
+[platformio]
+src_dir = src
+
+[env:__NAME__]
+platform = ststm32
+board = bluepill_f103c8
+framework = cmsis
+upload_protocol = stlink
+debug_tool = stlink
+monitor_speed = 115200
+extra_scripts =
+    pre:scripts/stm32_build.py
+build_flags =
+    -DCOMMANDER_BLUEPILL_RUNNER
+    -DCOMMANDER_STM32_USB_CONSOLE
+    -DMAX_COMMANDS=12
+    -DSTM32F103xB
+lib_deps =
+    """ + REPO_URL + """
+"""
+
+BLUEPILL_BUILD_SCRIPT = """\
+#!/bin/bash
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
+pio run -e __NAME__
+"""
+
+BLUEPILL_UPLOAD_SCRIPT = """\
+#!/bin/bash
+# Flash via ST-Link (SWD). openocd auto-detects the ST-Link — no port needed.
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
+pio run -e __NAME__ -t upload
+"""
+
+BLUEPILL_MONITOR_SCRIPT = """\
+#!/bin/bash
+# USB-CDC console at 115200 (auto-detected by VID:PID 0483:5740). With a weak D+
+# pull-up you may need to press the board's reset button after plugging in.
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORT=""
+for i in $(seq 1 20); do
+    PORT=$(python3 "$DIR/scripts/find_port.py" bluepill 2>/dev/null) && break
+    [ $i -eq 1 ] && echo "Waiting for the bluepill USB-CDC port (press reset after plugging in)..."
+    sleep 0.5
+done
+[ -n "$PORT" ] || { echo "error: bluepill USB-CDC port did not appear" >&2; exit 1; }
+echo "Connecting to $PORT  (Ctrl-T q to quit)"
+tio --baudrate 115200 "$PORT"
+"""
+
 PFB_BLOCK = """\
 if(DEFINED ENV{PFB_PATH})
     set(PFB_PATH "$ENV{PFB_PATH}")
@@ -667,6 +727,8 @@ def detect_target() -> str:
             return "r4"
         if "board = uno" in txt or "board=uno" in txt:
             return "uno"
+        if "bluepill_f103c8" in txt:
+            return "bluepill"
     cmake = Path("CMakeLists.txt")
     if cmake.exists():
         txt = cmake.read_text()
@@ -961,6 +1023,32 @@ def scaffold_arduino(target: str, name: str, out_dir: Path) -> None:
             print(f"Edit {out_dir}/secrets.h with your WiFi credentials")
         else:
             print("WiFi credentials pre-filled from ~/.cmdr/config")
+    print(f"\nDone.\n  cd {out_dir}\n  ./bum")
+
+
+def scaffold_bluepill(name: str, out_dir: Path) -> None:
+    (out_dir / "platformio.ini").write_text(render(BLUEPILL_PIO_TEMPLATE, name=name))
+
+    src_dir = out_dir / "src"
+    src_dir.mkdir()
+    # Hook main (no WiFi); modules composed via the generated commander_modules.h.
+    (src_dir / "main.cpp").write_text(render(UNO_MAIN_CPP_TEMPLATE, name=name))
+    write_manifest(out_dir / "cmdr.toml", "bluepill", {})
+    generate_modules_file("bluepill", {}, src_dir / "commander_modules.h")
+
+    scripts_dir = out_dir / "scripts"
+    scripts_dir.mkdir()
+    copy_template("find_port.py", scripts_dir / "find_port.py")
+    copy_template("stm32_build.py", scripts_dir / "stm32_build.py")
+
+    write_script(out_dir / "bum",     ARDUINO_BUM_SCRIPT)
+    write_script(out_dir / "build",   render(BLUEPILL_BUILD_SCRIPT,   name=name))
+    write_script(out_dir / "upload",  render(BLUEPILL_UPLOAD_SCRIPT,  name=name))
+    write_script(out_dir / "monitor", render(BLUEPILL_MONITOR_SCRIPT, name=name))
+
+    print(f"Created {out_dir}/ for STM32 Bluepill (USB-CDC console, ST-Link upload)")
+    print("Build needs: $FREERTOS_KERNEL_PATH and a TinyUSB checkout")
+    print("  ($TINYUSB_PATH, or $PICO_SDK_PATH/lib/tinyusb). Flash via ST-Link (SWD).")
     print(f"\nDone.\n  cd {out_dir}\n  ./bum")
 
 
@@ -1305,6 +1393,8 @@ def cmd_init(args: argparse.Namespace) -> None:
         scaffold_esp32(args.name, out_dir, chip=args.chip, flash_mb=args.flash, psram_mb=args.psram)
     elif args.target in ARDUINO_TARGETS:
         scaffold_arduino(args.target, args.name, out_dir)
+    elif args.target in STM32_TARGETS:
+        scaffold_bluepill(args.name, out_dir)
     else:
         scaffold_pico(args.target, args.name, out_dir)
 
