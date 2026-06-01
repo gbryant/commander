@@ -1,0 +1,59 @@
+#!/bin/bash
+# Build + flash the davidgfnet/stm32-dfu-bootloader (GPL-3.0) ONCE via ST-Link, so the app
+# can thereafter be updated over USB with dfu-util (see ./upload-bluepill-usb).
+#
+# Bootloader lives at 0x08000000 (first 4 KB); the app runs at 0x08001000 (env bluepill-usb-dfu).
+# Built WITHOUT ENABLE_CHECKSUM (so our plain firmware.bin boots as-is) and WITHOUT
+# ENABLE_PROTECTIONS (so ST-Link/SWD stays usable — it does NOT set RDP / lock the chip).
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC="$DIR/third_party/stm32-dfu-bootloader"
+REPO="https://github.com/davidgfnet/stm32-dfu-bootloader.git"
+TC="$HOME/.platformio/packages/toolchain-gccarmnoneeabi/bin"
+SCRIPTS="$HOME/.platformio/packages/tool-openocd/openocd/scripts"
+
+[ -x "$TC/arm-none-eabi-gcc" ] || { echo "error: pio ARM toolchain not found at $TC (build a bluepill env first)" >&2; exit 1; }
+
+if [ ! -d "$SRC" ]; then
+  echo "Cloning davidgfnet/stm32-dfu-bootloader ..."
+  git clone --depth 1 "$REPO" "$SRC"
+fi
+
+# Patch: after the D+ re-enum pulse, release PA11/PA12 from GPIO output before usb_init(),
+# so the USB cell — not a lingering GPIO output driving low — controls D+. Some clone F103
+# USB cells don't override an active GPIO output, so without this they never present the
+# D+ pull-up and won't enumerate. (Our app already resets these pins the same way.)
+if ! grep -q 'commander-reenum-fix' "$SRC/main.c"; then
+  perl -0pi -e 's/(\n\tget_dev_unique_id\(serial_no\);)/\n\tgpio_set_input(GPIOA, 11);\n\tgpio_set_input(GPIOA, 12); \/\/ commander-reenum-fix$1/' "$SRC/main.c"
+  echo "Patched bootloader: release D+ to the USB cell after the re-enum nudge."
+fi
+
+echo "Building bootloader with the PlatformIO ARM toolchain ..."
+# CONFIG deliberately empty: NO WINUSB_SUPPORT (its MS-OS/BOS descriptors break enumeration
+# on macOS — the app enumerates but this bootloader wouldn't), NO ENABLE_CHECKSUM (so our
+# plain firmware.bin boots), NO ENABLE_PROTECTIONS (keeps SWD/ST-Link usable — no RDP lock).
+make -C "$SRC" clean >/dev/null 2>&1 || true
+make -C "$SRC" \
+  CROSS_COMPILE="$TC/arm-none-eabi-" \
+  CONFIG="" \
+  USB_VID=0xdead USB_PID=0xca5d
+
+echo "Mass-erasing + flashing bootloader to 0x08000000 via ST-Link ..."
+# Mass-erase first: otherwise a leftover app (e.g. an earlier standalone bluepill-usb flash)
+# can still sit at 0x08001000 and trick the bootloader into jumping to garbage instead of
+# staying in DFU mode.
+openocd -s "$SCRIPTS" -f interface/stlink.cfg -f target/stm32f1x.cfg \
+  -c "init; reset halt; stm32f1x mass_erase 0" \
+  -c "flash write_image $SRC/bootloader-dfu-fw.bin 0x08000000" \
+  -c "verify_image $SRC/bootloader-dfu-fw.bin 0x08000000" \
+  -c "reset run; shutdown"
+
+cat <<'EOF'
+
+Bootloader flashed (VID:PID dead:ca5d). Next:
+  1. Flash the app once via ST-Link so there's something to run:
+        pio run -e bluepill-usb-dfu -t upload
+  2. From then on, update over USB only — no ST-Link:
+        (in the shell)  > bootloader      # reboots into DFU mode
+        ./upload-bluepill-usb             # dfu-util flashes the new app
+EOF
