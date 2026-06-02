@@ -197,16 +197,22 @@ Goal: migrate Roomba robot to this framework.
 - [x] **Hardware test:** Pico 2 W ↔ R4 (I2C) ↔ Roomba — the bridge works; the Pico
       shell drives a real robot through the R4 over I2C (2026-06-02)
 
-#### Phase R3 — Bluetooth controller
-- [ ] Decide: Pico 2 W native BLE / dedicated Pico W / ESP32
-- [ ] Controller input → locomotion commands
+#### Phase R3 — Bluetooth controller — in progress (2026-06-02)
+- [x] Host decided: **Pico 2 W native** (CYW43 Bluetooth via Bluepad32/BTstack)
+- [x] Generic, backend-agnostic controller plumbing in `modules/controller/`
+      (poll `state()` / push `onUpdate`/`onButton` / declarative `bind` — robot-free)
+- [x] BT-only de-risk **hardware-confirmed**: Bluepad32+BTstack under commander's
+      FreeRTOS on a Pico 2 W; a paired pad's left stick drove the robot through the
+      R4 bridge (`~/github/bt-test`, standalone proving ground)
+- [ ] WiFi + BT combined on the one CYW43 (same FreeRTOS async_context)
+- [ ] Roll the Bluepad32 backend into `platform/pico/` + a `cmdr` `controller` module
 
 ### What's next
 
-1. **Phase R3 — Bluetooth controller** — Phase R2 is hardware-confirmed (Pico 2 W
-   drives a real Roomba through the R4 I2C bridge). Next: pick the BLE host
-   (Pico 2 W native / dedicated Pico W / ESP32) and map controller input to the
-   `drive`/`stop` locomotion commands.
+1. **Phase R3 — Bluetooth controller** — generic `modules/controller/` plumbing is
+   in, and the BT-only Bluepad32 backend is hardware-confirmed (a pad drove the
+   robot via the R4 bridge). Next: WiFi+BT combined on the one CYW43, then roll the
+   Pico backend into `platform/pico/` + a `cmdr` `controller` module.
 2. **OTA hardware test** — pico & esp32 runners already register the pull-based
    `ota <url>` command (gated by COMMANDER_ENABLE_OTA via `cmdr enable ota`);
    exercise it end-to-end on Pico W / Pico 2 W / ESP32 hardware.
