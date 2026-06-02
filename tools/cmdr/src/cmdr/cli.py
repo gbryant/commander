@@ -558,15 +558,15 @@ private:
 MODULE_SPECS = {
     "system":  {"always": True,  "platforms": None,   "questions": []},
     "compass": {"always": False, "platforms": None,   "questions": [
-        ("sda", "I2C SDA pin", "4"),
-        ("scl", "I2C SCL pin", "5"),
+        ("sda", "I2C SDA pin", {"pico": "6", "pico2": "6", "esp32": "4", "r4": "4", "uno": "4"}),
+        ("scl", "I2C SCL pin", {"pico": "7", "pico2": "7", "esp32": "5", "r4": "5", "uno": "5"}),
     ]},
     "sonar":   {"always": False, "platforms": None,   "questions": [
         ("pin", "Sonar signal pin (PING-style, single pin)", "6"),
     ]},
     "i2c":     {"always": False, "platforms": None,   "questions": [
-        ("sda", "I2C SDA pin", "4"),
-        ("scl", "I2C SCL pin", "5"),
+        ("sda", "I2C SDA pin", {"pico": "6", "pico2": "6", "esp32": "4", "r4": "4", "uno": "4"}),
+        ("scl", "I2C SCL pin", {"pico": "7", "pico2": "7", "esp32": "5", "r4": "5", "uno": "5"}),
     ]},
     "ir":      {"always": False, "platforms": ["pico", "pico2", "uno", "r4"], "questions": [
         ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5", "r4": "5"}),
@@ -580,8 +580,8 @@ MODULE_SPECS = {
     ]},
     "locomotion": {"always": False, "platforms": ["pico", "pico2"], "questions": [
         ("addr", "Mobile-base bridge I2C address", "0x42"),
-        ("sda",  "I2C SDA pin", "4"),
-        ("scl",  "I2C SCL pin", "5"),
+        ("sda",  "I2C SDA pin", "6"),
+        ("scl",  "I2C SCL pin", "7"),
     ]},
     # R4 side: I2C-slave bridge that forwards CMD_LOCO_* to a Roomba over Serial1.
     # Self-contained — it also provides the `oi` debug command (via RoombaModule on

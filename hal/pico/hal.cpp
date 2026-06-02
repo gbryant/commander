@@ -11,6 +11,11 @@
 static i2c_inst_t *_i2c_bus = i2c0;
 
 void hal_i2c_init(uint8_t sda_pin, uint8_t scl_pin, uint32_t speed_hz) {
+    // Pick the controller the pins are wired to: on RP2040/RP2350 the I2C block
+    // alternates with each GPIO pair, so bit 1 of the SDA pin selects i2c0/i2c1
+    // (GP0/4/8.. = i2c0, GP2/6/10.. = i2c1). gpio_set_function then routes the
+    // pin to that block's fixed I2C function — so e.g. GP6/GP7 must use i2c1.
+    _i2c_bus = (sda_pin & 2) ? i2c1 : i2c0;
     i2c_init(_i2c_bus, speed_hz);
     gpio_set_function(sda_pin, GPIO_FUNC_I2C);
     gpio_set_function(scl_pin, GPIO_FUNC_I2C);
