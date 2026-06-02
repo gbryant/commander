@@ -50,10 +50,10 @@ openocd -s "$SCRIPTS" -f interface/stlink.cfg -f target/stm32f1x.cfg \
 
 cat <<'EOF'
 
-Bootloader flashed (VID:PID dead:ca5d). Next:
-  1. Flash the app once via ST-Link so there's something to run:
-        ./upload
-  2. From then on, update over USB only — no ST-Link:
-        (in the shell)  > bootloader      # reboots into DFU mode
-        ./upload-bluepill-usb             # dfu-util flashes the new app
+Bootloader flashed (VID:PID dead:ca5d). The board is in DFU mode now. Next:
+  1. Flash the app over USB — no ST-Link needed (the board is already in DFU):
+        ./bum
+     (or via ST-Link instead:  ./upload)
+  2. From then on:  type `bootloader` in the shell, then  ./bum
+        (./bum auto-reboots the app into DFU and flashes over USB)
 EOF

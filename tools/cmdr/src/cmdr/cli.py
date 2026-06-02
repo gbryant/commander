@@ -1414,6 +1414,10 @@ def enable_dfu() -> None:
             s = line.strip()
             if s.startswith("build_flags"):
                 out.append("    -DCOMMANDER_STM32_DFU")
+                # Keep the ELF's first LOAD segment at 0x08001000 (not rounded back to
+                # the 64 KB boundary 0x08000000), so an ST-Link `program firmware.elf`
+                # upload writes only the app region and never stamps the bootloader.
+                out.append("    -Wl,-z,max-page-size=0x1000")
             elif s.startswith("board ") and "bluepill_f103c8" in s:
                 out.append("board_build.ldscript = stm32f103c8_dfu.ld")
         pio.write_text("\n".join(out) + "\n")
@@ -1443,6 +1447,7 @@ def disable_dfu() -> None:
             print("DFU already disabled.")
         else:
             text = re.sub(r"\n[ \t]*-DCOMMANDER_STM32_DFU", "", text)
+            text = re.sub(r"\n[ \t]*-Wl,-z,max-page-size=0x1000", "", text)
             text = re.sub(r"\n[ \t]*board_build\.ldscript = stm32f103c8_dfu\.ld", "", text)
             pio.write_text(text)
             print("Disabled DFU in platformio.ini (app back to 0x08000000, ST-Link only).")
