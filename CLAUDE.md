@@ -154,17 +154,29 @@ Modules are composed by the `cmdr` tool, not by hand-editing `commander_setup()`
 per-project `cmdr.toml`, and regenerates `commander_modules.h` — a cmdr-owned
 file (in `src/` for R4/Uno, project root for Pico, `main/` for ESP32) that
 includes only enabled modules, constructs them with the saved answers (incl. any
-board-specific adapter), and exposes `commander_register_modules(reg)`. The app's
+board-specific adapter), and exposes `commander_register_modules(reg)`. Identical
+registration lines are deduped, so several I2C modules (e.g. `compass` + `i2c` +
+`locomotion`) share a single `hal_i2c_init` bring-up. The app's
 `main.cpp` just calls that hook, so disabled modules aren't compiled (no flags).
 Available: `system` (always), `compass` (HAL I2C — its emitter calls
-`hal_i2c_init`), `sonar` (HAL GPIO, one pin), `ir` (Pico via `PicoIRModule` PIO+core1 — the
+`hal_i2c_init`), `sonar` (HAL GPIO, one pin), `i2c` (bus diagnostics —
+`i2c scan`/`read`/`write` over `hal_i2c_*`, one command slot, all platforms;
+handy for bringing up the locomotion bridge), `ir` (Pico via `PicoIRModule` PIO+core1 — the
 `commander_pico_ir` CMake target encapsulates the PIO build; Uno via the
 Uno & R4 via the IRremote-based `platform/arduino/IRModule`, unity-included by
 the generated file with `IRremote` added to `lib_deps`). IR commands are namespaced consistently on
 both platforms: `ir recv` (NEC/Sony), `ir wall` (Roomba virtual wall), `ir diag`
-(Pico). `roomba` (R4 only — `Serial1` adapter).
-Cross-platform modules use the same emitter on every target; `ir` and `roomba`
-are platform-gated, and a module may declare per-target question defaults (e.g.
+(Pico). `roomba` (R4 only — `Serial1` adapter). `locomotion` (Pico/Pico 2 W only —
+master side: `drive`/`stop`/`loco sensors` to a remote mobile base over `hal_i2c_*`)
+and `loco-bridge` (R4 only — the matching I2C-slave bridge that forwards
+`CMD_LOCO_*` to a Roomba; it owns the shared `Roomba` driver and also provides
+`oi`, so it's mutually exclusive with `roomba`). The two locomotion sides share the
+pure wire format in `modules/locomotion/LocoProtocol.h` (the I2C "register" is the
+`CMD_LOCO_*` byte from `i2c_ids.h` — no extra framing); the bridge's Wire
+`onReceive`/`onRequest` run in ISR context, so they only latch the command + serve a
+pre-cached snapshot, with the blocking Roomba I/O done in `tick()` (a UART ticker).
+Cross-platform modules use the same emitter on every target; `ir`, `roomba`, and
+`locomotion`/`loco-bridge` are platform-gated, and a module may declare per-target question defaults (e.g.
 IR pin 22 on Pico, 5 on Uno) and `pio_lib_deps` (PlatformIO libs to add on
 enable). Uno is in the module system via a no-WiFi hook main.
 

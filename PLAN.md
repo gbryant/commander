@@ -175,12 +175,27 @@ Goal: migrate Roomba robot to this framework.
       (byte I/O + timing + optional BRC); no Arduino/HAL deps
 - [x] `modules/roomba/RoombaModule.h` — `oi` shell command (drive/clean/dock/sensors)
 - [x] R4 `Serial1` (D0/D1) adapter; **drove a real Roomba from the console** (2026-05-29)
-- [ ] `i2c_ids.h` — Roomba bridge command/sensor registers (deferred; revisit
-      whether `MOD_LOCOMOTION` is the right fit when building the I2C bridge)
+- [x] `i2c_ids.h` — `MOD_LOCOMOTION` confirmed as the right fit; bridge command +
+      sensor registers landed in Phase R2 (`CMD_LOCO_DRIVE/STOP/SENSORS`)
 
-#### Phase R2 — Pico 2 W as main controller
-- [ ] R4 becomes I2C slave; Pico 2 W `RoombaModule` via `hal_i2c_*`
-- [ ] Basic drive + stop from Pico shell
+#### Phase R2 — Pico 2 W as main controller — software done, HW test pending (2026-06-02)
+- [x] `include/i2c_ids.h` — `CMD_LOCO_DRIVE` (0x10), `CMD_LOCO_STOP` (0x11),
+      `CMD_LOCO_SENSORS` (0x12), `LOCO_BRIDGE_ADDR` (0x42)
+- [x] `modules/locomotion/LocoProtocol.h` — pure shared wire format (drive payload +
+      12-byte `LocoSensors` snapshot; pack/unpack the single source of truth)
+- [x] `modules/locomotion/LocomotionModule.h` — Pico master (`drive`/`stop`/`loco
+      sensors` via `hal_i2c_*`); `cmdr module enable locomotion` (pico/pico2).
+      New `robot/` (pico2_w) consumer project **builds clean** (`robot.uf2`)
+- [x] `modules/locomotion/LocomotionBridge.h` — R4 I2C-slave bridge (Wire slave →
+      shared `Roomba` driver); ISR-safe (latch + cached snapshot, blocking I/O in
+      `tick()`). `cmdr module enable loco-bridge` (r4, supersedes `roomba`).
+      Compiles + links on the R4 toolchain
+- [x] `modules/I2CDiagModule.h` — `i2c scan`/`read`/`write` diagnostic module
+      (`cmdr module enable i2c`, all platforms) for bringing up the bridge:
+      `i2c scan` finds 0x42, `i2c write 0x42 0x10 …` pokes a raw drive, `i2c read
+      0x42 0x12 12` dumps the snapshot
+- [ ] **Hardware test:** wire Pico 2 W ↔ R4 (I2C) ↔ Roomba; confirm `drive`/`stop`/
+      `loco sensors` from the Pico shell move a real robot (use `i2c scan` first)
 
 #### Phase R3 — Bluetooth controller
 - [ ] Decide: Pico 2 W native BLE / dedicated Pico W / ESP32
@@ -188,9 +203,9 @@ Goal: migrate Roomba robot to this framework.
 
 ### What's next
 
-1. **I2C bridge protocol** — define how the Pico 2 W drives the R4 Roomba
-   bridge over I2C (Phase R2). Revisit the `i2c_ids.h` module-ID layout for
-   locomotion while doing it.
+1. **Phase R2 hardware test** — the locomotion link is built (Pico master +
+   R4 bridge, both compile). Wire Pico 2 W ↔ R4 ↔ Roomba and confirm
+   `drive`/`stop`/`loco sensors` from the Pico shell drive a real robot.
 2. **OTA hardware test** — pico & esp32 runners already register the pull-based
    `ota <url>` command (gated by COMMANDER_ENABLE_OTA via `cmdr enable ota`);
    exercise it end-to-end on Pico W / Pico 2 W / ESP32 hardware.

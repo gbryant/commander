@@ -564,6 +564,10 @@ MODULE_SPECS = {
     "sonar":   {"always": False, "platforms": None,   "questions": [
         ("pin", "Sonar signal pin (PING-style, single pin)", "6"),
     ]},
+    "i2c":     {"always": False, "platforms": None,   "questions": [
+        ("sda", "I2C SDA pin", "4"),
+        ("scl", "I2C SCL pin", "5"),
+    ]},
     "ir":      {"always": False, "platforms": ["pico", "pico2", "uno", "r4"], "questions": [
         ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5", "r4": "5"}),
     ], "features": [
@@ -571,6 +575,19 @@ MODULE_SPECS = {
     ], "tools": ["irmap.py", "irlookup.py"], "seed_dirs": [("maps", "ir_maps")],
         "pio_lib_deps": ["IRremote"]},
     "roomba":  {"always": False, "platforms": ["r4"], "questions": [
+        ("baud", "Roomba OI baud rate", "115200"),
+        ("brc",  "BRC/wake pin (Mini-DIN 5), -1 if none", "-1"),
+    ]},
+    "locomotion": {"always": False, "platforms": ["pico", "pico2"], "questions": [
+        ("addr", "Mobile-base bridge I2C address", "0x42"),
+        ("sda",  "I2C SDA pin", "4"),
+        ("scl",  "I2C SCL pin", "5"),
+    ]},
+    # R4 side: I2C-slave bridge that forwards CMD_LOCO_* to a Roomba over Serial1.
+    # Self-contained — it also provides the `oi` debug command (via RoombaModule on
+    # the shared driver), so it supersedes `roomba` on the R4 (mutually exclusive).
+    "loco-bridge": {"always": False, "platforms": ["r4"], "questions": [
+        ("addr", "This bridge's I2C slave address", "0x42"),
         ("baud", "Roomba OI baud rate", "115200"),
         ("brc",  "BRC/wake pin (Mini-DIN 5), -1 if none", "-1"),
     ]},
@@ -602,6 +619,16 @@ def _emit_module(name: str, opts: dict, target: str):
         return (['#include "modules/SonarModule.h"'],
                 [f"static SonarModule _m_sonar({pin});"],
                 ["reg.registerModule(_m_sonar);"], [])
+    if name == "i2c":
+        # Bus diagnostics (scan/read/write). Brings up the global HAL I2C bus,
+        # like compass; the hal_i2c_init line is deduped if another I2C module
+        # (compass/locomotion) already emitted the same one.
+        sda = opts.get("sda", 4)
+        scl = opts.get("scl", 5)
+        return (['#include "hal/hal.h"', '#include "modules/I2CDiagModule.h"'],
+                ["static I2CDiagModule _m_i2c;"],
+                [f"hal_i2c_init({sda}, {scl}, 100000);",
+                 "reg.registerModule(_m_i2c);"], [])
     if name == "ir":
         # Platform-specific (PIO on Pico). The commander_pico_ir CMake target
         # (linked into pico_runner) provides the PIO build + clean header. IR
@@ -632,6 +659,35 @@ def _emit_module(name: str, opts: dict, target: str):
                  "static RoombaModule _m_roomba(_m_roomba_port);"],
                 [f"_m_roomba_port.begin({baud}, {brc});",
                  "reg.registerModule(_m_roomba);"], [])
+    if name == "locomotion":
+        # Master side: drives a remote base over I2C (e.g. the R4 Roomba bridge).
+        # Brings up the global HAL I2C bus here, like compass, since the default
+        # CommanderConfig leaves I2C off (i2c_sda = -1).
+        addr = opts.get("addr", 0x42)
+        sda  = opts.get("sda", 4)
+        scl  = opts.get("scl", 5)
+        return (['#include "hal/hal.h"', '#include "modules/locomotion/LocomotionModule.h"'],
+                [f"static LocomotionModule _m_locomotion({addr});"],
+                [f"hal_i2c_init({sda}, {scl}, 100000);",
+                 "reg.registerModule(_m_locomotion);"], [])
+    if name == "loco-bridge":
+        # R4 I2C-slave bridge. Owns the shared Roomba stack (so it also provides
+        # `oi`) and adds the I2C slave layer. Its tick() does the blocking Roomba
+        # I/O, so it must be pumped by the UART task (uart.addTicker).
+        addr = opts.get("addr", 0x42)
+        baud = opts.get("baud", 115200)
+        brc  = opts.get("brc", -1)
+        return (['#include <Arduino.h>',
+                 '#include "modules/roomba/RoombaModule.h"',
+                 '#include "modules/locomotion/LocomotionBridge.h"'],
+                [ROOMBA_R4_ADAPTER,
+                 "static R4RoombaPort _m_roomba_port;",
+                 "static RoombaModule _m_roomba(_m_roomba_port);",
+                 f"static LocomotionBridge _m_loco_bridge(_m_roomba.driver(), {addr});"],
+                [f"_m_roomba_port.begin({baud}, {brc});",
+                 "reg.registerModule(_m_roomba);",
+                 "reg.registerModule(_m_loco_bridge);"],
+                ["uart.addTicker(_m_loco_bridge);"])
     die(f"no code emitter for module '{name}'")
 
 
@@ -648,7 +704,11 @@ def generate_modules_file(target: str, modules: dict, out_path: Path) -> None:
             if i not in includes:
                 includes.append(i)
         decls += dec
-        registers += reg
+        # Dedupe identical register lines so two I2C modules (e.g. compass/
+        # locomotion/i2c) don't each emit hal_i2c_init for the one shared HAL bus.
+        for r in reg:
+            if r not in registers:
+                registers.append(r)
         tickers += tick
 
     # Modules that need tick() pumped (e.g. IR recv) get a strong, non-inline
@@ -933,6 +993,15 @@ def cmd_module(args: argparse.Namespace) -> None:
         die("could not determine target — run from a commander project root (no cmdr.toml or platformio.ini)")
     if spec["platforms"] is not None and target not in spec["platforms"]:
         die(f"module '{name}' is not supported on target '{target}' (supports: {', '.join(spec['platforms'])})")
+
+    # roomba and loco-bridge both own Serial1 (loco-bridge provides `oi` itself),
+    # so only one may be enabled at a time.
+    _SERIAL1_OWNERS = {"roomba", "loco-bridge"}
+    if args.action == "enable" and name in _SERIAL1_OWNERS:
+        other = (_SERIAL1_OWNERS - {name}) & modules.keys()
+        if other:
+            die(f"'{next(iter(other))}' already owns Serial1 — disable it before enabling '{name}' "
+                f"(loco-bridge provides the `oi` command itself)")
 
     if args.action == "enable":
         opts: dict = {}

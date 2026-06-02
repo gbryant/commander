@@ -22,6 +22,10 @@ public:
     void        init() override { _roomba.begin(_port); }
     void        registerCommands(CommandRegistry &reg) override;
 
+    // Expose the OI driver so another module on the same board (e.g. the R4
+    // locomotion bridge) can share this one instance — one driver, one Serial1.
+    Roomba &driver() { return _roomba; }
+
 private:
     RoombaPort &_port;
     Roomba      _roomba;

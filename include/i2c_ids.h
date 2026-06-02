@@ -23,6 +23,16 @@
 #define CMD_BOOTLOADER     I2C_CMD(MOD_SYSTEM, 0x3)
 #define CMD_VERSION        I2C_CMD(MOD_SYSTEM, 0x4)
 
+// Locomotion commands — generic mobile-base drive interface.
+// Roomba is today's base; a future base reuses the same command bytes.
+// The Pico (I2C master / shell) drives the R4 bridge (I2C slave) at LOCO_BRIDGE_ADDR.
+#define CMD_LOCO_DRIVE     I2C_CMD(MOD_LOCOMOTION, 0x0)  // write {vel_hi,vel_lo,rad_hi,rad_lo}
+#define CMD_LOCO_STOP      I2C_CMD(MOD_LOCOMOTION, 0x1)  // write, no payload
+#define CMD_LOCO_SENSORS   I2C_CMD(MOD_LOCOMOTION, 0x2)  // set-reg then read snapshot
+
+// R4 Roomba-bridge I2C slave address (7-bit).
+#define LOCO_BRIDGE_ADDR   0x42
+
 // Compass commands
 #define CMD_COMPASS_HEADING I2C_CMD(MOD_COMPASS, 0x0)
 #define CMD_COMPASS_RAW     I2C_CMD(MOD_COMPASS, 0x1)
