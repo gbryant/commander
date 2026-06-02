@@ -178,7 +178,7 @@ Goal: migrate Roomba robot to this framework.
 - [x] `i2c_ids.h` — `MOD_LOCOMOTION` confirmed as the right fit; bridge command +
       sensor registers landed in Phase R2 (`CMD_LOCO_DRIVE/STOP/SENSORS`)
 
-#### Phase R2 — Pico 2 W as main controller — software done, HW test pending (2026-06-02)
+#### Phase R2 — Pico 2 W as main controller — DONE, hardware-confirmed (2026-06-02)
 - [x] `include/i2c_ids.h` — `CMD_LOCO_DRIVE` (0x10), `CMD_LOCO_STOP` (0x11),
       `CMD_LOCO_SENSORS` (0x12), `LOCO_BRIDGE_ADDR` (0x42)
 - [x] `modules/locomotion/LocoProtocol.h` — pure shared wire format (drive payload +
@@ -194,8 +194,8 @@ Goal: migrate Roomba robot to this framework.
       (`cmdr module enable i2c`, all platforms) for bringing up the bridge:
       `i2c scan` finds 0x42, `i2c write 0x42 0x10 …` pokes a raw drive, `i2c read
       0x42 0x12 12` dumps the snapshot
-- [ ] **Hardware test:** wire Pico 2 W ↔ R4 (I2C) ↔ Roomba; confirm `drive`/`stop`/
-      `loco sensors` from the Pico shell move a real robot (use `i2c scan` first)
+- [x] **Hardware test:** Pico 2 W ↔ R4 (I2C) ↔ Roomba — the bridge works; the Pico
+      shell drives a real robot through the R4 over I2C (2026-06-02)
 
 #### Phase R3 — Bluetooth controller
 - [ ] Decide: Pico 2 W native BLE / dedicated Pico W / ESP32
@@ -203,9 +203,10 @@ Goal: migrate Roomba robot to this framework.
 
 ### What's next
 
-1. **Phase R2 hardware test** — the locomotion link is built (Pico master +
-   R4 bridge, both compile). Wire Pico 2 W ↔ R4 ↔ Roomba and confirm
-   `drive`/`stop`/`loco sensors` from the Pico shell drive a real robot.
+1. **Phase R3 — Bluetooth controller** — Phase R2 is hardware-confirmed (Pico 2 W
+   drives a real Roomba through the R4 I2C bridge). Next: pick the BLE host
+   (Pico 2 W native / dedicated Pico W / ESP32) and map controller input to the
+   `drive`/`stop` locomotion commands.
 2. **OTA hardware test** — pico & esp32 runners already register the pull-based
    `ota <url>` command (gated by COMMANDER_ENABLE_OTA via `cmdr enable ota`);
    exercise it end-to-end on Pico W / Pico 2 W / ESP32 hardware.

@@ -279,6 +279,10 @@ commander/
   (`r4-test.local` resolves; telnet-by-name works) via `runners/arduino-r4`.
 - Roomba OI: `modules/roomba/` (portable `Roomba` driver + `oi` shell command)
   drove a real Roomba from the R4 over `Serial1` (D0/D1). Hardware-confirmed.
+- Locomotion link (Phase R2): hardware-confirmed — a Pico 2 W master drives a real
+  Roomba through the R4 I2C bridge. `modules/locomotion/` (Pico `LocomotionModule`
+  `drive`/`stop`/`loco sensors` over `hal_i2c_*` ↔ R4 `loco-bridge` I2C slave →
+  shared `Roomba`), plus the `i2c` scan/read/write diagnostic module.
 - Pico W: builds clean, `help` confirmed over USB CDC serial.
 - Pico 2 W (RP2350): builds clean via `./build-pico2`. Needs hardware test.
 - ESP32-S3-N16R8: builds clean, `help` confirmed over native USB CDC (USB Serial/JTAG).
