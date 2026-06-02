@@ -80,3 +80,72 @@ if(COMMANDER_ENABLE_OTA)
         $<TARGET_PROPERTY:pico_fota_bootloader_lib,INTERFACE_INCLUDE_DIRECTORIES>
     )
 endif()
+
+# ── Controller / Bluetooth (optional) ──────────────────────────────────────────
+# Bluepad32 + BTstack game-controller input. Heavy (BT firmware blob), so opt-in:
+# `cmdr module enable controller` sets COMMANDER_ENABLE_CONTROLLER=ON (here) and
+# add_compile_definitions(CYW43_ENABLE_BLUETOOTH=1) in the app CMake (must precede
+# pico_sdk_init). Needs BLUEPAD32_PATH (a clone of ricardoquesada/bluepad32).
+# btstack_config.h / sdkconfig.h ship in platform/pico/.
+option(COMMANDER_ENABLE_CONTROLLER "Enable Bluepad32 controller backend (requires BLUEPAD32_PATH)" OFF)
+
+if(COMMANDER_ENABLE_CONTROLLER)
+    if(NOT DEFINED ENV{BLUEPAD32_PATH})
+        message(FATAL_ERROR "COMMANDER_ENABLE_CONTROLLER=ON but BLUEPAD32_PATH is not set "
+                            "(clone ricardoquesada/bluepad32 and export BLUEPAD32_PATH)")
+    endif()
+    set(_bp32_root $ENV{BLUEPAD32_PATH})
+    set(_btstack_root ${PICO_SDK_PATH}/lib/btstack)
+
+    # Configs + headers that btstack/bluepad32 compile against.
+    include_directories(
+        ${COMMANDER_ROOT}/platform/pico            # btstack_config.h, sdkconfig.h, bp32_pico.h
+        ${CMAKE_CURRENT_LIST_DIR}                   # FreeRTOSConfig.h, lwipopts.h
+        ${_btstack_root}/src
+        ${_btstack_root}/3rd-party/bluedroid/encoder/include
+        ${_btstack_root}/3rd-party/bluedroid/decoder/include
+    )
+    include_directories($<TARGET_PROPERTY:FreeRTOS-Kernel,INTERFACE_INCLUDE_DIRECTORIES>)
+
+    add_subdirectory(${_bp32_root}/src/components/bluepad32 libbluepad32)
+    # Bluepad32 hardcodes the FULL pico_cyw43_arch_none; the cyw43_arch ".c" files
+    # are INTERFACE sources, so a static lib linking a full flavor recompiles and
+    # duplicates them and collides with the runner's lwip_sys_freertos flavor
+    # (threadsafe_background → "requires lwIP NO_SYS=1" #error). Repoint Bluepad32
+    # at the HEADERS-only target; only the executable links the full flavor.
+    foreach(_prop LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+        get_target_property(_libs bluepad32 ${_prop})
+        if(_libs)
+            list(REMOVE_ITEM _libs pico_cyw43_arch_none)
+            list(APPEND _libs pico_cyw43_arch_lwip_sys_freertos_headers FreeRTOS-Kernel)
+            set_target_properties(bluepad32 PROPERTIES ${_prop} "${_libs}")
+        endif()
+    endforeach()
+
+    add_library(commander_pico_controller STATIC
+        ${COMMANDER_ROOT}/platform/pico/bp32_pico.c
+    )
+    target_include_directories(commander_pico_controller
+        PUBLIC  $<BUILD_INTERFACE:${COMMANDER_ROOT}>
+        PRIVATE ${CMAKE_CURRENT_LIST_DIR} ${COMMANDER_ROOT}/platform/pico
+    )
+    target_link_libraries(commander_pico_controller PUBLIC
+        commander_core
+        pico_stdlib
+        pico_btstack_classic
+        pico_btstack_ble
+        pico_btstack_cyw43
+        bluepad32
+    )
+
+    target_compile_definitions(commander_pico_runner PUBLIC COMMANDER_ENABLE_CONTROLLER)
+    target_link_libraries(commander_pico_runner PUBLIC commander_pico_controller)
+    # pico_btstack_* INTERFACE sources get compiled into the *app executable* too,
+    # so btstack_config.h / sdkconfig.h (platform/pico) and the btstack 3rd-party
+    # headers must reach the exe — propagate them PUBLIC through the runner.
+    target_include_directories(commander_pico_runner PUBLIC
+        ${COMMANDER_ROOT}/platform/pico
+        ${_btstack_root}/3rd-party/bluedroid/encoder/include
+        ${_btstack_root}/3rd-party/bluedroid/decoder/include
+    )
+endif()

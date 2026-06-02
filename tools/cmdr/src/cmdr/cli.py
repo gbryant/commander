@@ -583,6 +583,11 @@ MODULE_SPECS = {
         ("sda",  "I2C SDA pin", "6"),
         ("scl",  "I2C SCL pin", "7"),
     ]},
+    # Bluetooth game-controller input (Bluepad32 + BTstack). Generic — the module
+    # only publishes input (poll/push/bind); the app wires it to anything via the
+    # weak commander_on_controller_ready(ControllerModule&) hook or `bind`.
+    # Needs BLUEPAD32_PATH + injects CMake (CYW43_ENABLE_BLUETOOTH, the runner option).
+    "controller": {"always": False, "platforms": ["pico", "pico2"], "questions": []},
     # R4 side: I2C-slave bridge that forwards CMD_LOCO_* to a Roomba over Serial1.
     # Self-contained — it also provides the `oi` debug command (via RoombaModule on
     # the shared driver), so it supersedes `roomba` on the R4 (mutually exclusive).
@@ -692,6 +697,18 @@ def _emit_module(name: str, opts: dict, target: str):
                  "reg.registerModule(_m_roomba);",
                  "reg.registerModule(_m_loco_bridge);"],
                 ["uart.addTicker(_m_loco_bridge);"])
+    if name == "controller":
+        if target not in ("pico", "pico2"):
+            die(f"controller module is not supported on target '{target}'")
+        # Generic input module + Bluepad32 backend. After registering, call the
+        # weak app hook so the app can add onUpdate/onButton listeners or bindings
+        # (e.g. map sticks to drive). The hook's weak default lives in the runner.
+        return (['#include "platform/pico/PicoBluepadBackend.h"'],
+                ["static PicoBluepadBackend _m_controller_backend;",
+                 "static ControllerModule _m_controller(_m_controller_backend);",
+                 "void commander_on_controller_ready(ControllerModule &);"],
+                ["reg.registerModule(_m_controller);",
+                 "commander_on_controller_ready(_m_controller);"], [])
     die(f"no code emitter for module '{name}'")
 
 
@@ -961,6 +978,44 @@ def _sync_feature_flags(flags_on: set) -> None:
         cmake.write_text(text)
 
 
+# Pico CMake injection for the controller module. CYW43_ENABLE_BLUETOOTH must
+# precede pico_sdk_init() (it selects the BT firmware blob); COMMANDER_ENABLE_CONTROLLER
+# must precede FetchContent_MakeAvailable so the runner builds the Bluepad32 target.
+_CTRL_BT_DEF = "add_compile_definitions(CYW43_ENABLE_BLUETOOTH=1)  # commander controller (Bluetooth)"
+_CTRL_OPT    = 'set(COMMANDER_ENABLE_CONTROLLER ON CACHE BOOL "" FORCE)  # commander controller'
+
+
+def _controller_cmake_enable() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        print("  ! no CMakeLists.txt — add CYW43_ENABLE_BLUETOOTH + COMMANDER_ENABLE_CONTROLLER manually")
+        return
+    text = cmake.read_text()
+    changed = False
+    if "CYW43_ENABLE_BLUETOOTH" not in text and "pico_sdk_init()" in text:
+        text = text.replace("pico_sdk_init()", _CTRL_BT_DEF + "\npico_sdk_init()", 1)
+        changed = True
+    if "COMMANDER_ENABLE_CONTROLLER" not in text and "FetchContent_MakeAvailable(commander)" in text:
+        text = text.replace("FetchContent_MakeAvailable(commander)",
+                            _CTRL_OPT + "\n" + "FetchContent_MakeAvailable(commander)", 1)
+        changed = True
+    if changed:
+        cmake.write_text(text)
+        print("  • CMakeLists.txt: CYW43_ENABLE_BLUETOOTH=1 + COMMANDER_ENABLE_CONTROLLER=ON")
+    print("  • needs BLUEPAD32_PATH (clone ricardoquesada/bluepad32); wipe build dir to reconfigure")
+
+
+def _controller_cmake_disable() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        return
+    text = cmake.read_text()
+    for line in (_CTRL_BT_DEF, _CTRL_OPT):
+        text = text.replace(line + "\n", "")
+    cmake.write_text(text)
+    print("  • CMakeLists.txt: removed controller CMake lines (wipe build dir to reconfigure)")
+
+
 def cmd_module(args: argparse.Namespace) -> None:
     manifest = Path("cmdr.toml")
 
@@ -1026,6 +1081,8 @@ def cmd_module(args: argparse.Namespace) -> None:
         _install_tools(spec)
         _add_pio_lib_deps(spec.get("pio_lib_deps", []))
         _sync_feature_flags(_feature_flags_on(modules))
+        if name == "controller":
+            _controller_cmake_enable()
         print(f"enabled module: {name}")
     elif args.action == "disable":
         if name not in modules:
@@ -1037,6 +1094,8 @@ def cmd_module(args: argparse.Namespace) -> None:
         _remove_tools(spec)
         _remove_pio_lib_deps(spec.get("pio_lib_deps", []))
         _sync_feature_flags(_feature_flags_on(modules))
+        if name == "controller":
+            _controller_cmake_disable()
         print(f"disabled module: {name}")
 
 

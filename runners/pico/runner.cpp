@@ -50,10 +50,34 @@ extern "C" __attribute__((weak)) void commander_early_init()                   {
 extern "C" __attribute__((weak)) void commander_on_uart_ready(UartTransport &) {}
 extern "C" __attribute__((weak)) void commander_on_wifi_connected()            {}
 
+#ifdef COMMANDER_ENABLE_CONTROLLER
+#include "modules/controller/ControllerModule.h"
+// Called once after the controller module is registered (the cmdr-generated file
+// emits the call). Weak default does nothing; apps override it to wire input —
+// e.g. controller.onUpdate(...) to map sticks to drive, or set up bindings.
+// C++ linkage (not extern "C") so the ControllerModule& parameter type matches.
+__attribute__((weak)) void commander_on_controller_ready(ControllerModule &) {}
+#endif
+
 // ── Main FreeRTOS task ────────────────────────────────────────────────────
 static void runnerTask(void *) {
     if (_cfg.i2c_sda >= 0)
         hal_i2c_init((uint8_t)_cfg.i2c_sda, (uint8_t)_cfg.i2c_scl, _cfg.i2c_hz);
+
+    // One CYW43 bring-up, shared by WiFi and Bluetooth (the combined firmware
+    // does both). It must run before commander_setup() so a controller module's
+    // Bluepad32 backend can uni_init() onto the BTstack async-context that
+    // cyw43_arch_init() starts. WiFi connect (below) reuses this same init.
+#ifdef COMMANDER_ENABLE_CONTROLLER
+    const bool need_cyw43 = true;
+#else
+    const bool need_cyw43 = (_cfg.wifi_ssid != nullptr);
+#endif
+    bool cyw43_ok = false;
+    if (need_cyw43) {
+        cyw43_ok = (cyw43_arch_init() == 0);
+        if (!cyw43_ok) printf("[cyw43] init failed\n");
+    }
 
     _registry.registerModule(_bootsel);
     commander_setup(_registry);
@@ -66,9 +90,9 @@ static void runnerTask(void *) {
     commander_on_uart_ready(_uart);
     xTaskCreate(UartTransport::taskBody, "uart", 1024, &_uart, 2, nullptr);
 
-    if (_cfg.wifi_ssid) {
+    if (_cfg.wifi_ssid && cyw43_ok) {
         printf("[wifi] ssid='%s' connecting...\n", _cfg.wifi_ssid);
-        if (cyw43_arch_init() == 0) {
+        {   // CYW43 already initialized above (shared with Bluetooth)
             cyw43_arch_enable_sta_mode();
             int err = -1;
             for (int i = 0; i < 3 && err != 0; i++) {

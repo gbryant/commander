@@ -180,8 +180,25 @@ pure wire format in `modules/locomotion/LocoProtocol.h` (the I2C "register" is t
 `CMD_LOCO_*` byte from `i2c_ids.h` — no extra framing); the bridge's Wire
 `onReceive`/`onRequest` run in ISR context, so they only latch the command + serve a
 pre-cached snapshot, with the blocking Roomba I/O done in `tick()` (a UART ticker).
-Cross-platform modules use the same emitter on every target; `ir`, `roomba`, and
-`locomotion`/`loco-bridge` are platform-gated, and a module may declare per-target question defaults (e.g.
+`controller` (Pico/Pico 2 W only — Bluetooth game-controller input via Bluepad32 +
+BTstack). It's a **generic input source**, not robot-specific: the module publishes
+controller state three mix-and-match ways — poll (`state()`), push
+(`onUpdate`/`onButton` C++ callbacks), and declarative `bind <button> <command…>`
+(dispatches any registered command on press) — plus a `pad` status command. Apps
+wire input to anything via the weak `commander_on_controller_ready(ControllerModule&)`
+hook the generated file calls (e.g. the robot maps the left stick to `CMD_LOCO_DRIVE`).
+The neutral vocabulary is `modules/controller/ControllerState.h`; the Bluepad32 Pico
+backend is `platform/pico/` (`bp32_pico.c` C shim + `PicoBluepadBackend.h`) behind the
+`ControllerBackend` seam. Enabling it is heavy (BT firmware): `cmdr module enable
+controller` injects `CYW43_ENABLE_BLUETOOTH=1` (before `pico_sdk_init`) and
+`COMMANDER_ENABLE_CONTROLLER=ON` (before `FetchContent`) into the app CMake; the
+runner then builds the opt-in `commander_pico_controller` target (needs
+`BLUEPAD32_PATH`). The runner owns a single `cyw43_arch_init()` shared by WiFi + BT,
+so WiFi (telnet/OTA) and a Bluetooth controller coexist on the one CYW43. (Static
+libs link the cyw43_arch **`_headers`** target — the arch `.c` are INTERFACE sources;
+only the executable links the full flavor.)
+Cross-platform modules use the same emitter on every target; `ir`, `roomba`,
+`locomotion`/`loco-bridge`, and `controller` are platform-gated, and a module may declare per-target question defaults (e.g.
 IR pin 22 on Pico, 5 on Uno) and `pio_lib_deps` (PlatformIO libs to add on
 enable). Uno is in the module system via a no-WiFi hook main.
 

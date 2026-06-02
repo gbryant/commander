@@ -204,8 +204,14 @@ Goal: migrate Roomba robot to this framework.
 - [x] BT-only de-risk **hardware-confirmed**: Bluepad32+BTstack under commander's
       FreeRTOS on a Pico 2 W; a paired pad's left stick drove the robot through the
       R4 bridge (`~/github/bt-test`, standalone proving ground)
-- [ ] WiFi + BT combined on the one CYW43 (same FreeRTOS async_context)
-- [ ] Roll the Bluepad32 backend into `platform/pico/` + a `cmdr` `controller` module
+- [x] Rolled into commander: `platform/pico/` Bluepad32 backend, `cmdr module
+      enable controller` (pico/pico2 — injects CYW43_ENABLE_BLUETOOTH +
+      COMMANDER_ENABLE_CONTROLLER, builds the `commander_pico_controller` target),
+      and the runner owns one `cyw43_arch_init()` shared by WiFi + BT
+- [x] WiFi + BT combined: falls out of the single-init runner — the `robot`
+      project builds with WiFi creds **and** the controller module in one firmware
+- [ ] Hardware test: re-confirm a pad drives the robot from the rolled-in
+      `controller` module (and telnet still works alongside BT)
 
 ### What's next
 
