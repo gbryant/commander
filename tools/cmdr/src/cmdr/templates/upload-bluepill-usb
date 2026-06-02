@@ -1,7 +1,6 @@
 #!/bin/bash
 # Upload the app over USB DFU — no ST-Link. One-time setup:
 #   ./flash-bluepill-bootloader   then   ./upload   (ST-Link: install bootloader + first app)
-# Before running this, put the board in DFU mode: type `bootloader` in the shell.
 set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DIR"
@@ -13,11 +12,21 @@ pio run
 BIN=$(ls .pio/build/*/firmware.bin 2>/dev/null | head -1)
 [ -n "$BIN" ] || { echo "error: no firmware.bin under .pio/build/ — did the build succeed?" >&2; exit 1; }
 
+# If we're not already in DFU but the app's CDC port is present, reboot it into DFU
+# (best-effort — falls through to the manual hint below if it doesn't take).
+if ! dfu-util -l 2>/dev/null | grep -qi "dead:ca5d"; then
+  APP_PORT=$(python3 "$DIR/scripts/find_port.py" bluepill 2>/dev/null || true)
+  if [ -n "$APP_PORT" ]; then
+    echo "Rebooting $APP_PORT into the DFU bootloader..."
+    printf 'bootloader\r\n' > "$APP_PORT" 2>/dev/null || true
+    sleep 2
+  fi
+fi
+
 if ! dfu-util -l 2>/dev/null | grep -qi "dead:ca5d"; then
   echo >&2
-  echo "No DFU device (dead:ca5d) found. In the running shell, type:" >&2
-  echo "    bootloader" >&2
-  echo "then re-run ./upload-bluepill-usb" >&2
+  echo "No DFU device (dead:ca5d) found. In the running shell, type:  bootloader" >&2
+  echo "(or press the reset button if the app's USB isn't enumerating), then re-run." >&2
   exit 1
 fi
 

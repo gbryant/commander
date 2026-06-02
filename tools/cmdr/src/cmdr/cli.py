@@ -441,6 +441,19 @@ echo "Connecting to $PORT  (Ctrl-T q to quit)"
 tio --baudrate 115200 "$PORT"
 """
 
+# `bum` when DFU is enabled: build + flash over USB (no ST-Link) + monitor.
+BLUEPILL_DFU_BUM_SCRIPT = """\
+#!/bin/bash
+# DFU dev loop: build + flash over USB (no ST-Link) + monitor. upload-bluepill-usb
+# auto-reboots the running app into DFU; if the board isn't enumerating, type
+# `bootloader` in the shell (or press reset) and re-run.
+# For an ST-Link upload instead: ./flash-bluepill-bootloader (once) then ./upload.
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$DIR/upload-bluepill-usb"
+"$DIR/monitor"
+"""
+
 PFB_BLOCK = """\
 if(DEFINED ENV{PFB_PATH})
     set(PFB_PATH "$ENV{PFB_PATH}")
@@ -1413,9 +1426,13 @@ def enable_dfu() -> None:
         if not tmpl.endswith(".ld"):
             dest.chmod(0o755)
     print("  • " + ", ".join(_DFU_FILES))
+    # `bum` now flashes over USB-DFU instead of ST-Link.
+    if Path("bum").exists():
+        write_script(Path("bum"), BLUEPILL_DFU_BUM_SCRIPT)
+        print("  • bum now uploads over USB-DFU (./upload stays ST-Link)")
     print("\nUpload either way:")
+    print("  USB DFU:  ./bum   (build + USB flash + monitor; auto-reboots into DFU)")
     print("  ST-Link:  ./flash-bluepill-bootloader  (once)  then  ./upload")
-    print("  USB DFU:  > bootloader  (in the shell)  then  ./upload-bluepill-usb  (no ST-Link)")
 
 
 def disable_dfu() -> None:
@@ -1434,6 +1451,10 @@ def disable_dfu() -> None:
         if p.exists():
             p.unlink()
             print(f"  • removed {f}")
+    # Restore the standard build + ST-Link upload + monitor bum.
+    if Path("bum").exists():
+        write_script(Path("bum"), ARDUINO_BUM_SCRIPT)
+        print("  • bum restored to ST-Link upload")
 
 
 # ── CLI entry points ──────────────────────────────────────────────────────────
