@@ -13,7 +13,7 @@ get working firmware without touching WiFi, FreeRTOS, or panic-hook boilerplate.
 
 ## Principles
 
-- No Arduino framework on Pico or ESP32. Use native SDKs (Pico SDK, ESP-IDF).
+- No Arduino framework on Pico, ESP32, or STM32. Use native SDKs (Pico SDK, ESP-IDF, CMSIS).
 - FreeRTOS throughout — it ships with both Pico SDK and ESP-IDF, same task API.
 - HAL isolates platform code. Modules depend only on `hal/hal.h` and `core/`.
 - `i2c_ids.h` is the wire protocol. It must stay identical across all platforms.
@@ -93,6 +93,9 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | `platform/pico/` (Pico W)         | ✅ done      | `help` confirmed over USB CDC; WiFi + Telnet live   |
 | `platform/pico/` (Pico 2W)        | ✅ done      | `help` + WiFi + Telnet confirmed; RP2350 INVPC fix  |
 | `platform/esp32/`                 | ✅ done      | `help` confirmed over native USB CDC                |
+| `platform/stm32-bluepill/`        | ✅ done      | F103C8 native CMSIS+FreeRTOS+TinyUSB; blink/USART1/USB-CDC + USB-DFU confirmed |
+| `hal/stm32/`                      | 🟡 partial   | CMSIS regs: GPIO/UART/time/USB done; **I2C stubbed** |
+| `runners/stm32-bluepill/`         | ✅ done      | `COMMANDER_BLUEPILL_RUNNER` hook main for `cmdr init bluepill` |
 | **CMake library targets**         | ✅ done      | `commander::core/hal_pico/transport_*/modules`      |
 | **`runners/pico/`**               | ✅ done      | `commander::pico_runner`; owns main(), WiFi, hooks  |
 | **`commander.h` API**             | ✅ done      | `CommanderConfig`, required + optional callbacks    |
@@ -100,12 +103,13 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | **`commander_generate_scripts()`**| ✅ done      | generates bum/build/upload/monitor/bum-ota scripts  |
 | **`runners/esp32/`**              | ✅ done      | IDF component; UART + WiFi + Telnet confirmed       |
 | **`runners/arduino-r4/`**         | ✅ done      | FreeRTOS; UART + WiFi + Telnet + mDNS confirmed     |
-| **`cmdr` tool**                   | ✅ done      | pip install; `init` all targets; `--chip/--flash/--psram`; `pull`/`update`/`config` |
+| **`cmdr` tool**                   | ✅ done      | pip install; `init` uno/r4/pico/pico2/esp32/**bluepill**; `--chip/--flash/--psram`; `pull`/`update`/`config` |
 | **`cmdr module` system**          | ✅ done      | enable/disable/list; cmdr.toml manifest; generates `commander_modules.h`; system/compass/sonar/ir/roomba |
 | **`cmdr` features + tooling**     | ✅ done      | optional build-flag features (e.g. IR `wall`); per-module host tools in `bin/` + seed dirs; VID/PID port detection |
 | OTA — R4 (on-demand)              | ✅ done      | `cmdr enable ota`; `ota start` hands off telnet→OTA; push confirmed on hardware (2026-05-29) |
 | OTA — Pico (pull `ota <url>`)     | 🟡 untested  | runner wires `ota` + pfb_firmware_commit (COMMANDER_ENABLE_OTA); needs hardware test |
 | OTA — ESP32 (pull `ota <url>`)    | 🟡 untested  | runner registers `ota` (COMMANDER_ENABLE_OTA); needs hardware test  |
+| DFU upload — Bluepill             | ✅ done      | `cmdr enable dfu`; davidgfnet bootloader (`bootloader` cmd + dfu-util); HW-confirmed |
 | Board commands — Pico             | ⬜ todo      | reboot-to-bootloader via SystemModule or hook       |
 | `modules/ir/IIRModule.h`          | ✅ done      | interface only                                      |
 | `platform/pico/IRModule` (PIO)    | ✅ done      | PicoIRModule (PIO+core1); in cmdr module system (`cmdr module enable ir`) |
@@ -194,6 +198,8 @@ Goal: migrate Roomba robot to this framework.
    on ESP32 (esp_restart into download mode or DFU).
 4. **ESP32 module system + IR** — wire ESP32 into the `cmdr module` system (hook
    main + target detection) and add an RMT-based IR impl.
+5. **Bluepill I2C** — implement `hal_i2c_*` for the STM32 (I2C1 peripheral or
+   bit-bang) to bring up `compass`; currently stubbed in `hal/stm32/hal.cpp`.
 
 ## Board pin reference
 
