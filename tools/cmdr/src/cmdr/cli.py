@@ -1434,9 +1434,12 @@ def enable_dfu() -> None:
     if Path("bum").exists():
         write_script(Path("bum"), BLUEPILL_DFU_BUM_SCRIPT)
         print("  • bum now uploads over USB-DFU (./upload stays ST-Link)")
-    print("\nUpload either way:")
-    print("  USB DFU:  ./bum   (build + USB flash + monitor; auto-reboots into DFU)")
-    print("  ST-Link:  ./flash-bluepill-bootloader  (once)  then  ./upload")
+    print("\nFirst time — install the DFU bootloader via ST-Link (required once):")
+    print("    ./flash-bluepill-bootloader")
+    print("Then flash the app over USB — no ST-Link (the board is now in DFU):")
+    print("    ./bum")
+    print("Day-to-day just run ./bum (it auto-reboots the app into DFU, then flashes).")
+    print("ST-Link app upload stays available anytime via ./upload.")
 
 
 def disable_dfu() -> None:
