@@ -588,6 +588,7 @@ MODULE_SPECS = {
     # the shared driver), so it supersedes `roomba` on the R4 (mutually exclusive).
     "loco-bridge": {"always": False, "platforms": ["r4"], "questions": [
         ("addr", "This bridge's I2C slave address", "0x42"),
+        ("port", "I2C port (0=Wire A4/A5 5V, 1=Wire1 Qwiic 3.3V)", "1"),
         ("baud", "Roomba OI baud rate", "115200"),
         ("brc",  "BRC/wake pin (Mini-DIN 5), -1 if none", "-1"),
     ]},
@@ -677,13 +678,16 @@ def _emit_module(name: str, opts: dict, target: str):
         addr = opts.get("addr", 0x42)
         baud = opts.get("baud", 115200)
         brc  = opts.get("brc", -1)
+        # I2C port: Wire1 (Qwiic, 3.3V — direct to a Pico master) or Wire (A4/A5,
+        # 5V — needs a level shifter). Both are IIC peripherals, so both do slave.
+        wire = "Wire1" if int(opts.get("port", 1)) else "Wire"
         return (['#include <Arduino.h>',
                  '#include "modules/roomba/RoombaModule.h"',
                  '#include "modules/locomotion/LocomotionBridge.h"'],
                 [ROOMBA_R4_ADAPTER,
                  "static R4RoombaPort _m_roomba_port;",
                  "static RoombaModule _m_roomba(_m_roomba_port);",
-                 f"static LocomotionBridge _m_loco_bridge(_m_roomba.driver(), {addr});"],
+                 f"static LocomotionBridge _m_loco_bridge(_m_roomba.driver(), {addr}, {wire});"],
                 [f"_m_roomba_port.begin({baud}, {brc});",
                  "reg.registerModule(_m_roomba);",
                  "reg.registerModule(_m_loco_bridge);"],

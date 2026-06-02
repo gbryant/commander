@@ -170,7 +170,12 @@ both platforms: `ir recv` (NEC/Sony), `ir wall` (Roomba virtual wall), `ir diag`
 master side: `drive`/`stop`/`loco sensors` to a remote mobile base over `hal_i2c_*`)
 and `loco-bridge` (R4 only — the matching I2C-slave bridge that forwards
 `CMD_LOCO_*` to a Roomba; it owns the shared `Roomba` driver and also provides
-`oi`, so it's mutually exclusive with `roomba`). The two locomotion sides share the
+`oi`, so it's mutually exclusive with `roomba`). The bridge's I2C port is
+selectable at enable (`port` question): `Wire1` = the Qwiic/STEMMA connector
+(IIC0, **3.3 V** — wire a 3.3 V Pico master straight in, the default) or `Wire`
+= the A4/A5 header pins (IIC1, **5 V** — needs a level shifter). Both R4 Qwiic
+and A4/A5 map to hardware IIC peripherals, so both support I2C **slave** mode; an
+SCI-backed Wire would not (`TwoWire::_begin` refuses a slave on SCI). The two locomotion sides share the
 pure wire format in `modules/locomotion/LocoProtocol.h` (the I2C "register" is the
 `CMD_LOCO_*` byte from `i2c_ids.h` — no extra framing); the bridge's Wire
 `onReceive`/`onRequest` run in ISR context, so they only latch the command + serve a

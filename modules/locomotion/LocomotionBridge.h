@@ -22,15 +22,22 @@
 // the I2C bridge never fight over the serial line.
 class LocomotionBridge : public IModule {
 public:
-    LocomotionBridge(Roomba &roomba, uint8_t addr) : _roomba(roomba), _addr(addr) {}
+    // `wire` selects the I2C port. On the Uno R4 WiFi:
+    //   Wire  — A4/A5 header pins (IIC1), 5V logic — needs a level shifter to a
+    //           3.3V master like the Pico 2 W.
+    //   Wire1 — the Qwiic/STEMMA QT connector (IIC0), 3.3V — wire a 3.3V master
+    //           straight in. Both map to a hardware IIC peripheral, so both
+    //           support I2C slave mode (an SCI-backed Wire would not).
+    LocomotionBridge(Roomba &roomba, uint8_t addr, TwoWire &wire = Wire)
+        : _roomba(roomba), _addr(addr), _wire(wire) {}
 
     const char *name() const override { return "loco-bridge"; }
 
     void init() override {
         _self = this;
-        Wire.begin(_addr);              // join the bus as a slave
-        Wire.onReceive(onReceiveThunk); // [reg][payload] from the master
-        Wire.onRequest(onRequestThunk); // master reads the sensor snapshot
+        _wire.begin(_addr);              // join the bus as a slave
+        _wire.onReceive(onReceiveThunk); // [reg][payload] from the master
+        _wire.onRequest(onRequestThunk); // master reads the sensor snapshot
     }
 
     void registerCommands(CommandRegistry &) override {}  // no shell commands of its own
@@ -73,6 +80,7 @@ private:
 
     Roomba &_roomba;
     uint8_t _addr;
+    TwoWire &_wire;
 
     // ISR <-> task shared state. Written in the Wire ISR, read/cleared in tick().
     volatile bool    _pendingDrive = false;
@@ -90,18 +98,18 @@ private:
 
     void onReceive(int n) {
         if (n <= 0) return;
-        uint8_t reg = (uint8_t)Wire.read();   // first byte = command / register
+        uint8_t reg = (uint8_t)_wire.read();   // first byte = command / register
         _lastReg = reg;
         if (reg == CMD_LOCO_DRIVE) {
-            for (int i = 0; i < LOCO_DRIVE_LEN && Wire.available(); i++)
-                _driveBuf[i] = (uint8_t)Wire.read();
+            for (int i = 0; i < LOCO_DRIVE_LEN && _wire.available(); i++)
+                _driveBuf[i] = (uint8_t)_wire.read();
             _pendingDrive = true;
         } else if (reg == CMD_LOCO_STOP) {
             _pendingStop = true;
         }
         // CMD_LOCO_SENSORS is set-register-only here; the data goes out via the
         // repeated-start read handled by onRequest().
-        while (Wire.available()) Wire.read();  // drain any trailing bytes
+        while (_wire.available()) _wire.read();  // drain any trailing bytes
     }
 
     void onRequest() {
@@ -109,7 +117,7 @@ private:
         if (_lastReg == CMD_LOCO_SENSORS) {
             uint8_t buf[LOCO_SENSORS_LEN];
             for (int i = 0; i < LOCO_SENSORS_LEN; i++) buf[i] = _sensorCache[i];
-            Wire.write(buf, LOCO_SENSORS_LEN);
+            _wire.write(buf, LOCO_SENSORS_LEN);
         }
     }
 
