@@ -1,0 +1,28 @@
+#!/bin/bash
+# Upload the app over USB DFU — no ST-Link. One-time setup:
+#   ./flash-bluepill-bootloader   then   ./upload   (ST-Link: install bootloader + first app)
+# Before running this, put the board in DFU mode: type `bootloader` in the shell.
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$DIR"
+
+command -v dfu-util >/dev/null || { echo "error: dfu-util not found (brew install dfu-util)" >&2; exit 1; }
+
+echo "Building app ..."
+pio run
+BIN=$(ls .pio/build/*/firmware.bin 2>/dev/null | head -1)
+[ -n "$BIN" ] || { echo "error: no firmware.bin under .pio/build/ — did the build succeed?" >&2; exit 1; }
+
+if ! dfu-util -l 2>/dev/null | grep -qi "dead:ca5d"; then
+  echo >&2
+  echo "No DFU device (dead:ca5d) found. In the running shell, type:" >&2
+  echo "    bootloader" >&2
+  echo "then re-run ./upload-bluepill-usb" >&2
+  exit 1
+fi
+
+echo "Flashing $BIN over USB DFU ..."
+# davidgfnet presents a DfuSe interface, so dfu-util needs the target address.
+# App lives at 0x08001000; ":leave" exits DFU and boots it after download.
+dfu-util -d 0xdead:0xca5d -a 0 -s 0x08001000:leave -D "$BIN"
+echo "Done — the board reboots into the new app."

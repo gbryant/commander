@@ -1378,6 +1378,64 @@ def disable_ota() -> None:
         die("CMakeLists.txt does not reference commander — is this a commander project?")
 
 
+# ── enable / disable dfu (STM32 Bluepill) ─────────────────────────────────────
+# Lets a Bluepill project choose ST-Link or USB-DFU upload. Enabling relocates the app
+# above the davidgfnet DFU bootloader (0x08001000) and drops in the host scripts; ST-Link
+# upload (./upload) still works once the bootloader is flashed.
+
+_DFU_FILES = ["stm32f103c8_dfu.ld", "flash-bluepill-bootloader",
+              "upload-bluepill-usb", "unlock-bluepill"]
+
+
+def enable_dfu() -> None:
+    pio = Path("platformio.ini")
+    if not pio.exists() or "bluepill_f103c8" not in pio.read_text():
+        die("`cmdr enable dfu` is only for the STM32 Bluepill target")
+    text = pio.read_text()
+    if "COMMANDER_STM32_DFU" in text:
+        print("DFU already enabled.")
+    else:
+        out = []
+        for line in text.splitlines():
+            out.append(line)
+            s = line.strip()
+            if s.startswith("build_flags"):
+                out.append("    -DCOMMANDER_STM32_DFU")
+            elif s.startswith("board ") and "bluepill_f103c8" in s:
+                out.append("board_build.ldscript = stm32f103c8_dfu.ld")
+        pio.write_text("\n".join(out) + "\n")
+        print("Enabled DFU in platformio.ini:")
+        print("  • -DCOMMANDER_STM32_DFU (app @ 0x08001000 + the `bootloader` command)")
+        print("  • board_build.ldscript = stm32f103c8_dfu.ld")
+    for tmpl in _DFU_FILES:
+        dest = Path(tmpl)
+        copy_template(tmpl, dest)
+        if not tmpl.endswith(".ld"):
+            dest.chmod(0o755)
+    print("  • " + ", ".join(_DFU_FILES))
+    print("\nUpload either way:")
+    print("  ST-Link:  ./flash-bluepill-bootloader  (once)  then  ./upload")
+    print("  USB DFU:  > bootloader  (in the shell)  then  ./upload-bluepill-usb  (no ST-Link)")
+
+
+def disable_dfu() -> None:
+    pio = Path("platformio.ini")
+    if pio.exists():
+        text = pio.read_text()
+        if "COMMANDER_STM32_DFU" not in text:
+            print("DFU already disabled.")
+        else:
+            text = re.sub(r"\n[ \t]*-DCOMMANDER_STM32_DFU", "", text)
+            text = re.sub(r"\n[ \t]*board_build\.ldscript = stm32f103c8_dfu\.ld", "", text)
+            pio.write_text(text)
+            print("Disabled DFU in platformio.ini (app back to 0x08000000, ST-Link only).")
+    for f in _DFU_FILES:
+        p = Path(f)
+        if p.exists():
+            p.unlink()
+            print(f"  • removed {f}")
+
+
 # ── CLI entry points ──────────────────────────────────────────────────────────
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -1402,11 +1460,15 @@ def cmd_init(args: argparse.Namespace) -> None:
 def cmd_enable(args: argparse.Namespace) -> None:
     if args.feature == "ota":
         enable_ota()
+    elif args.feature == "dfu":
+        enable_dfu()
 
 
 def cmd_disable(args: argparse.Namespace) -> None:
     if args.feature == "ota":
         disable_ota()
+    elif args.feature == "dfu":
+        disable_dfu()
 
 
 def cmd_update() -> None:
@@ -1490,10 +1552,10 @@ def main() -> None:
 
     # ── enable / disable ──────────────────────────────────────────────────────
     enable_p = sub.add_parser("enable", help="enable a feature in the current project")
-    enable_p.add_argument("feature", choices=["ota"], help="feature to enable")
+    enable_p.add_argument("feature", choices=["ota", "dfu"], help="feature to enable")
 
     disable_p = sub.add_parser("disable", help="disable a feature in the current project")
-    disable_p.add_argument("feature", choices=["ota"], help="feature to disable")
+    disable_p.add_argument("feature", choices=["ota", "dfu"], help="feature to disable")
 
     # ── update / pull ─────────────────────────────────────────────────────────
     sub.add_parser("update", help="update cmdr itself to latest")
