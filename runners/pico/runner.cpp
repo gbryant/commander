@@ -25,6 +25,10 @@ static UartTransport   _uart;
 static TelnetTransport _telnet;
 static BootselModule   _bootsel;
 
+// Set by `wifi off` so the link watchdog (wifiMonitor) doesn't fight the user and
+// reconnect a deliberately-disabled radio. Cleared by `wifi on`.
+static volatile bool _wifi_user_off = false;
+
 // ── FreeRTOS panic hooks ──────────────────────────────────────────────────
 // These run from the tick ISR — printf is unsafe (may deadlock on the stdio
 // spinlock). Use watchdog scratch[6] to pass the panic type across the reset
@@ -71,9 +75,13 @@ extern "C" bool commander_wifi_status(WifiInfo *info) {
     cyw43_arch_lwip_end();
     return info->connected;
 }
-extern "C" void commander_wifi_off() { cyw43_arch_disable_sta_mode(); }
+extern "C" void commander_wifi_off() {
+    _wifi_user_off = true;                 // suppress watchdog auto-reconnect
+    cyw43_arch_disable_sta_mode();
+}
 extern "C" void commander_wifi_on() {
     if (!_cfg.wifi_ssid) return;
+    _wifi_user_off = false;
     cyw43_arch_enable_sta_mode();
     cyw43_arch_wifi_connect_async(_cfg.wifi_ssid, _cfg.wifi_password, CYW43_AUTH_WPA2_MIXED_PSK);
 }
@@ -86,6 +94,35 @@ extern "C" void commander_wifi_on() {
 // C++ linkage (not extern "C") so the ControllerModule& parameter type matches.
 __attribute__((weak)) void commander_on_controller_ready(ControllerModule &) {}
 #endif
+
+// ── WiFi link watchdog ────────────────────────────────────────────────────
+// The Pico connects once at boot; if that link later drops (AP reboot, RF glitch,
+// roaming) nothing re-establishes it and telnet/mDNS go dark until a reflash.
+// Poll the STA link and reconnect when it's down — unless the user ran `wifi off`.
+// The netif persists across a link bounce, so mDNS + the telnet listener come back
+// on their own once the link (and DHCP) return; we only have to nudge the radio.
+static void wifiMonitor() {
+    bool announced = false;   // log the first down + the recovery, not every poll
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        if (_wifi_user_off) continue;
+
+        cyw43_arch_lwip_begin();
+        int link = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+        cyw43_arch_lwip_end();
+        if (link == CYW43_LINK_UP) {
+            if (announced) { printf("[wifi] reconnected\n"); announced = false; }
+            continue;
+        }
+
+        if (!announced) { printf("[wifi] link down (%d) — reconnecting...\n", link); announced = true; }
+        cyw43_arch_enable_sta_mode();
+        int err = cyw43_arch_wifi_connect_timeout_ms(
+            _cfg.wifi_ssid, _cfg.wifi_password, CYW43_AUTH_WPA2_MIXED_PSK, 15000);
+        if (err == 0) commander_on_wifi_connected();   // re-run app's connect hook
+        // else: next poll retries (the 5 s delay above paces the attempts)
+    }
+}
 
 // ── Main FreeRTOS task ────────────────────────────────────────────────────
 static void runnerTask(void *) {
@@ -149,6 +186,9 @@ static void runnerTask(void *) {
                 printf("[wifi] connect failed (%d)\n", err);
             }
         }
+        // Keep this task alive as the link watchdog (reuses its proven 8 KB stack,
+        // which the blocking connect call needs) instead of deleting it.
+        wifiMonitor();   // never returns
     }
 
     vTaskDelete(nullptr);
