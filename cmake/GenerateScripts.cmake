@@ -14,8 +14,27 @@
 
 # Capture paths at include time; CMAKE_CURRENT_LIST_DIR changes inside functions.
 set(_CMDR_TEMPLATE_DIR "${CMAKE_CURRENT_LIST_DIR}/scripts" CACHE INTERNAL "")
+set(_CMDR_CMAKE_DIR    "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "")  # VersionStamp.cmake
 get_filename_component(_CMDR_REPO_SCRIPTS_DIR
     "${CMAKE_CURRENT_LIST_DIR}/../scripts" ABSOLUTE CACHE)
+
+# Stamp BUILD_NUMBER + a timestamp into the firmware before each build of TARGET,
+# so `version` confirms which image is running (e.g. after an OTA). A pre-build
+# custom target regenerates commander_build.h in the binary dir (version.h picks
+# it up via __has_include); only the version TU recompiles, not the whole tree.
+function(commander_stamp_version TARGET)
+    add_custom_target(${TARGET}_version_stamp ALL      # ALL: run every build (Ninja
+        COMMAND ${CMAKE_COMMAND}                        # won't cascade a phony dep)
+            -DOUT=${CMAKE_BINARY_DIR}/commander_build.h
+            -DCOUNTER=${CMAKE_SOURCE_DIR}/.build_number
+            -P ${_CMDR_CMAKE_DIR}/VersionStamp.cmake
+        BYPRODUCTS ${CMAKE_BINARY_DIR}/commander_build.h
+        COMMENT "[commander] stamping build version"
+        VERBATIM
+    )
+    add_dependencies(${TARGET} ${TARGET}_version_stamp)
+    target_include_directories(${TARGET} PRIVATE ${CMAKE_BINARY_DIR})
+endfunction()
 
 function(commander_generate_scripts TARGET)
     if(NOT DEFINED PICO_BOARD)
@@ -66,6 +85,8 @@ function(commander_generate_scripts TARGET)
                 WORLD_READ WORLD_EXECUTE
         )
     endforeach()
+
+    commander_stamp_version(${TARGET})
 
     message(STATUS "[commander] Scripts written to ${CMAKE_SOURCE_DIR}:")
     message(STATUS "  bum  build  upload  monitor  bum-ota")

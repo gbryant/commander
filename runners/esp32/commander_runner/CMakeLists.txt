@@ -39,3 +39,9 @@ idf_component_register(
 if(COMMANDER_ENABLE_OTA)
     target_compile_definitions(${COMPONENT_LIB} PUBLIC COMMANDER_ENABLE_OTA=1)
 endif()
+
+# NOTE: version stamping (commander_build.h, see cmake/VersionStamp.cmake) is wired
+# for PlatformIO (R4/Uno) and the pico CMake path, but NOT esp32 yet — ESP-IDF
+# builds components in a sub-scope and doesn't promote a component ALL custom target
+# into the default build, so `version` still reports build 0/unknown on esp32. TODO:
+# add it at the project level with explicit ordering before the main component.
