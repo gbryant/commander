@@ -330,14 +330,21 @@ tio --baudrate 115200 "$PORT"
 
 ARDUINO_R4_BUM_OTA_SCRIPT = """\
 #!/bin/bash
-# Build __NAME__ and push via OTA. Arms the device (sends 'ota start' over
-# telnet — the device closes telnet and starts the OTA listener on :65280 so
-# the two never contend for the WiFiS3 socket pool), builds, then HTTP-POSTs
-# the firmware. Requires: pip install requests
+# Build __NAME__, then push via OTA. Builds FIRST so the device's telnet/mDNS are
+# torn down only once a fresh binary exists; then arms the device (sends 'ota
+# start' over telnet — the device closes telnet and starts the OTA listener on
+# :65280 so the two never contend for the WiFiS3 socket pool) and HTTP-POSTs the
+# firmware. Requires: pip install requests
 # Usage: ./bum-ota [host]   default: __NAME__.local
 set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST="${1:-__NAME__.local}"
+BIN="$DIR/.pio/build/__NAME__/firmware.bin"
+
+# Build first — don't arm OTA (which tears down the device's telnet + mDNS and
+# starts a timed listener) until we actually have a fresh binary.
+"$DIR/build"
+[ -f "$BIN" ] || { echo "Build produced no binary: $BIN"; exit 1; }
 
 echo "Resolving $HOST..."
 # Fail with a clear message instead of a Python traceback if the name doesn't
@@ -367,8 +374,7 @@ s.close()
 PYEOF
 echo "OTA mode active."
 
-"$DIR/build"
-python3 "$DIR/scripts/upload_ota.py" "$IP" "$DIR/.pio/build/__NAME__/firmware.bin"
+python3 "$DIR/scripts/upload_ota.py" "$IP" "$BIN"
 """
 
 ESP32_MONITOR_SCRIPT = """\
