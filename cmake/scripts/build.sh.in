@@ -1,4 +1,5 @@
 #!/bin/bash
 set -e
+@CMDR_ENV_EXPORTS@
 cmake -B "@CMDR_BUILD_DIR@" -S "@CMDR_SOURCE_DIR@" -DPICO_BOARD=@CMDR_BOARD@
 cmake --build "@CMDR_BUILD_DIR@"

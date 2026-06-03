@@ -43,6 +43,15 @@ function(commander_generate_scripts TARGET)
     set(CMDR_OTA_HOST    ${_host})
     set(CMDR_SCRIPTS     ${_CMDR_REPO_SCRIPTS_DIR})
 
+    # The controller module (Bluepad32) reads $BLUEPAD32_PATH at configure time,
+    # and unlike PICO_SDK_PATH it is not remembered in the CMake cache — so bake
+    # the configured value into `build` to keep the standard scripts self-contained
+    # (no shell-env setup needed). Empty for non-controller projects.
+    set(CMDR_ENV_EXPORTS "")
+    if(COMMANDER_ENABLE_CONTROLLER AND DEFINED ENV{BLUEPAD32_PATH})
+        set(CMDR_ENV_EXPORTS "export BLUEPAD32_PATH=\"$ENV{BLUEPAD32_PATH}\"")
+    endif()
+
     foreach(_name build upload monitor bum bum-ota)
         set(_out "${CMAKE_SOURCE_DIR}/${_name}")
         configure_file(
