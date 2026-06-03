@@ -158,6 +158,8 @@ static void otaCmd(const char *args, Writer &out, void *) {
 }
 #endif // COMMANDER_R4_OTA
 
+static bool wifi_attempt();  // defined below; called by net_poll for self-heal
+
 // One mDNS tick, rate-limited to ~100ms. Installed as the telnet task's poll
 // hook so a single task owns all modem access — WiFiS3's modem singleton has
 // no locking, so polling it from two tasks corrupts AT framing on Serial2.
@@ -165,8 +167,37 @@ static void net_poll() {
 #ifdef COMMANDER_R4_OTA
     if (_ota_arm) { _ota_arm = false; run_ota(); }   // runs in this (net) task
 #endif
-    static uint32_t last = 0;
     uint32_t now = millis();
+
+    // WiFi self-heal. WiFiS3 does not reconnect on its own, and wifiTask exits
+    // after the first association — so a dropped link leaves the hostname
+    // unreachable until a physical reset. Re-associate here (this task owns the
+    // modem) and rebuild mDNS + the telnet listener, with the same primitives OTA
+    // uses to tear them down/back up. The UART shell (its own task) stays usable
+    // throughout, and wifi_attempt() blocks only this networking task.
+    static uint32_t last_link_check = 0;
+    if (now - last_link_check >= 3000) {
+        last_link_check = now;
+        if (WiFi.status() != WL_CONNECTED) {
+            Serial.println("[wifi] link lost — reconnecting...");
+            if (_cfg.enable_telnet) _server.end();
+            _mdns_udp.stop();
+            WiFi.disconnect();
+            for (int attempt = 1; !wifi_attempt(); attempt++) {
+                Serial.print("[wifi] reconnect attempt "); Serial.print(attempt);
+                Serial.println(" failed — retrying in 5s");
+                WiFi.disconnect();
+                vTaskDelay(pdMS_TO_TICKS(5000));
+            }
+            Serial.print("[wifi] reconnected "); Serial.println(WiFi.localIP());
+            if (_cfg.hostname && _mdns_udp.beginMulticast(kMdnsGroup, kMdnsPort))
+                mdns_announce();
+            if (_cfg.enable_telnet) _server.begin();
+            now = millis();
+        }
+    }
+
+    static uint32_t last = 0;
     if (now - last < 100) return;
     last = now;
     mdns_run(_mdns_udp.parsePacket());
