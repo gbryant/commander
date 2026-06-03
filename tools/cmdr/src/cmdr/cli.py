@@ -340,7 +340,11 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST="${1:-__NAME__.local}"
 
 echo "Resolving $HOST..."
-IP=$(python3 -c "import socket,sys; print(socket.gethostbyname(sys.argv[1]))" "$HOST")
+# Fail with a clear message instead of a Python traceback if the name doesn't
+# resolve (almost always: the device is still booting / not yet on WiFi / mDNS
+# not up — give it a few seconds after a fresh flash, then retry).
+IP=$(python3 -c "import socket,sys; print(socket.gethostbyname(sys.argv[1]))" "$HOST" 2>/dev/null) \
+    || { echo "Could not resolve $HOST — is it powered and on WiFi? (try: ping $HOST)"; exit 1; }
 echo "  $HOST -> $IP"
 
 echo "Arming OTA via telnet ($IP:23) — waiting for connection to drop..."
