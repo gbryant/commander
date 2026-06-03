@@ -212,6 +212,7 @@ framework = arduino
 monitor_speed = 115200
 extra_scripts =
     pre:scripts/patch_freertos.py
+    pre:scripts/version_stamp.py
 build_flags =
     -DCOMMANDER_UNO_RUNNER
     -DMAX_COMMANDS=12
@@ -229,6 +230,8 @@ platform = renesas-ra
 board = uno_r4_wifi
 framework = arduino
 monitor_speed = 115200
+extra_scripts =
+    pre:scripts/version_stamp.py
 build_flags =
     -DCOMMANDER_R4_RUNNER
     -DMAX_COMMANDS=12
@@ -1179,6 +1182,7 @@ def scaffold_arduino(target: str, name: str, out_dir: Path) -> None:
     scripts_dir = out_dir / "scripts"
     scripts_dir.mkdir()
     copy_template("find_port.py", scripts_dir / "find_port.py")
+    copy_template("version_stamp.py", scripts_dir / "version_stamp.py")
     if not is_r4:
         copy_template("patch_freertos.py", scripts_dir / "patch_freertos.py")
 
