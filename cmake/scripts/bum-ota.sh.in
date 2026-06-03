@@ -30,7 +30,7 @@ echo "==> Done."
 # Wait for the device to reboot onto the new firmware, then open a session.
 echo "==> Waiting for $HOST to come back up..."
 for _ in $(seq 1 60); do
-    (exec 3<>"/dev/tcp/$HOST/23") 2>/dev/null && break
+    python3 -c "import socket,sys; s=socket.socket(); s.settimeout(1.5); s.connect((sys.argv[1],23)); s.close()" "$HOST" 2>/dev/null && break
     sleep 1
 done
 echo "==> Opening telnet ($HOST) — Ctrl-] then 'quit' to exit"
