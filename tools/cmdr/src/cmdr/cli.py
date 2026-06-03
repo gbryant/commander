@@ -188,6 +188,15 @@ echo "==> Serving $URL"
 echo "==> Connecting to $HOST..."
 OTA_HOST="$HOST" OTA_URL="$URL" python3 "$DIR/scripts/ota_push.py"
 echo "==> Done."
+
+# Wait for the device to reboot onto the new firmware, then open a session.
+echo "==> Waiting for $HOST to come back up..."
+for _ in $(seq 1 60); do
+    (exec 3<>"/dev/tcp/$HOST/23") 2>/dev/null && break
+    sleep 1
+done
+echo "==> Opening telnet ($HOST) — Ctrl-] then 'quit' to exit"
+telnet "$HOST"
 """
 
 # ── Arduino templates (placeholders: __NAME__, __BOARD_ID__) ─────────────────
@@ -375,6 +384,15 @@ PYEOF
 echo "OTA mode active."
 
 python3 "$DIR/scripts/upload_ota.py" "$IP" "$BIN"
+
+# Wait for the device to reboot onto the new firmware, then open a session.
+echo "Waiting for $HOST to come back up..."
+for _ in $(seq 1 60); do
+    (exec 3<>"/dev/tcp/$HOST/23") 2>/dev/null && break
+    sleep 1
+done
+echo "Opening telnet ($HOST) — Ctrl-] then 'quit' to exit"
+telnet "$HOST"
 """
 
 ESP32_MONITOR_SCRIPT = """\

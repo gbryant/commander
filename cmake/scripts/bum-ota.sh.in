@@ -26,3 +26,12 @@ echo "==> Serving $URL"
 echo "==> Connecting to $HOST..."
 OTA_HOST="$HOST" OTA_URL="$URL" python3 "@CMDR_SCRIPTS@/ota_push.py"
 echo "==> Done."
+
+# Wait for the device to reboot onto the new firmware, then open a session.
+echo "==> Waiting for $HOST to come back up..."
+for _ in $(seq 1 60); do
+    (exec 3<>"/dev/tcp/$HOST/23") 2>/dev/null && break
+    sleep 1
+done
+echo "==> Opening telnet ($HOST) — Ctrl-] then 'quit' to exit"
+telnet "$HOST"
