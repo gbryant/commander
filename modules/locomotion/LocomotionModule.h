@@ -34,10 +34,12 @@ private:
     static void driveCmd(const char *args, Writer &out, void *ctx);
     static void stopCmd(const char *args, Writer &out, void *ctx);
     static void locoCmd(const char *args, Writer &out, void *ctx);
+    static void bridgeCmd(const char *args, Writer &out, void *ctx);
 
     bool sendDrive(int16_t vel, int16_t radius);
     bool sendStop();
     void readSensors(Writer &out);
+    void remoteExec(const char *cmd, Writer &out);   // run a command on the bridge board
 
     static void usage(Writer &out);
 
@@ -160,8 +162,52 @@ inline void LocomotionModule::locoCmd(const char *args, Writer &out, void *ctx) 
     usage(out);
 }
 
+// Run a command line on the bridge board's shell over I2C and print the output —
+// a remote console for when the bridge's own transport (e.g. R4 WiFi) is down.
+inline void LocomotionModule::remoteExec(const char *cmd, Writer &out) {
+    size_t len = strlen(cmd);
+    if (len > LOCO_CONSOLE_CMD_MAX - 1) len = LOCO_CONSOLE_CMD_MAX - 1;
+    if (!hal_i2c_write(_addr, CMD_CONSOLE_EXEC, (const uint8_t *)cmd, len)) {
+        out.writeln("bridge not responding (i2c write failed)");
+        return;
+    }
+    uint8_t chunk[1 + LOCO_CONSOLE_CHUNK];
+    for (int tries = 0; tries < 200; tries++) {     // ~busy-poll; I2C paces it
+        if (!hal_i2c_read(_addr, CMD_CONSOLE_READ, chunk, sizeof(chunk))) {
+            out.writeln("bridge read failed");
+            return;
+        }
+        uint8_t ctrl = chunk[0];
+        if (ctrl == LOCO_CONSOLE_BUSY) continue;    // not dispatched yet
+        if (ctrl == 0) return;                      // output complete
+        char tmp[LOCO_CONSOLE_CHUNK + 1];
+        uint8_t i = 0;
+        for (; i < ctrl && i < LOCO_CONSOLE_CHUNK; i++) tmp[i] = (char)chunk[1 + i];
+        tmp[i] = '\0';
+        out.write(tmp);
+    }
+    out.writeln("(bridge: timed out waiting for output)");
+}
+
+inline void LocomotionModule::bridgeCmd(const char *args, Writer &out, void *ctx) {
+    LocomotionModule *self = static_cast<LocomotionModule *>(ctx);
+    const char *p = skipSpaces(args);
+    if (*p == '\0') {
+        out.writeln("bridge <command>   run a command on the bridge board's shell");
+        out.writeln("bridge reset       hard-reset the bridge board");
+        return;
+    }
+    if (tokIs(p, "reset")) {
+        out.writeln(hal_i2c_write(self->_addr, CMD_RESET, nullptr, 0)
+                        ? "ok: reset sent to bridge" : "i2c write failed");
+        return;
+    }
+    self->remoteExec(p, out);
+}
+
 inline void LocomotionModule::registerCommands(CommandRegistry &reg) {
-    reg.registerCommand(CMD("drive", "Drive the base - 'drive' for usage", I2C_NONE, driveCmd, this));
-    reg.registerCommand(CMD("stop",  "Halt the base",                      I2C_NONE, stopCmd,  this));
-    reg.registerCommand(CMD("loco",  "Locomotion status - 'loco sensors'", I2C_NONE, locoCmd,  this));
+    reg.registerCommand(CMD("drive",  "Drive the base - 'drive' for usage", I2C_NONE, driveCmd,  this));
+    reg.registerCommand(CMD("stop",   "Halt the base",                      I2C_NONE, stopCmd,   this));
+    reg.registerCommand(CMD("loco",   "Locomotion status - 'loco sensors'", I2C_NONE, locoCmd,   this));
+    reg.registerCommand(CMD("bridge", "Remote console to the bridge board - 'bridge'", I2C_NONE, bridgeCmd, this));
 }

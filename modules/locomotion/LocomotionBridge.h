@@ -7,6 +7,13 @@
 #include "modules/roomba/Roomba.h"
 #include "modules/locomotion/LocoProtocol.h"
 
+#ifndef LOCO_CONSOLE_CMD_MAX
+#define LOCO_CONSOLE_CMD_MAX 32     // max remote command-line length (fits Wire RX)
+#endif
+#ifndef LOCO_CONSOLE_OUT_MAX
+#define LOCO_CONSOLE_OUT_MAX 192    // captured output buffer (R4 RAM is tight)
+#endif
+
 // R4 side of the locomotion link: an I2C slave at LOCO_BRIDGE_ADDR that presents
 // the generic mobile-base command set (i2c_ids.h CMD_LOCO_*) and forwards it to a
 // shared Roomba OI driver. The Pico master (LocomotionModule) drives this.
@@ -40,11 +47,27 @@ public:
         _wire.onRequest(onRequestThunk); // master reads the sensor snapshot
     }
 
-    void registerCommands(CommandRegistry &) override {}  // no shell commands of its own
+    // Keep the registry so the remote console can dispatch arbitrary commands.
+    void registerCommands(CommandRegistry &reg) override { _reg = &reg; }
 
-    // Pumped by the UART task. Applies any latched drive/stop command and keeps
-    // the sensor cache fresh so onRequest can answer without blocking I/O.
+    // Pumped by the UART task. Applies any latched drive/stop command, runs any
+    // latched remote-console command, and keeps the sensor cache fresh — all the
+    // blocking work the ISR callbacks defer.
     void tick() override {
+        if (_resetPending) { _resetPending = false; delay(5); NVIC_SystemReset(); }
+        if (_consoleState == 1 && _reg) {       // dispatch a latched command line
+            char cmd[LOCO_CONSOLE_CMD_MAX];
+            noInterrupts();
+            uint8_t n = _cmdLen;
+            for (uint8_t i = 0; i < n; i++) cmd[i] = (char)_cmdBuf[i];
+            interrupts();
+            cmd[n] = '\0';
+            CaptureWriter cw(_outBuf, LOCO_CONSOLE_OUT_MAX);
+            _reg->dispatch(cmd, cw);
+            noInterrupts();
+            _outLen = cw.len; _outPos = 0; _consoleState = 2;  // output ready
+            interrupts();
+        }
         if (_pendingDrive) {
             uint8_t buf[LOCO_DRIVE_LEN];
             noInterrupts();
@@ -90,6 +113,25 @@ private:
     volatile uint8_t _lastReg = I2C_NONE;
     uint32_t _lastSensorMs = 0;
 
+    // Remote console (CMD_CONSOLE_EXEC/READ) + CMD_RESET. Lets a master drive this
+    // board's shell over I2C when its own transport (R4 WiFi/telnet) is unreachable.
+    CommandRegistry *_reg = nullptr;
+    volatile uint8_t  _consoleState = 0;   // 0 idle, 1 cmd latched, 2 output ready
+    volatile bool     _resetPending = false;
+    volatile uint8_t  _cmdBuf[LOCO_CONSOLE_CMD_MAX] = {0};
+    volatile uint8_t  _cmdLen = 0;
+    uint8_t           _outBuf[LOCO_CONSOLE_OUT_MAX];   // filled in tick(), read in onRequest()
+    volatile uint16_t _outLen = 0;
+    volatile uint16_t _outPos = 0;
+
+    // Captures a dispatched command's output into _outBuf for the master to read.
+    struct CaptureWriter : public Writer {
+        uint8_t *buf; uint16_t cap; uint16_t len = 0;
+        CaptureWriter(uint8_t *b, uint16_t c) : buf(b), cap(c) {}
+        void write(const char *s) override { while (*s && len < cap) buf[len++] = (uint8_t)*s++; }
+        void writeln(const char *s = "") override { write(s); write("\r\n"); }
+    };
+
     // Wire callbacks are plain C function pointers, so route them through a
     // singleton. Inline static (C++17) — header is included in one TU on R4.
     static inline LocomotionBridge *_self = nullptr;
@@ -106,18 +148,38 @@ private:
             _pendingDrive = true;
         } else if (reg == CMD_LOCO_STOP) {
             _pendingStop = true;
+        } else if (reg == CMD_CONSOLE_EXEC) {
+            uint8_t n = 0;                       // latch the command line for tick()
+            while (_wire.available() && n < LOCO_CONSOLE_CMD_MAX - 1)
+                _cmdBuf[n++] = (uint8_t)_wire.read();
+            _cmdLen = n;
+            _consoleState = 1;
+        } else if (reg == CMD_RESET) {
+            _resetPending = true;
         }
-        // CMD_LOCO_SENSORS is set-register-only here; the data goes out via the
-        // repeated-start read handled by onRequest().
+        // CMD_LOCO_SENSORS / CMD_CONSOLE_READ are set-register-only here; the data
+        // goes out via the repeated-start read handled by onRequest().
         while (_wire.available()) _wire.read();  // drain any trailing bytes
     }
 
     void onRequest() {
-        // Answer instantly from the cache — never block in the ISR.
+        // Answer instantly from a cache/buffer — never block in the ISR.
         if (_lastReg == CMD_LOCO_SENSORS) {
             uint8_t buf[LOCO_SENSORS_LEN];
             for (int i = 0; i < LOCO_SENSORS_LEN; i++) buf[i] = _sensorCache[i];
             _wire.write(buf, LOCO_SENSORS_LEN);
+        } else if (_lastReg == CMD_CONSOLE_READ) {
+            uint8_t chunk[1 + LOCO_CONSOLE_CHUNK] = {0};
+            if (_consoleState == 1) {
+                chunk[0] = LOCO_CONSOLE_BUSY;     // not dispatched yet — master retries
+            } else {
+                uint8_t n = 0;
+                while (n < LOCO_CONSOLE_CHUNK && _outPos < _outLen)
+                    chunk[1 + n++] = _outBuf[_outPos++];
+                chunk[0] = n;                     // 0 = output complete
+                if (_outPos >= _outLen) _consoleState = 0;
+            }
+            _wire.write(chunk, sizeof(chunk));
         }
     }
 

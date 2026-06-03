@@ -180,6 +180,11 @@ pure wire format in `modules/locomotion/LocoProtocol.h` (the I2C "register" is t
 `CMD_LOCO_*` byte from `i2c_ids.h` — no extra framing); the bridge's Wire
 `onReceive`/`onRequest` run in ISR context, so they only latch the command + serve a
 pre-cached snapshot, with the blocking Roomba I/O done in `tick()` (a UART ticker).
+The master also gets a **remote console** over the same link: `bridge <cmd>` runs a
+command on the bridge board's own shell (the slave dispatches it through its
+`CommandRegistry` and streams the captured output back via `CMD_CONSOLE_EXEC`/`READ`)
+and `bridge reset` hard-resets it (`CMD_RESET`) — so you can drive/triage/reboot the
+R4 from the Pico's solid console even when the R4's own WiFi/telnet is unreachable.
 `controller` (Pico/Pico 2 W only — Bluetooth game-controller input via Bluepad32 +
 BTstack). It's a **generic input source**, not robot-specific: the module publishes
 controller state three mix-and-match ways — poll (`state()`), push

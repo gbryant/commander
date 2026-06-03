@@ -94,3 +94,12 @@ static inline void loco_unpack_sensors(const uint8_t in[LOCO_SENSORS_LEN], LocoS
     s->voltage_mv     = (uint16_t)(((uint16_t)in[8] << 8) | in[9]);
     s->current_ma     = (int16_t)(((uint16_t)in[10] << 8) | in[11]);
 }
+
+// ── Remote-console chunking (CMD_CONSOLE_EXEC / CMD_CONSOLE_READ) ─────────────
+// The master writes a command line with CMD_CONSOLE_EXEC, then reads the captured
+// output back: each CMD_CONSOLE_READ returns 1 + LOCO_CONSOLE_CHUNK bytes,
+// [ctrl][data…]. ctrl == LOCO_CONSOLE_BUSY means "not dispatched yet, retry";
+// otherwise ctrl is the count of valid data bytes in this chunk (0 = output done).
+#define LOCO_CONSOLE_CHUNK   30
+#define LOCO_CONSOLE_BUSY    0xFF
+#define LOCO_CONSOLE_CMD_MAX 32   // max command-line length (slave buffer + Wire RX)

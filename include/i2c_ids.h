@@ -22,6 +22,12 @@
 #define CMD_RESET          I2C_CMD(MOD_SYSTEM, 0x2)
 #define CMD_BOOTLOADER     I2C_CMD(MOD_SYSTEM, 0x3)
 #define CMD_VERSION        I2C_CMD(MOD_SYSTEM, 0x4)
+// Remote console over I2C: a master drives a slave's shell when the slave's own
+// transport (e.g. R4 WiFi/telnet) is unreachable. Write a command line with
+// CMD_CONSOLE_EXEC, then read the captured output back in chunks with
+// CMD_CONSOLE_READ until a chunk reports 0 data bytes (CMD_RESET hard-resets).
+#define CMD_CONSOLE_EXEC   I2C_CMD(MOD_SYSTEM, 0x5)  // master writes a command line
+#define CMD_CONSOLE_READ   I2C_CMD(MOD_SYSTEM, 0x6)  // master reads [ctrl][data…] chunks
 
 // Locomotion commands — generic mobile-base drive interface.
 // Roomba is today's base; a future base reuses the same command bytes.
