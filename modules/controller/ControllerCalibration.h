@@ -42,11 +42,15 @@ public:
     void run(ControllerModule &pad, Writer &out);
 
 private:
+    // Defaults measured from the primary test controller (Bluepad32-reported
+    // pad, 2026-06-03) so apply() gives smooth, drift-free sticks out of the box
+    // with no `calibrate` run. These are a reasonable global default; per-pad
+    // profiles are a follow-up. Order: LX, LY, RX, RY.
     bool    _calibrated = false;
-    int16_t _center[NAXIS] = {0, 0, 0, 0};
-    int16_t _min[NAXIS]    = {-512, -512, -512, -512};
-    int16_t _max[NAXIS]    = {511, 511, 511, 511};
-    int16_t _dead[NAXIS]   = {40, 40, 40, 40};
+    int16_t _center[NAXIS] = {   9,   -2,   16,  -16};
+    int16_t _min[NAXIS]    = {-508, -508, -508, -504};
+    int16_t _max[NAXIS]    = { 511,  511,  511,  511};
+    int16_t _dead[NAXIS]   = {  57,   66,   95,   90};
 
     static const char *axisName(int a) {
         switch (a) { case LX: return "LX"; case LY: return "LY"; case RX: return "RX"; default: return "RY"; }
