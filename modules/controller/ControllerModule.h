@@ -39,15 +39,17 @@ public:
     // ── consumer plumbing ────────────────────────────────────────────────────
     const ControllerState &state() const { return _state; }
 
-    // Push: returns false if the listener table is full.
-    bool onUpdate(UpdateFn fn, void *ctx = nullptr) {
+    // Push: returns false if the listener table is full. `name` is an optional
+    // static label shown by `pad` so wired callbacks are inspectable (like
+    // bindings) — a registered listener is otherwise an opaque function pointer.
+    bool onUpdate(UpdateFn fn, void *ctx = nullptr, const char *name = nullptr) {
         if (_nUpdate >= CONTROLLER_MAX_LISTENERS) return false;
-        _updateSubs[_nUpdate++] = {fn, ctx};
+        _updateSubs[_nUpdate++] = {fn, ctx, name};
         return true;
     }
-    bool onButton(ButtonFn fn, void *ctx = nullptr) {
+    bool onButton(ButtonFn fn, void *ctx = nullptr, const char *name = nullptr) {
         if (_nButton >= CONTROLLER_MAX_LISTENERS) return false;
-        _buttonSubs[_nButton++] = {fn, ctx};
+        _buttonSubs[_nButton++] = {fn, ctx, name};
         return true;
     }
 
@@ -95,8 +97,8 @@ private:
     CommandRegistry   *_reg = nullptr;
     Writer            *_out = nullptr;
 
-    struct UpdateSub { UpdateFn fn; void *ctx; };
-    struct ButtonSub { ButtonFn fn; void *ctx; };
+    struct UpdateSub { UpdateFn fn; void *ctx; const char *name; };
+    struct ButtonSub { ButtonFn fn; void *ctx; const char *name; };
     UpdateSub _updateSubs[CONTROLLER_MAX_LISTENERS]; size_t _nUpdate = 0;
     ButtonSub _buttonSubs[CONTROLLER_MAX_LISTENERS]; size_t _nButton = 0;
 
@@ -164,6 +166,19 @@ inline void ControllerModule::padCmd(const char *args, Writer &out, void *ctx) {
             out.write(" -> "); out.writeln(self->_bindings[b]); anyBind = true;
         }
     if (!anyBind) out.writeln("  (none)");
+
+    // Registered callbacks — counts + optional labels, so wired listeners are
+    // visible even though a function pointer has no name of its own.
+    out.write("listeners: update="); putUInt(out, self->_nUpdate);
+    out.write(" button="); putUInt(out, self->_nButton); out.writeln();
+    for (size_t i = 0; i < self->_nUpdate; i++) {
+        out.write("  update -> ");
+        out.writeln(self->_updateSubs[i].name ? self->_updateSubs[i].name : "(unnamed)");
+    }
+    for (size_t i = 0; i < self->_nButton; i++) {
+        out.write("  button -> ");
+        out.writeln(self->_buttonSubs[i].name ? self->_buttonSubs[i].name : "(unnamed)");
+    }
 }
 
 inline void ControllerModule::bindCmd(const char *args, Writer &out, void *ctx) {
