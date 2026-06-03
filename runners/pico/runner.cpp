@@ -8,8 +8,10 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "hal/hal.h"
+#include "core/WifiHooks.h"
 #include "transport/telnet/TelnetTransport.h"
 #include <stdio.h>
+#include <string.h>
 // ota_cmd.h includes lwip/sockets.h which defines poll() as a macro.
 // Must come after pico/cyw43_arch.h (which uses poll as an identifier in
 // async_context.h) to avoid the macro clobbering the function pointer name.
@@ -49,6 +51,32 @@ extern "C" {
 extern "C" __attribute__((weak)) void commander_early_init()                   {}
 extern "C" __attribute__((weak)) void commander_on_uart_ready(UartTransport &) {}
 extern "C" __attribute__((weak)) void commander_on_wifi_connected()            {}
+
+// ── WiFi control hooks (for the `wifi` module) ────────────────────────────────
+// cyw43 + lwIP access is serialized by the async-context lock, so these are safe
+// to call from the shell task. on() reconnects with the configured credentials.
+extern "C" bool commander_wifi_status(WifiInfo *info) {
+    cyw43_arch_lwip_begin();
+    info->connected = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP;
+    info->ssid[0] = '\0';
+    if (_cfg.wifi_ssid) { strncpy(info->ssid, _cfg.wifi_ssid, sizeof(info->ssid) - 1); }
+    info->ip[0] = '\0';
+    if (info->connected && netif_default) {
+        const char *ip = ip4addr_ntoa(netif_ip4_addr(netif_default));
+        if (ip) strncpy(info->ip, ip, sizeof(info->ip) - 1);
+    }
+    info->rssi = 0;
+    int32_t rssi = 0;
+    if (info->connected && cyw43_wifi_get_rssi(&cyw43_state, &rssi) == 0) info->rssi = rssi;
+    cyw43_arch_lwip_end();
+    return info->connected;
+}
+extern "C" void commander_wifi_off() { cyw43_arch_disable_sta_mode(); }
+extern "C" void commander_wifi_on() {
+    if (!_cfg.wifi_ssid) return;
+    cyw43_arch_enable_sta_mode();
+    cyw43_arch_wifi_connect_async(_cfg.wifi_ssid, _cfg.wifi_password, CYW43_AUTH_WPA2_MIXED_PSK);
+}
 
 #ifdef COMMANDER_ENABLE_CONTROLLER
 #include "modules/controller/ControllerModule.h"

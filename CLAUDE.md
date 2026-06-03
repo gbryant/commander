@@ -161,7 +161,12 @@ registration lines are deduped, so several I2C modules (e.g. `compass` + `i2c` +
 Available: `system` (always), `compass` (HAL I2C — its emitter calls
 `hal_i2c_init`), `sonar` (HAL GPIO, one pin), `i2c` (bus diagnostics —
 `i2c scan`/`read`/`write` over `hal_i2c_*`, one command slot, all platforms;
-handy for bringing up the locomotion bridge), `ir` (Pico via `PicoIRModule` PIO+core1 — the
+handy for bringing up the locomotion bridge), `wifi` (Pico/Pico 2 W/R4 —
+`wifi status`/`off`/`on`; portable command over runner-implemented hooks
+`commander_wifi_status/off/on` in `core/WifiHooks.h`, since WiFi/credentials and,
+on the R4, the single modem-owning task live in the runner — R4 reads a cache +
+sets request flags processed in `net_poll`, `wifi off` also suppresses
+auto-reconnect), `ir` (Pico via `PicoIRModule` PIO+core1 — the
 `commander_pico_ir` CMake target encapsulates the PIO build; Uno via the
 Uno & R4 via the IRremote-based `platform/arduino/IRModule`, unity-included by
 the generated file with `IRremote` added to `lib_deps`). IR commands are namespaced consistently on

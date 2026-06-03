@@ -596,6 +596,9 @@ MODULE_SPECS = {
         ("sda", "I2C SDA pin", {"pico": "6", "pico2": "6", "esp32": "4", "r4": "4", "uno": "4"}),
         ("scl", "I2C SCL pin", {"pico": "7", "pico2": "7", "esp32": "5", "r4": "5", "uno": "5"}),
     ]},
+    # WiFi status/control (wifi status|off|on). Runner implements the hooks, so
+    # only WiFi platforms whose runner provides them.
+    "wifi":    {"always": False, "platforms": ["pico", "pico2", "r4"], "questions": []},
     "ir":      {"always": False, "platforms": ["pico", "pico2", "uno", "r4"], "questions": [
         ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5", "r4": "5"}),
     ], "features": [
@@ -663,6 +666,10 @@ def _emit_module(name: str, opts: dict, target: str):
                 ["static I2CDiagModule _m_i2c;"],
                 [f"hal_i2c_init({sda}, {scl}, 100000);",
                  "reg.registerModule(_m_i2c);"], [])
+    if name == "wifi":
+        return (['#include "modules/WifiModule.h"'],
+                ["static WifiModule _m_wifi;"],
+                ["reg.registerModule(_m_wifi);"], [])
     if name == "ir":
         # Platform-specific (PIO on Pico). The commander_pico_ir CMake target
         # (linked into pico_runner) provides the PIO build + clean header. IR
@@ -1013,7 +1020,7 @@ def _sync_feature_flags(flags_on: set) -> None:
 # register at runtime), but cmdr knows the enabled set, so it computes it here.
 _MODULE_COMMANDS = {
     "system": 2, "compass": 1, "sonar": 1, "i2c": 1, "ir": 1,
-    "roomba": 1, "locomotion": 4, "loco-bridge": 1, "controller": 3,
+    "roomba": 1, "locomotion": 4, "loco-bridge": 1, "controller": 3, "wifi": 1,
 }
 # Headroom for runner-registered commands (bootsel on pico, ota when enabled) plus
 # a few app-registered ones. Conservative, since under-sizing silently drops commands.

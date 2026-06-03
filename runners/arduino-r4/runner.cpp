@@ -8,6 +8,7 @@
 #endif
 #include "commander.h"
 #include "hal/hal.h"
+#include "core/WifiHooks.h"
 // Unity-build: only compiled for R4, keeps it out of library srcFilter
 #include "transport/telnet/arduino/ArduinoTelnetTransport.cpp"
 
@@ -17,6 +18,18 @@ static UartTransport          _uart;
 static ArduinoTelnetTransport _telnet;
 static WiFiServer             _server(23);
 static WiFiUDP                _mdns_udp;
+
+// WiFi control for the `wifi` module. WiFiS3's modem has no locking, so the
+// command (UART/telnet task) only sets flags / reads a cache — net_poll (the one
+// task that owns the modem) does the actual work and refreshes _wifi_cache.
+static volatile bool _wifi_off_req  = false;
+static volatile bool _wifi_on_req   = false;
+static volatile bool _wifi_user_off = false;   // suppresses auto-reconnect after `wifi off`
+static WifiInfo      _wifi_cache    = {};
+
+extern "C" bool commander_wifi_status(WifiInfo *info) { *info = _wifi_cache; return info->connected; }
+extern "C" void commander_wifi_off() { _wifi_off_req = true; }
+extern "C" void commander_wifi_on()  { _wifi_on_req  = true; }
 
 extern "C" __attribute__((weak)) void commander_early_init()                   {}
 extern "C" __attribute__((weak)) void commander_on_uart_ready(UartTransport &) {}
@@ -167,6 +180,17 @@ static void net_poll() {
 #ifdef COMMANDER_R4_OTA
     if (_ota_arm) { _ota_arm = false; run_ota(); }   // runs in this (net) task
 #endif
+    // `wifi off`/`on` requests from the shell (this task owns the modem).
+    if (_wifi_off_req) {
+        _wifi_off_req = false; _wifi_user_off = true;
+        Serial.println("[wifi] off (user)");
+        if (_cfg.enable_telnet) _server.end();
+        _mdns_udp.stop();
+        WiFi.disconnect();
+    }
+    if (_wifi_on_req) {                              // re-enable; reconnect happens below
+        _wifi_on_req = false; _wifi_user_off = false;
+    }
     uint32_t now = millis();
 
     // WiFi self-heal. WiFiS3 does not reconnect on its own, and wifiTask exits
@@ -178,7 +202,7 @@ static void net_poll() {
     static uint32_t last_link_check = 0;
     if (now - last_link_check >= 3000) {
         last_link_check = now;
-        if (WiFi.status() != WL_CONNECTED) {
+        if (!_wifi_user_off && WiFi.status() != WL_CONNECTED) {
             Serial.println("[wifi] link lost — reconnecting...");
             if (_cfg.enable_telnet) _server.end();
             _mdns_udp.stop();
@@ -194,6 +218,19 @@ static void net_poll() {
                 mdns_announce();
             if (_cfg.enable_telnet) _server.begin();
             now = millis();
+        }
+        // Refresh the cache the `wifi` command reads (modem reads on this task).
+        _wifi_cache.connected = (WiFi.status() == WL_CONNECTED);
+        if (_wifi_cache.connected) {
+            const char *ss = WiFi.SSID();             // WiFiS3 returns const char*
+            strncpy(_wifi_cache.ssid, ss ? ss : "", sizeof(_wifi_cache.ssid) - 1);
+            _wifi_cache.ssid[sizeof(_wifi_cache.ssid) - 1] = '\0';
+            IPAddress ip = WiFi.localIP();
+            snprintf(_wifi_cache.ip, sizeof(_wifi_cache.ip), "%d.%d.%d.%d",
+                     ip[0], ip[1], ip[2], ip[3]);
+            _wifi_cache.rssi = WiFi.RSSI();
+        } else {
+            _wifi_cache.ssid[0] = '\0'; _wifi_cache.ip[0] = '\0'; _wifi_cache.rssi = 0;
         }
     }
 
