@@ -9,19 +9,14 @@ struct WiFiWriter : Writer {
     void write(const char* s)   override { client.print(s); }
     void writeln(const char* s) override { client.print(s); client.print("\r\n"); }
 };
-
-void cmdDisconnect(const char*, Writer& out, void* ctx) {
-    out.writeln("bye");
-    *static_cast<bool*>(ctx) = true;
-}
 }
 
 void ArduinoTelnetTransport::begin(CommandRegistry& reg, WiFiServer& server, const char* greeting) {
     _reg      = &reg;
     _server   = &server;
     _greeting = greeting;
-    reg.registerCommand(CMD("disconnect", "close the telnet session",
-        CMD_DISCONNECT, cmdDisconnect, &_disconnect));
+    // No `disconnect` command — close the session from the client (telnet Ctrl-]
+    // then `quit`, or just close the terminal).
 }
 
 void ArduinoTelnetTransport::sendPrompt(WiFiClient& client) {
@@ -46,7 +41,7 @@ void ArduinoTelnetTransport::handleByte(char c, WiFiClient& client) {
             _reg->dispatch(_buf, out);
             _pos = 0;
         }
-        if (!_disconnect) sendPrompt(client);
+        sendPrompt(client);
         return;
     }
     if (c == 0x7F || c == 0x08) {
@@ -61,7 +56,7 @@ void ArduinoTelnetTransport::handleByte(char c, WiFiClient& client) {
 }
 
 void ArduinoTelnetTransport::serveClient(WiFiClient client) {
-    _pos = 0; _saw_iac = false; _skip_opt = false; _disconnect = false;
+    _pos = 0; _saw_iac = false; _skip_opt = false;
 
     if (_greeting) {
         client.print(_greeting);
@@ -69,7 +64,7 @@ void ArduinoTelnetTransport::serveClient(WiFiClient client) {
     }
     sendPrompt(client);
 
-    while (client.connected() && !_disconnect) {
+    while (client.connected()) {
         if (client.available()) {
             handleByte((char)client.read(), client);
         } else {

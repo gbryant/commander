@@ -27,5 +27,4 @@ private:
     uint8_t _pos      = 0;
     bool    _saw_iac  = false;
     bool    _skip_opt = false;
-    bool    _disconnect = false;
 };

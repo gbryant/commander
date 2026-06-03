@@ -215,7 +215,6 @@ extra_scripts =
     pre:scripts/version_stamp.py
 build_flags =
     -DCOMMANDER_UNO_RUNNER
-    -DMAX_COMMANDS=12
 lib_deps =
     """ + REPO_URL + """
     https://github.com/feilipu/Arduino_FreeRTOS_Library.git
@@ -234,7 +233,6 @@ extra_scripts =
     pre:scripts/version_stamp.py
 build_flags =
     -DCOMMANDER_R4_RUNNER
-    -DMAX_COMMANDS=12
     -I${PROJECT_DIR}
     ; FreeRTOS hardening: report stack overflow / heap exhaustion instead of a
     ; silent corruption that wedges the ESP32-S3 bridge. Hooks live in the runner.
@@ -434,7 +432,6 @@ extra_scripts =
 build_flags =
     -DCOMMANDER_BLUEPILL_RUNNER
     -DCOMMANDER_STM32_USB_CONSOLE
-    -DMAX_COMMANDS=12
     -DSTM32F103xB
 lib_deps =
     """ + REPO_URL + """
@@ -1009,6 +1006,52 @@ def _sync_feature_flags(flags_on: set) -> None:
         cmake.write_text(text)
 
 
+# Commands each module registers — used to size MAX_COMMANDS exactly so the
+# registry's fixed command array isn't over-allocated (it matters on RAM-tight
+# boards like the R4, where every slot is ~20 bytes). The registry uses a fixed
+# array (no heap) for deterministic RAM; the count isn't known to the core (modules
+# register at runtime), but cmdr knows the enabled set, so it computes it here.
+_MODULE_COMMANDS = {
+    "system": 2, "compass": 1, "sonar": 1, "i2c": 1, "ir": 1,
+    "roomba": 1, "locomotion": 4, "loco-bridge": 1, "controller": 3,
+}
+# Headroom for runner-registered commands (bootsel on pico, ota when enabled) plus
+# a few app-registered ones. Conservative, since under-sizing silently drops commands.
+_MAX_COMMANDS_RESERVE = 5
+
+
+def _compute_max_commands(modules: dict) -> int:
+    total = _MODULE_COMMANDS["system"]
+    for name in modules:
+        total += _MODULE_COMMANDS.get(name, 1)
+    return total + _MAX_COMMANDS_RESERVE
+
+
+def _sync_max_commands(modules: dict, root: Path = Path(".")) -> None:
+    """Inject -DMAX_COMMANDS=<exact count> so the registry array fits the enabled
+    set — no manual tuning. PlatformIO build_flags or CMake add_compile_definitions."""
+    n = _compute_max_commands(modules)
+    pio = root / "platformio.ini"
+    cmake = root / "CMakeLists.txt"
+    if pio.exists():
+        text = re.sub(r"\n[ \t]*-DMAX_COMMANDS=\d+", "", pio.read_text())
+        out = []
+        for line in text.splitlines():
+            out.append(line)
+            if line.strip().startswith("build_flags"):
+                out.append(f"    -DMAX_COMMANDS={n}")
+        pio.write_text("\n".join(out) + "\n")
+        print(f"  • MAX_COMMANDS={n}")
+    elif cmake.exists():
+        text = re.sub(r"add_compile_definitions\(MAX_COMMANDS=\d+\)\n", "", cmake.read_text())
+        if "FetchContent_MakeAvailable(commander)" in text:
+            text = text.replace("FetchContent_MakeAvailable(commander)",
+                                f"add_compile_definitions(MAX_COMMANDS={n})\n"
+                                "FetchContent_MakeAvailable(commander)", 1)
+            cmake.write_text(text)
+            print(f"  • MAX_COMMANDS={n}")
+
+
 # Pico CMake injection for the controller module. CYW43_ENABLE_BLUETOOTH must
 # precede pico_sdk_init() (it selects the BT firmware blob); COMMANDER_ENABLE_CONTROLLER
 # must precede FetchContent_MakeAvailable so the runner builds the Bluepad32 target.
@@ -1112,6 +1155,7 @@ def cmd_module(args: argparse.Namespace) -> None:
         _install_tools(spec)
         _add_pio_lib_deps(spec.get("pio_lib_deps", []))
         _sync_feature_flags(_feature_flags_on(modules))
+        _sync_max_commands(modules)
         if name == "controller":
             _controller_cmake_enable()
         print(f"enabled module: {name}")
@@ -1125,6 +1169,7 @@ def cmd_module(args: argparse.Namespace) -> None:
         _remove_tools(spec)
         _remove_pio_lib_deps(spec.get("pio_lib_deps", []))
         _sync_feature_flags(_feature_flags_on(modules))
+        _sync_max_commands(modules)
         if name == "controller":
             _controller_cmake_disable()
         print(f"disabled module: {name}")
@@ -1142,6 +1187,7 @@ def scaffold_pico(target: str, name: str, out_dir: Path) -> None:
     # main.cpp at the project root for Pico).
     write_manifest(out_dir / "cmdr.toml", target, {})
     generate_modules_file(target, {}, out_dir / "commander_modules.h")
+    _sync_max_commands({}, out_dir)
     copy_template("FreeRTOS_Kernel_import.cmake", out_dir / "FreeRTOS_Kernel_import.cmake")
 
     print(f"Created {out_dir}/ for {board}")
@@ -1179,6 +1225,7 @@ def scaffold_arduino(target: str, name: str, out_dir: Path) -> None:
         write_manifest(out_dir / "cmdr.toml", "uno", {})
         generate_modules_file("uno", {}, src_dir / "commander_modules.h")
 
+    _sync_max_commands({}, out_dir)
     scripts_dir = out_dir / "scripts"
     scripts_dir.mkdir()
     copy_template("find_port.py", scripts_dir / "find_port.py")
@@ -1212,6 +1259,7 @@ def scaffold_bluepill(name: str, out_dir: Path) -> None:
     (src_dir / "main.cpp").write_text(render(UNO_MAIN_CPP_TEMPLATE, name=name))
     write_manifest(out_dir / "cmdr.toml", "bluepill", {})
     generate_modules_file("bluepill", {}, src_dir / "commander_modules.h")
+    _sync_max_commands({}, out_dir)
 
     scripts_dir = out_dir / "scripts"
     scripts_dir.mkdir()
@@ -1243,6 +1291,7 @@ def scaffold_esp32(name: str, out_dir: Path, chip: str, flash_mb: int, psram_mb:
     # main.cpp in main/ for ESP-IDF).
     write_manifest(out_dir / "cmdr.toml", "esp32", {})
     generate_modules_file("esp32", {}, main_dir / "commander_modules.h")
+    _sync_max_commands({}, out_dir)
 
     scripts_dir = out_dir / "scripts"
     scripts_dir.mkdir()
@@ -1689,6 +1738,9 @@ def cmd_pull() -> None:
             print("No cached commander found in .pio/libdeps/ — nothing to remove.")
         print("Updating packages...")
         subprocess.run(["pio", "pkg", "update"], check=True)
+        if Path("cmdr.toml").exists():       # keep MAX_COMMANDS sized to the modules
+            _t, _mods = read_manifest(Path("cmdr.toml"))
+            _sync_max_commands(_mods)
         print("\nDone — commander updated.")
         return
 

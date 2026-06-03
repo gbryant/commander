@@ -20,5 +20,4 @@ private:
     uint8_t _pos      = 0;
     bool    _saw_iac  = false;  // inside IAC telnet negotiation sequence
     bool    _skip_opt = false;  // waiting to skip WILL/WONT/DO/DONT option byte
-    bool    _disconnect = false;
 };

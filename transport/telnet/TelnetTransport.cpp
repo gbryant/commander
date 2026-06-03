@@ -14,18 +14,13 @@ struct TelnetWriter : Writer {
     void writeln(const char *s) override { write(s); write("\r\n"); }
     bool ok() override { return _ok; }
 };
-
-void cmdDisconnect(const char *, Writer &out, void *ctx) {
-    out.writeln("bye");
-    *static_cast<bool *>(ctx) = true;
-}
 }
 
 void TelnetTransport::begin(CommandRegistry &reg, const char *greeting) {
     _reg = &reg;
     _greeting = greeting;
-    reg.registerCommand(CMD("disconnect", "close the telnet session",
-        CMD_DISCONNECT, cmdDisconnect, &_disconnect));
+    // No `disconnect` command — close the session from the client (telnet Ctrl-]
+    // then `quit`, or just close the terminal).
 }
 
 void TelnetTransport::prompt(int fd) {
@@ -52,7 +47,7 @@ void TelnetTransport::handleByte(int fd, char c) {
             _reg->dispatch(_buf, out);
             _pos = 0;
         }
-        if (!_disconnect) prompt(fd);
+        prompt(fd);
         return;
     }
     if (c == 0x7F || c == 0x08) {
@@ -67,7 +62,7 @@ void TelnetTransport::handleByte(int fd, char c) {
 }
 
 void TelnetTransport::serveClient(int fd) {
-    _pos = 0; _saw_iac = false; _skip_opt = false; _disconnect = false;
+    _pos = 0; _saw_iac = false; _skip_opt = false;
 
     if (_greeting) {
         lwip_send(fd, _greeting, strlen(_greeting), 0);
@@ -81,7 +76,6 @@ void TelnetTransport::serveClient(int fd) {
     char c;
     while (lwip_recv(fd, &c, 1, 0) == 1) {
         handleByte(fd, c);
-        if (_disconnect) break;
     }
 }
 
