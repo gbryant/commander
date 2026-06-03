@@ -11,8 +11,8 @@
 #define LOCO_CONSOLE_CMD_MAX 32     // max remote command-line length (fits Wire RX)
 #endif
 #ifndef LOCO_CONSOLE_OUT_MAX
-#define LOCO_CONSOLE_OUT_MAX 192    // captured output buffer (R4 RAM is tight)
-#endif
+#define LOCO_CONSOLE_OUT_MAX 128    // captured output buffer (R4 RAM is tight; long
+#endif                             // output truncates — override -D to enlarge)
 
 // R4 side of the locomotion link: an I2C slave at LOCO_BRIDGE_ADDR that presents
 // the generic mobile-base command set (i2c_ids.h CMD_LOCO_*) and forwards it to a
