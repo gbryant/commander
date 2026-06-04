@@ -18,4 +18,9 @@ class ControllerBackend {
 public:
     virtual ~ControllerBackend() = default;
     virtual void begin(ControllerModule &sink) = 0;
+
+    // Clear stored pairings so a controller with a stale/mismatched bond can
+    // re-pair. Default no-op — backends without persistent bonds (USB, test
+    // harness) need do nothing; the Bluetooth backend overrides it.
+    virtual void forgetKeys() {}
 };

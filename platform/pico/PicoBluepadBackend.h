@@ -16,6 +16,8 @@ public:
         bp32_init();
     }
 
+    void forgetKeys() override { bp32_forget_keys(); }
+
 private:
     ControllerModule *_sink = nullptr;
 

@@ -55,6 +55,10 @@ void bp32_set_callback(bp_update_cb cb, void *ctx);
 // worker, so we do NOT call btstack_run_loop_execute(). Returns 0 on success.
 int bp32_init(void);
 
+// Wipe all stored Bluetooth bonds (link keys) and resume scanning, so a
+// controller with a stale/mismatched bond can pair fresh. Callable from any task.
+void bp32_forget_keys(void);
+
 #ifdef __cplusplus
 }
 #endif

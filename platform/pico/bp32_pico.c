@@ -23,6 +23,15 @@ void bp32_set_callback(bp_update_cb cb, void* ctx) {
     g_cb_ctx = ctx;
 }
 
+void bp32_forget_keys(void) {
+    // Wipe all stored BT bonds, then resume scanning so a controller with a stale
+    // or mismatched link key (auth fails, HCI reason 0x05) can pair fresh. The
+    // _safe variants post to the BTstack context, so this is callable from the
+    // shell task.
+    uni_bt_del_keys_safe();
+    uni_bt_start_scanning_and_autoconnect_safe();
+}
+
 static void deliver(void) {
     if (g_cb) g_cb(&g_sample, g_cb_ctx);
 }

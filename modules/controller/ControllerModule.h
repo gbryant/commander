@@ -119,6 +119,7 @@ private:
     static void padCmd(const char *args, Writer &out, void *ctx);
     static void bindCmd(const char *args, Writer &out, void *ctx);
     static void unbindCmd(const char *args, Writer &out, void *ctx);
+    static void btforgetCmd(const char *args, Writer &out, void *ctx);
 
     static const char *skipSpaces(const char *p) { while (*p == ' ') ++p; return p; }
     static const char *tokEnd(const char *p) { while (*p && *p != ' ') ++p; return p; }
@@ -142,6 +143,14 @@ inline void ControllerModule::registerCommands(CommandRegistry &reg) {
     reg.registerCommand(CMD("pad",    "Controller status + bindings - 'pad'",       I2C_NONE, padCmd,    this));
     reg.registerCommand(CMD("bind",   "bind <button> <command…> - button -> command", I2C_NONE, bindCmd,   this));
     reg.registerCommand(CMD("unbind", "unbind <button> - remove a binding",         I2C_NONE, unbindCmd, this));
+    reg.registerCommand(CMD("btforget", "clear BT pairings so a controller can re-pair", I2C_NONE, btforgetCmd, this));
+}
+
+inline void ControllerModule::btforgetCmd(const char *args, Writer &out, void *ctx) {
+    (void)args;
+    ControllerModule *self = static_cast<ControllerModule *>(ctx);
+    self->_backend.forgetKeys();
+    out.writeln("cleared BT pairings; scanning. Put the controller in pairing mode now.");
 }
 
 inline void ControllerModule::padCmd(const char *args, Writer &out, void *ctx) {
