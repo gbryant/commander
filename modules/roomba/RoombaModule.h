@@ -6,7 +6,7 @@
 #include <string.h>   // strncmp, strlen
 
 // Exposes the Roomba OI driver as a single shell command, "oi":
-//   oi start | safe | full | passive | wake
+//   oi start | safe | full | passive | wake | ping (is the base awake?)
 //   oi drive forward|back|left|right [speed_mmps] [ms]   (omit ms = continuous)
 //   oi drive <vel> <radius>                              (raw OI drive)
 //   oi stop | clean | spot | max | dock | power | reset | disconnect
@@ -60,7 +60,7 @@ inline const char *RoombaModule::fmtInt(int32_t v, char *buf) {
 }
 
 inline void RoombaModule::usage(Writer &out) {
-    out.writeln("oi: start|safe|full|passive|wake|stop|clean|spot|max|dock|power|reset|disconnect");
+    out.writeln("oi: start|safe|full|passive|wake|ping|stop|clean|spot|max|dock|power|reset|disconnect");
     out.writeln("    drive forward|back|left|right [speed_mmps] [ms]   (omit ms = continuous)");
     out.writeln("    drive <vel> <radius>   |   sensors | battery");
 }
@@ -153,6 +153,17 @@ inline void RoombaModule::oiCmd(const char *args, Writer &out, void *ctx) {
     if (tokIs(p, "full"))       { r.fullMode();     out.writeln("ok: full"); return; }
     if (tokIs(p, "passive"))    { r.passiveMode();  out.writeln("ok: passive"); return; }
     if (tokIs(p, "wake"))       { out.writeln(r.wake() ? "ok: wake" : "no BRC pin wired"); return; }
+    if (tokIs(p, "ping") || tokIs(p, "awake")) {
+        // Probe responsiveness: try to read the base. A sleeping base ignores
+        // serial, so the read times out → "no response". (This also re-inits a
+        // parked base, pulsing BRC to wake it if a BRC line is wired — so on a
+        // BRC rig `oi ping` after sleep both wakes it and confirms the wake.)
+        RoombaSensors s;
+        bool ok = r.readAllSensors(s);
+        out.writeln(ok ? "base responding (awake)"
+                       : "no response (asleep — wire/pulse BRC or press CLEAN to wake)");
+        return;
+    }
     if (tokIs(p, "stop"))       { r.stop();         out.writeln("ok: stop"); return; }
     if (tokIs(p, "clean"))      { r.clean();        out.writeln("ok: clean"); return; }
     if (tokIs(p, "spot"))       { r.spot();         out.writeln("ok: spot"); return; }
