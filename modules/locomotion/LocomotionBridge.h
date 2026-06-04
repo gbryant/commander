@@ -14,10 +14,7 @@
 #define LOCO_CONSOLE_OUT_MAX 128    // captured output buffer (R4 RAM is tight; long
 #endif                             // output truncates — override -D to enlarge)
 #ifndef LOCO_IDLE_MS
-#define LOCO_IDLE_MS       120000u  // idle this long → park the base (sleep/charge) if a BRC wake line is wired
-#endif
-#ifndef LOCO_KEEPALIVE_MS
-#define LOCO_KEEPALIVE_MS   60000u  // with no BRC: nudge the base this often when idle so it stays drivable
+#define LOCO_IDLE_MS       120000u  // idle this long → park the base (OI Stop, charging/sleep allowed)
 #endif
 
 // R4 side of the locomotion link: an I2C slave at LOCO_BRIDGE_ADDR that presents
@@ -114,19 +111,14 @@ public:
             }
         }
 
-        // Idle power policy. With a BRC wake line wired we can safely let the base
-        // sleep/charge once idle and wake it on the next drive (drive() → start()
-        // pulses BRC). Without one, a slept base can't be woken remotely, so keep
-        // it awake with a light periodic nudge (not the old 200 ms poll → no
-        // stutter) so it stays remotely drivable.
+        // Idle power: after no drive for LOCO_IDLE_MS, park the base (OI Stop →
+        // motors off, charging/sleep allowed). The next drive re-inits it
+        // (drive() → start(), which pulses BRC to wake if a BRC line is wired; with
+        // no BRC, a deep-slept base needs a manual button press to wake).
         uint32_t now = millis();
-        if (_lastDriveMs != 0 && (now - _lastDriveMs) >= LOCO_IDLE_MS) {
-            if (_roomba.hasBrc()) {
-                if (!_idleParked) { _roomba.disconnect(); _idleParked = true; }  // OI Stop: motors off, charge/sleep
-            } else if ((now - _lastKeepAliveMs) >= LOCO_KEEPALIVE_MS) {
-                _lastKeepAliveMs = now;
-                _roomba.safeMode();              // resets the base's inactivity timer
-            }
+        if (!_idleParked && _lastDriveMs != 0 && (now - _lastDriveMs) >= LOCO_IDLE_MS) {
+            _roomba.disconnect();
+            _idleParked = true;
         }
     }
 
@@ -142,9 +134,8 @@ private:
     volatile uint8_t _sensorCache[LOCO_SENSORS_LEN] = {0};
     volatile uint8_t _lastReg = I2C_NONE;
     volatile bool    _sensorRefresh = false;  // master asked for a sensor snapshot
-    uint32_t _lastDriveMs    = 0;   // last drive/stop applied — drives the idle policy
-    uint32_t _lastKeepAliveMs = 0;  // last no-BRC keep-awake nudge
-    bool     _idleParked     = false;  // base parked (OI Stop) for idle power save
+    uint32_t _lastDriveMs = 0;   // last drive/stop applied — drives the idle policy
+    bool     _idleParked  = false;  // base parked (OI Stop) for idle power save
 
     // Remote console (CMD_CONSOLE_EXEC/READ) + CMD_RESET. Lets a master drive this
     // board's shell over I2C when its own transport (R4 WiFi/telnet) is unreachable.
