@@ -185,6 +185,11 @@ pure wire format in `modules/locomotion/LocoProtocol.h` (the I2C "register" is t
 `CMD_LOCO_*` byte from `i2c_ids.h` — no extra framing); the bridge's Wire
 `onReceive`/`onRequest` run in ISR context, so they only latch the command + serve a
 pre-cached snapshot, with the blocking Roomba I/O done in `tick()` (a UART ticker).
+For analog driving, `modules/locomotion/DriveMixer.h` is a reusable, input-agnostic
+helper that turns a normalized throttle+steer pair (e.g. from
+`ControllerCalibration::apply`) into a smooth ramped `(velocity, radius)` loco
+command — two-zone velocity/radius + velocity ramping (ported from the original
+robot's smooth feel). The consumer just picks the stick layout and ships the result.
 The master also gets a **remote console** over the same link: `bridge <cmd>` runs a
 command on the bridge board's own shell (the slave dispatches it through its
 `CommandRegistry` and streams the captured output back via `CMD_CONSOLE_EXEC`/`READ`)
