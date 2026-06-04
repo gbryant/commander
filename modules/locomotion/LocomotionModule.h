@@ -84,6 +84,12 @@ inline bool LocomotionModule::sendStop() {
 }
 
 inline void LocomotionModule::readSensors(Writer &out) {
+    // The bridge reads the base lazily — only when asked — so the drive stream
+    // stays clean and the base can idle. Two-step handshake: a register-only write
+    // tells the bridge to refresh its snapshot, we give it a moment to do the
+    // (blocking) Roomba read in its tick(), then we fetch the fresh snapshot.
+    hal_i2c_write(_addr, CMD_LOCO_SENSORS, nullptr, 0);   // request a refresh
+    hal_delay_ms(120);                                    // let the bridge poll once
     uint8_t buf[LOCO_SENSORS_LEN];
     if (!hal_i2c_read(_addr, CMD_LOCO_SENSORS, buf, LOCO_SENSORS_LEN)) {
         out.writeln("sensor read failed (bridge not responding)");

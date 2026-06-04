@@ -298,6 +298,10 @@ public:
 
     bool isInitialized() const { return initialized; }
 
+    // True if a BRC/Device-Detect wake line is wired (Mini-DIN 5). Lets callers
+    // decide whether it's safe to let the robot sleep (only if they can wake it).
+    bool hasBrc() const { return port && port->has_brc(); }
+
     // ── Sensors ──────────────────────────────────────────────────────────────
 
     // Request one sensor packet and read `length` reply bytes. Uses a per-byte

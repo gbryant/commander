@@ -13,6 +13,12 @@
 #ifndef LOCO_CONSOLE_OUT_MAX
 #define LOCO_CONSOLE_OUT_MAX 128    // captured output buffer (R4 RAM is tight; long
 #endif                             // output truncates — override -D to enlarge)
+#ifndef LOCO_IDLE_MS
+#define LOCO_IDLE_MS       120000u  // idle this long → park the base (sleep/charge) if a BRC wake line is wired
+#endif
+#ifndef LOCO_KEEPALIVE_MS
+#define LOCO_KEEPALIVE_MS   60000u  // with no BRC: nudge the base this often when idle so it stays drivable
+#endif
 
 // R4 side of the locomotion link: an I2C slave at LOCO_BRIDGE_ADDR that presents
 // the generic mobile-base command set (i2c_ids.h CMD_LOCO_*) and forwards it to a
@@ -76,39 +82,55 @@ public:
             interrupts();
             int16_t vel; int16_t radius;
             loco_unpack_drive(buf, &vel, &radius);
-            _roomba.drive(vel, radius);
+            _roomba.drive(vel, radius);          // re-inits (wakes) the base if parked
             _lastDriveMs = millis();
+            _idleParked = false;
         }
         if (_pendingStop) {
             _pendingStop = false;
             _roomba.stop();
             _lastDriveMs = millis();
+            _idleParked = false;
         }
-        // The sensor poll does a blocking Serial1 read (request + up to 26 reply
-        // bytes), so running it on a free timer mid-drive periodically stalls the
-        // drive stream — felt as speed stutter. Only poll once the motion-command
-        // stream has gone idle (you've let off the stick); during active driving
-        // (drives at ~25 Hz) this stays suppressed so the drive stream is clean.
+
+        // Lazy sensor read: only when the master asked (a CMD_LOCO_SENSORS write
+        // sets _sensorRefresh) — never on a free-running timer. The old 200 ms poll
+        // was a blocking Serial1 read that stalled the drive stream (stutter) and
+        // kept the base awake forever (battery drain). Don't wake a parked base
+        // just to read sensors — serve the last snapshot instead.
+        if (_sensorRefresh) {
+            _sensorRefresh = false;
+            if (!_idleParked) {
+                RoombaSensors rs;
+                if (_roomba.readAllSensors(rs)) {
+                    LocoSensors ls;
+                    fromRoomba(rs, ls);
+                    uint8_t buf[LOCO_SENSORS_LEN];
+                    loco_pack_sensors(&ls, buf);
+                    noInterrupts();
+                    for (int i = 0; i < LOCO_SENSORS_LEN; i++) _sensorCache[i] = buf[i];
+                    interrupts();
+                }
+            }
+        }
+
+        // Idle power policy. With a BRC wake line wired we can safely let the base
+        // sleep/charge once idle and wake it on the next drive (drive() → start()
+        // pulses BRC). Without one, a slept base can't be woken remotely, so keep
+        // it awake with a light periodic nudge (not the old 200 ms poll → no
+        // stutter) so it stays remotely drivable.
         uint32_t now = millis();
-        if (now - _lastDriveMs >= kDriveCooldownMs && now - _lastSensorMs >= kSensorIntervalMs) {
-            _lastSensorMs = now;
-            RoombaSensors rs;
-            if (_roomba.readAllSensors(rs)) {
-                LocoSensors ls;
-                fromRoomba(rs, ls);
-                uint8_t buf[LOCO_SENSORS_LEN];
-                loco_pack_sensors(&ls, buf);
-                noInterrupts();
-                for (int i = 0; i < LOCO_SENSORS_LEN; i++) _sensorCache[i] = buf[i];
-                interrupts();
+        if (_lastDriveMs != 0 && (now - _lastDriveMs) >= LOCO_IDLE_MS) {
+            if (_roomba.hasBrc()) {
+                if (!_idleParked) { _roomba.disconnect(); _idleParked = true; }  // OI Stop: motors off, charge/sleep
+            } else if ((now - _lastKeepAliveMs) >= LOCO_KEEPALIVE_MS) {
+                _lastKeepAliveMs = now;
+                _roomba.safeMode();              // resets the base's inactivity timer
             }
         }
     }
 
 private:
-    static constexpr uint32_t kSensorIntervalMs = 200;
-    static constexpr uint32_t kDriveCooldownMs  = 250;  // resume sensor polling this long after the last drive command
-
     Roomba &_roomba;
     uint8_t _addr;
     TwoWire &_wire;
@@ -119,8 +141,10 @@ private:
     volatile uint8_t _driveBuf[LOCO_DRIVE_LEN]      = {0};
     volatile uint8_t _sensorCache[LOCO_SENSORS_LEN] = {0};
     volatile uint8_t _lastReg = I2C_NONE;
-    uint32_t _lastSensorMs = 0;
-    uint32_t _lastDriveMs  = 0;   // last drive/stop applied — gates the sensor poll
+    volatile bool    _sensorRefresh = false;  // master asked for a sensor snapshot
+    uint32_t _lastDriveMs    = 0;   // last drive/stop applied — drives the idle policy
+    uint32_t _lastKeepAliveMs = 0;  // last no-BRC keep-awake nudge
+    bool     _idleParked     = false;  // base parked (OI Stop) for idle power save
 
     // Remote console (CMD_CONSOLE_EXEC/READ) + CMD_RESET. Lets a master drive this
     // board's shell over I2C when its own transport (R4 WiFi/telnet) is unreachable.
@@ -165,9 +189,12 @@ private:
             _consoleState = 1;
         } else if (reg == CMD_RESET) {
             _resetPending = true;
+        } else if (reg == CMD_LOCO_SENSORS) {
+            _sensorRefresh = true;               // tick() does the (blocking) read
         }
-        // CMD_LOCO_SENSORS / CMD_CONSOLE_READ are set-register-only here; the data
-        // goes out via the repeated-start read handled by onRequest().
+        // The CMD_LOCO_SENSORS payload goes out via the repeated-start read handled
+        // by onRequest() (served from the cache tick() just refreshed); same for
+        // CMD_CONSOLE_READ.
         while (_wire.available()) _wire.read();  // drain any trailing bytes
     }
 

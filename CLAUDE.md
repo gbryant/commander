@@ -185,6 +185,15 @@ pure wire format in `modules/locomotion/LocoProtocol.h` (the I2C "register" is t
 `CMD_LOCO_*` byte from `i2c_ids.h` — no extra framing); the bridge's Wire
 `onReceive`/`onRequest` run in ISR context, so they only latch the command + serve a
 pre-cached snapshot, with the blocking Roomba I/O done in `tick()` (a UART ticker).
+The bridge reads the base **lazily** — only when the master asks (`loco sensors`
+does a register-write to request a refresh, waits, then reads the freshened cache),
+never on a free timer. A free-running poll both stuttered the drive stream (the
+blocking Serial1 read stalls `tick()`) and kept the base awake forever (battery
+drain). For **idle power**, if a BRC wake line is wired (`brc` at `cmdr module
+enable loco-bridge`, Mini-DIN 5) the bridge parks the base (OI Stop → charge/sleep)
+after `LOCO_IDLE_MS` idle and wakes it on the next drive via `Roomba::start()`'s BRC
+pulse; with no BRC wired it instead sends a light periodic keep-awake so a slept
+base can't become unwakeable.
 For analog driving, `modules/locomotion/DriveMixer.h` is a reusable, input-agnostic
 helper that turns a normalized throttle+steer pair (e.g. from
 `ControllerCalibration::apply`) into a smooth ramped `(velocity, radius)` loco
