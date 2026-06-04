@@ -154,14 +154,11 @@ inline void RoombaModule::oiCmd(const char *args, Writer &out, void *ctx) {
     if (tokIs(p, "passive"))    { r.passiveMode();  out.writeln("ok: passive"); return; }
     if (tokIs(p, "wake"))       { out.writeln(r.wake() ? "ok: wake" : "no BRC pin wired"); return; }
     if (tokIs(p, "ping") || tokIs(p, "awake")) {
-        // Probe responsiveness: try to read the base. A sleeping base ignores
-        // serial, so the read times out → "no response". (This also re-inits a
-        // parked base, pulsing BRC to wake it if a BRC line is wired — so on a
-        // BRC rig `oi ping` after sleep both wakes it and confirms the wake.)
-        RoombaSensors s;
-        bool ok = r.readAllSensors(s);
+        // Passive probe — does NOT wake or re-init the base, so it's a true
+        // awake/asleep test. Use `oi wake` (or a drive) to actually wake it.
+        bool ok = r.ping();
         out.writeln(ok ? "base responding (awake)"
-                       : "no response (asleep — wire/pulse BRC or press CLEAN to wake)");
+                       : "no response (asleep / OI stopped)");
         return;
     }
     if (tokIs(p, "stop"))       { r.stop();         out.writeln("ok: stop"); return; }

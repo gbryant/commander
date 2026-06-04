@@ -302,6 +302,23 @@ public:
     // decide whether it's safe to let the robot sleep (only if they can wake it).
     bool hasBrc() const { return port && port->has_brc(); }
 
+    // Passive responsiveness probe: send a raw sensor query and report whether the
+    // OI answers. Deliberately does NOT ensureStarted()/wake()/pulse BRC, so it's a
+    // true awake/asleep test — a sleeping base (or one with the OI stopped) stays
+    // silent and this returns false. (Use drive()/start()/wake() to actually wake.)
+    bool ping() {
+        if (!port) return false;
+        while (port->available()) port->read();        // flush stale RX
+        uint8_t cmd[2] = {OI_SENSORS, SENSOR_GROUP_0};
+        port->write(cmd, 2);
+        uint32_t startMs = port->now_ms();
+        while (port->now_ms() - startMs < 200) {
+            if (port->available()) return true;        // got a reply → awake, OI active
+            port->delay_ms(2);
+        }
+        return false;                                  // silent → asleep / OI stopped
+    }
+
     // ── Sensors ──────────────────────────────────────────────────────────────
 
     // Request one sensor packet and read `length` reply bytes. Uses a per-byte
