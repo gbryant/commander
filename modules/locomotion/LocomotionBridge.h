@@ -77,13 +77,20 @@ public:
             int16_t vel; int16_t radius;
             loco_unpack_drive(buf, &vel, &radius);
             _roomba.drive(vel, radius);
+            _lastDriveMs = millis();
         }
         if (_pendingStop) {
             _pendingStop = false;
             _roomba.stop();
+            _lastDriveMs = millis();
         }
+        // The sensor poll does a blocking Serial1 read (request + up to 26 reply
+        // bytes), so running it on a free timer mid-drive periodically stalls the
+        // drive stream — felt as speed stutter. Only poll once the motion-command
+        // stream has gone idle (you've let off the stick); during active driving
+        // (drives at ~25 Hz) this stays suppressed so the drive stream is clean.
         uint32_t now = millis();
-        if (now - _lastSensorMs >= kSensorIntervalMs) {
+        if (now - _lastDriveMs >= kDriveCooldownMs && now - _lastSensorMs >= kSensorIntervalMs) {
             _lastSensorMs = now;
             RoombaSensors rs;
             if (_roomba.readAllSensors(rs)) {
@@ -100,6 +107,7 @@ public:
 
 private:
     static constexpr uint32_t kSensorIntervalMs = 200;
+    static constexpr uint32_t kDriveCooldownMs  = 250;  // resume sensor polling this long after the last drive command
 
     Roomba &_roomba;
     uint8_t _addr;
@@ -112,6 +120,7 @@ private:
     volatile uint8_t _sensorCache[LOCO_SENSORS_LEN] = {0};
     volatile uint8_t _lastReg = I2C_NONE;
     uint32_t _lastSensorMs = 0;
+    uint32_t _lastDriveMs  = 0;   // last drive/stop applied — gates the sensor poll
 
     // Remote console (CMD_CONSOLE_EXEC/READ) + CMD_RESET. Lets a master drive this
     // board's shell over I2C when its own transport (R4 WiFi/telnet) is unreachable.
