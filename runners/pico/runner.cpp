@@ -102,11 +102,20 @@ __attribute__((weak)) void commander_on_controller_ready(ControllerModule &) {}
 // the link would have WiFi up but no mDNS/telnet (they only ran in the initial path).
 static bool _wifi_services_up = false;
 static void wifiBringUpServices() {
-    if (!_wifi_services_up) {
-        cyw43_arch_lwip_begin();
+    bool first = !_wifi_services_up;
+    cyw43_arch_lwip_begin();
+    if (first) {
         mdns_resp_init();
         mdns_resp_add_netif(netif_default, _cfg.hostname);
-        cyw43_arch_lwip_end();
+    }
+    // Re-announce on EVERY (re)connect. A link bounce or a fresh DHCP lease leaves the
+    // mDNS responder silent — `<host>.local` stops resolving even though WiFi is up —
+    // until it re-advertises. (lwIP: call this from the netif status callback; we do it
+    // on each reconnect instead.) This is the bug behind "WiFi up but no mDNS" after an
+    // OTA reboot or a watchdog recovery.
+    mdns_resp_restart(netif_default);
+    cyw43_arch_lwip_end();
+    if (first) {
         if (_cfg.enable_telnet) {
             const char *tgreeting = _cfg.telnet_greeting ? _cfg.telnet_greeting : _cfg.hostname;
             _telnet.begin(_registry, tgreeting);
@@ -114,6 +123,8 @@ static void wifiBringUpServices() {
         }
         _wifi_services_up = true;
         if (_cfg.debug) printf("[wifi] services up (mdns+telnet)\n");
+    } else if (_cfg.debug) {
+        printf("[wifi] mdns re-announced\n");
     }
     commander_on_wifi_connected();      // app hook: every (re)connect
 }
