@@ -3,6 +3,8 @@
 #include "core/CommandRegistry.h"
 #include "modules/controller/ControllerState.h"
 #include "modules/controller/ControllerBackend.h"
+#include "modules/controller/StickFilter.h"
+#include "modules/controller/ControllerCalibration.h"
 #include <string.h>
 
 // Generic game-controller input module. Knows nothing about robots, locomotion,
@@ -37,7 +39,19 @@ public:
     void        registerCommands(CommandRegistry &reg) override;
 
     // ── consumer plumbing ────────────────────────────────────────────────────
+    // state() is CONDITIONED (low-pass filtered + calibrated) — consumers get
+    // clean, drift-free sticks for free. rawState() is the unmodified backend
+    // sample (used by the calibration routine and for diagnostics).
     const ControllerState &state() const { return _state; }
+    const ControllerState &rawState() const { return _raw; }
+    ControllerCalibration &calibration() { return _calib; }   // tune/replace profile, or setIdentity()
+    StickFilter           &filter()      { return _filter; }  // tune the input low-pass (setTau)
+
+    // Fired when the `calibrate` routine starts (active=true) / ends (active=false).
+    // Input handlers are suppressed during calibration, so apps use this to stop
+    // actuators (the base would otherwise coast on its last command). Last wins.
+    using CalibrateFn = void (*)(bool active, void *ctx);
+    void onCalibrate(CalibrateFn fn, void *ctx = nullptr) { _calFn = fn; _calCtx = ctx; }
 
     // Push: returns false if the listener table is full. `name` is an optional
     // static label shown by `pad` so wired callbacks are inspectable (like
@@ -72,7 +86,16 @@ public:
     // The backend calls this on each fresh sample (its own task context). Detects
     // button edges (firing button listeners + bindings on press), then notifies
     // update listeners. Runs synchronously — keep listeners short.
-    void update(const ControllerState &s) {
+    void update(const ControllerState &raw) {
+        _raw = raw;
+        // While calibrating, publish raw and suppress button/update handlers: the
+        // routine measures the raw sticks, and the app must not act on uncalibrated
+        // input (the onCalibrate hook told it to stop actuators).
+        if (_calibrating) { _state = raw; return; }
+
+        // Condition every sample before publishing — temporal low-pass, then spatial
+        // calibration — so all three consumer paths (poll/push/bind) get clean sticks.
+        ControllerState s = _calib.apply(_filter.apply(raw));
         uint32_t changed = s.buttons ^ _prevButtons;
         _state = s;
         if (changed) {
@@ -92,7 +115,13 @@ public:
 
 private:
     ControllerBackend &_backend;
-    ControllerState    _state;
+    ControllerState    _state;                  // conditioned (filtered + calibrated)
+    ControllerState    _raw;                    // last unconditioned sample
+    StickFilter        _filter;                 // temporal low-pass (applied before calib)
+    ControllerCalibration _calib;               // spatial calibration (baked default profile)
+    volatile bool      _calibrating = false;    // `calibrate` running → bypass + suppress
+    CalibrateFn        _calFn = nullptr;
+    void              *_calCtx = nullptr;
     uint32_t           _prevButtons = 0;
     CommandRegistry   *_reg = nullptr;
     Writer            *_out = nullptr;
@@ -120,6 +149,8 @@ private:
     static void bindCmd(const char *args, Writer &out, void *ctx);
     static void unbindCmd(const char *args, Writer &out, void *ctx);
     static void btforgetCmd(const char *args, Writer &out, void *ctx);
+    static void calibrateCmd(const char *args, Writer &out, void *ctx);
+    static ControllerState sampleRaw(void *ctx);   // sampler for ControllerCalibration::run
 
     static const char *skipSpaces(const char *p) { while (*p == ' ') ++p; return p; }
     static const char *tokEnd(const char *p) { while (*p && *p != ' ') ++p; return p; }
@@ -144,6 +175,22 @@ inline void ControllerModule::registerCommands(CommandRegistry &reg) {
     reg.registerCommand(CMD("bind",   "bind <button> <command…> - button -> command", I2C_NONE, bindCmd,   this));
     reg.registerCommand(CMD("unbind", "unbind <button> - remove a binding",         I2C_NONE, unbindCmd, this));
     reg.registerCommand(CMD("btforget", "clear BT pairings so a controller can re-pair", I2C_NONE, btforgetCmd, this));
+    reg.registerCommand(CMD("calibrate", "interactive stick calibration (re-center/range/deadzone)", I2C_NONE, calibrateCmd, this));
+}
+
+inline ControllerState ControllerModule::sampleRaw(void *ctx) {
+    return static_cast<ControllerModule *>(ctx)->_raw;
+}
+
+inline void ControllerModule::calibrateCmd(const char *args, Writer &out, void *ctx) {
+    (void)args;
+    ControllerModule *self = static_cast<ControllerModule *>(ctx);
+    if (self->_calFn) self->_calFn(true, self->_calCtx);   // app: stop actuators
+    self->_calibrating = true;                             // bypass conditioning + suppress handlers
+    self->_calib.run(out, &sampleRaw, self);               // measures the raw sticks
+    self->_filter.reset();                                 // drop stale filter state
+    self->_calibrating = false;
+    if (self->_calFn) self->_calFn(false, self->_calCtx);
 }
 
 inline void ControllerModule::btforgetCmd(const char *args, Writer &out, void *ctx) {

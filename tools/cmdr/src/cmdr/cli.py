@@ -1020,7 +1020,7 @@ def _sync_feature_flags(flags_on: set) -> None:
 # register at runtime), but cmdr knows the enabled set, so it computes it here.
 _MODULE_COMMANDS = {
     "system": 2, "compass": 1, "sonar": 1, "i2c": 1, "ir": 1,
-    "roomba": 1, "locomotion": 4, "loco-bridge": 1, "controller": 4, "wifi": 1,
+    "roomba": 1, "locomotion": 4, "loco-bridge": 1, "controller": 5, "wifi": 1,
 }
 # Headroom for runner-registered commands (bootsel on pico, ota when enabled) plus
 # a few app-registered ones. Conservative, since under-sizing silently drops commands.
