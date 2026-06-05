@@ -6,7 +6,13 @@
 __attribute__((weak)) void commander_on_panic() { for (;;) {} }
 
 void CommandRegistry::registerCommand(const Command &cmd) {
-    if (_count >= kMaxCommands) return;
+    if (_count >= kMaxCommands) {       // registry full — don't drop it silently
+        _dropped++;
+#ifndef LOW_MEMORY_MODE
+        if (!_firstDropped) _firstDropped = cmd.name;
+#endif
+        return;
+    }
     _commands[_count++] = cmd;
 }
 
@@ -44,6 +50,15 @@ void CommandRegistry::dispatch(const char *line, Writer &out) const {
 }
 
 void CommandRegistry::validateIds() const {
+    if (_dropped) {                     // loud at boot on the serial log
+#ifndef LOW_MEMORY_MODE
+        printf("[WARN] %u command(s) dropped (e.g. '%s') — MAX_COMMANDS=%u too small\n",
+               (unsigned)_dropped, _firstDropped ? _firstDropped : "?", (unsigned)kMaxCommands);
+#else
+        printf("[WARN] %u command(s) dropped — MAX_COMMANDS=%u too small\n",
+               (unsigned)_dropped, (unsigned)kMaxCommands);
+#endif
+    }
     for (size_t i = 0; i < _count; i++) {
         if (_commands[i].i2c_id == I2C_NONE) continue;
         for (size_t j = i + 1; j < _count; j++) {
@@ -63,6 +78,11 @@ void CommandRegistry::printHelp(Writer &out) const {
         out.write(_commands[i].name);
         out.write(" -- ");
         out.writeln(_commands[i].help);
+    }
+    if (_dropped) {                     // portable warning, visible over telnet/UART
+        out.write("  !! commands dropped (e.g. '");
+        out.write(_firstDropped ? _firstDropped : "?");
+        out.writeln("') — MAX_COMMANDS too small; raise it and rebuild");
     }
 }
 #endif

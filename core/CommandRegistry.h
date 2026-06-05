@@ -30,6 +30,11 @@ public:
     void dispatch(const char *input, Writer &out) const;
     void validateIds() const;
 
+    // Number of commands that overflowed kMaxCommands and were dropped. Non-zero
+    // means MAX_COMMANDS is too small — validateIds() warns at boot and printHelp()
+    // flags it, so a too-small registry can't silently eat a command (it ate `ota`).
+    size_t dropped() const { return _dropped; }
+
 #ifndef LOW_MEMORY_MODE
     void printHelp(Writer &out) const;
 #endif
@@ -42,4 +47,8 @@ private:
 #endif
     Command _commands[kMaxCommands];
     size_t  _count = 0;
+    size_t  _dropped = 0;            // commands that didn't fit kMaxCommands
+#ifndef LOW_MEMORY_MODE
+    const char *_firstDropped = nullptr;
+#endif
 };
