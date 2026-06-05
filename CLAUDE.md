@@ -218,11 +218,15 @@ wire input to anything via the weak `commander_on_controller_ready(ControllerMod
 hook the generated file calls (e.g. the robot maps the left stick to `CMD_LOCO_DRIVE`).
 The neutral vocabulary is `modules/controller/ControllerState.h`; the Bluepad32 Pico
 backend is `platform/pico/` (`bp32_pico.c` C shim + `PicoBluepadBackend.h`) behind the
-`ControllerBackend` seam. The module **conditions every sample before publishing** —
-a temporal low-pass (`StickFilter`, rate-independent EMA, kills raw-stick jitter) then
-spatial calibration (`ControllerCalibration`, re-center/rescale/smooth-deadzone) — so
-`state()`/`onUpdate` give clean sticks for free; `rawState()` exposes the unconditioned
-sample. The `calibrate` command runs an interactive 4-phase routine (it samples
+`ControllerBackend` seam. The module **calibrates** every sample before publishing
+(`ControllerCalibration` — re-center/rescale/smooth-deadzone), so `state()`/`onUpdate`
+give re-centered sticks; `rawState()` exposes the raw backend sample. Calibration is
+spatial/stateless so it's correct at any report rate. **Temporal** smoothing
+(`StickFilter`, a rate-independent EMA) is deliberately NOT in the module — a low-pass
+must run at the consumer's fixed loop rate, not the intermittent report rate, or it
+freezes between reports (causing drive creep); consumers apply `StickFilter` on
+`rawState()` in their own tick (the robot does, in its 50 Hz drive ticker). The
+`calibrate` command runs an interactive 4-phase routine (it samples
 `rawState()`, suppresses input handlers while running, and fires the `onCalibrate`
 hook so apps stop actuators — the robot sends `CMD_LOCO_STOP`). `ControllerCalibration`
 ships a baked default profile (currently a Wii U Pro); other controllers `calibrate`

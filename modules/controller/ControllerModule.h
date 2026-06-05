@@ -3,7 +3,6 @@
 #include "core/CommandRegistry.h"
 #include "modules/controller/ControllerState.h"
 #include "modules/controller/ControllerBackend.h"
-#include "modules/controller/StickFilter.h"
 #include "modules/controller/ControllerCalibration.h"
 #include <string.h>
 
@@ -39,13 +38,15 @@ public:
     void        registerCommands(CommandRegistry &reg) override;
 
     // ── consumer plumbing ────────────────────────────────────────────────────
-    // state() is CONDITIONED (low-pass filtered + calibrated) — consumers get
-    // clean, drift-free sticks for free. rawState() is the unmodified backend
-    // sample (used by the calibration routine and for diagnostics).
+    // state() is CALIBRATED (re-centered / rescaled / deadzoned) — a spatial,
+    // stateless transform, so it's correct whatever rate reports arrive. Temporal
+    // smoothing (a low-pass) is intentionally NOT done here: it must run at the
+    // consumer's loop rate, not the intermittent report rate, or it freezes between
+    // reports. Consumers that want it apply StickFilter on rawState() in their own
+    // tick (see modules/controller/StickFilter.h). rawState() is the raw backend sample.
     const ControllerState &state() const { return _state; }
     const ControllerState &rawState() const { return _raw; }
     ControllerCalibration &calibration() { return _calib; }   // tune/replace profile, or setIdentity()
-    StickFilter           &filter()      { return _filter; }  // tune the input low-pass (setTau)
 
     // Fired when the `calibrate` routine starts (active=true) / ends (active=false).
     // Input handlers are suppressed during calibration, so apps use this to stop
@@ -93,9 +94,9 @@ public:
         // input (the onCalibrate hook told it to stop actuators).
         if (_calibrating) { _state = raw; return; }
 
-        // Condition every sample before publishing — temporal low-pass, then spatial
-        // calibration — so all three consumer paths (poll/push/bind) get clean sticks.
-        ControllerState s = _calib.apply(_filter.apply(raw));
+        // Calibrate (spatial, stateless) before publishing. No temporal low-pass here
+        // — that belongs in the consumer's fixed-rate loop (see state()'s note).
+        ControllerState s = _calib.apply(raw);
         uint32_t changed = s.buttons ^ _prevButtons;
         _state = s;
         if (changed) {
@@ -115,9 +116,8 @@ public:
 
 private:
     ControllerBackend &_backend;
-    ControllerState    _state;                  // conditioned (filtered + calibrated)
+    ControllerState    _state;                  // calibrated (spatial) — see state()'s note
     ControllerState    _raw;                    // last unconditioned sample
-    StickFilter        _filter;                 // temporal low-pass (applied before calib)
     ControllerCalibration _calib;               // spatial calibration (baked default profile)
     volatile bool      _calibrating = false;    // `calibrate` running → bypass + suppress
     CalibrateFn        _calFn = nullptr;
@@ -186,9 +186,8 @@ inline void ControllerModule::calibrateCmd(const char *args, Writer &out, void *
     (void)args;
     ControllerModule *self = static_cast<ControllerModule *>(ctx);
     if (self->_calFn) self->_calFn(true, self->_calCtx);   // app: stop actuators
-    self->_calibrating = true;                             // bypass conditioning + suppress handlers
+    self->_calibrating = true;                             // bypass calibration + suppress handlers
     self->_calib.run(out, &sampleRaw, self);               // measures the raw sticks
-    self->_filter.reset();                                 // drop stale filter state
     self->_calibrating = false;
     if (self->_calFn) self->_calFn(false, self->_calCtx);
 }
