@@ -199,9 +199,11 @@ helper that turns a normalized throttle+steer pair (e.g. from
 `ControllerCalibration::apply`) into a smooth ramped `(velocity, radius)` loco
 command — two-zone velocity/radius + velocity ramping (ported from the original
 robot's smooth feel). The consumer just picks the stick layout and ships the result.
-`update()` takes an optional `spin` arg (spin-in-place on a button/trigger, with
-`|throttle|` as the spin speed), and `Config.stickSpin=false` makes the steer stick
-arc-ONLY so a tight turn can't trip an unwanted spin (the robot puts spin on L2/R2).
+`update()` takes an optional `spin` direction arg (spin-in-place; speed follows the
+same two-zone curve as driving on `|throttle|`, scaled by `spinScalePct` for a
+slow/fine mode), and `Config.stickSpin=false` makes the steer stick arc-ONLY so a
+tight turn can't trip an unwanted spin (the robot puts spin on the shoulder buttons:
+hold one, left stick fwd/back = CW/CCW, R2 = normal speed / L2 = slow).
 The master also gets a **remote console** over the same link: `bridge <cmd>` runs a
 command on the bridge board's own shell (the slave dispatches it through its
 `CommandRegistry` and streams the captured output back via `CMD_CONSOLE_EXEC`/`READ`)

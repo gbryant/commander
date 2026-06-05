@@ -41,17 +41,28 @@ public:
     explicit DriveMixer(const Config &cfg) : _cfg(cfg) {}
 
     // throttle/steer in -stickFull..stickFull. `spin`: 0 = normal drive; <0 = spin
-    // clockwise, >0 = spin counter-clockwise in place — then steer is ignored and
-    // |throttle| sets the spin wheel speed (so a stick can be "spin speed" while a
-    // trigger holds the spin). Writes the ramped command to *velOut/*radiusOut.
-    // Returns true while commanding motion, false once it has ramped to a full stop
-    // — the caller sends a stop on the true→false edge.
-    bool update(int16_t throttle, int16_t steer, int16_t *velOut, int16_t *radiusOut, int spin = 0) {
+    // clockwise, >0 = spin counter-clockwise in place — then steer is ignored and the
+    // spin speed follows the SAME two-zone curve as driving on |throttle|, scaled by
+    // spinScalePct (100 = normal, e.g. 50 = a slow/fine mode). The caller decides the
+    // spin direction (e.g. from the throttle sign) and which mode a button selects.
+    // Writes the ramped command to *velOut/*radiusOut. Returns true while commanding
+    // motion, false once it has ramped to a full stop (caller stops on the edge).
+    bool update(int16_t throttle, int16_t steer, int16_t *velOut, int16_t *radiusOut,
+                int spin = 0, int16_t spinScalePct = 100) {
+        // Reset the ramp when switching in/out of spin: the velocity means different
+        // things (spin wheel speed vs forward speed), so a leftover spin velocity must
+        // NOT bleed into straight driving — that drove the base forward as a fast spin
+        // wound down. Snap to 0 so each mode ramps up from a standstill.
+        bool isSpin = (spin != 0);
+        if (isSpin != _wasSpin) { _vel = 0; _wasSpin = isSpin; }
+
         int16_t targetVel    = 0;
         int16_t targetRadius = LOCO_RADIUS_STRAIGHT;
-        if (spin != 0) {                                  // trigger spin: |throttle| = speed
-            targetRadius = (spin < 0) ? LOCO_RADIUS_CW : LOCO_RADIUS_CCW;
-            targetVel    = spinSpeed(throttle < 0 ? (int16_t)-throttle : throttle);
+        if (spin != 0) {                                  // spin in place; |throttle| = speed
+            targetRadius   = (spin < 0) ? LOCO_RADIUS_CW : LOCO_RADIUS_CCW;
+            int16_t v      = toVelocity(throttle);        // reuse the driving speed curve
+            int16_t mag    = v < 0 ? (int16_t)-v : v;
+            targetVel      = (int16_t)((int32_t)mag * spinScalePct / 100);
         } else if (throttle != 0 || steer != 0) {
             targetVel    = toVelocity(throttle);
             targetRadius = toRadius(steer);
@@ -75,12 +86,13 @@ public:
 
     // Drop the ramp state (e.g. on a controller dropout) so the next update()
     // ramps from a standstill instead of a stale velocity.
-    void reset() { _vel = 0; _lastMs = 0; }
+    void reset() { _vel = 0; _lastMs = 0; _wasSpin = false; }
 
 private:
     Config   _cfg;
-    int16_t  _vel    = 0;     // current ramped velocity we're commanding
-    uint32_t _lastMs = 0;     // last update() time for the ramp delta
+    int16_t  _vel     = 0;    // current ramped velocity we're commanding
+    uint32_t _lastMs  = 0;    // last update() time for the ramp delta
+    bool     _wasSpin = false;// spin state last call — reset the ramp on a change
 
     static int16_t map16(int16_t x, int16_t inLo, int16_t inHi, int16_t outLo, int16_t outHi) {
         return (int16_t)((int32_t)(x - inLo) * (outHi - outLo) / (inHi - inLo) + outLo);
@@ -109,11 +121,4 @@ private:
         return (int16_t)(v < 0 ? r : -r);                 // left = +radius (turn CCW)
     }
 
-    // |throttle| → spin wheel speed (mm/s), 0..fastMax. Linear so the stick is a
-    // proportional "spin speed" while a trigger holds the spin.
-    int16_t spinSpeed(int16_t mag) const {
-        if (mag <= 0) return 0;
-        if (mag > _cfg.stickFull) mag = _cfg.stickFull;
-        return (int16_t)((int32_t)mag * _cfg.fastMax / _cfg.stickFull);
-    }
 };
