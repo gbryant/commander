@@ -1,6 +1,5 @@
 #pragma once
 #include "modules/controller/ControllerState.h"
-#include "modules/controller/ControllerModule.h"
 #include "core/Writer.h"
 #include "hal/hal.h"       // hal_time_us, hal_delay_ms (yields)
 #include <stdint.h>
@@ -12,11 +11,15 @@
 // Bluepad32 already reports -512..511; this corrects the residual offset/asymmetry
 // and removes jitter.
 //
-//   apply(raw)   — normalize a sample (consumers feed this into their drive math)
-//   run(pad,out) — the interactive `calibrate` routine: a blocking 4-phase walk-
-//                  through (neutral → rotate → neutral → jiggle) that polls the
-//                  controller and narrates each step to the console. It yields via
-//                  hal_delay_ms, so the controller's task keeps updating state().
+//   apply(raw)        — normalize a sample (the owning module applies it before
+//                       publishing state(), so consumers get clean sticks for free)
+//   run(out,sample,…) — the interactive `calibrate` routine: a blocking 4-phase
+//                       walk-through (neutral → rotate → neutral → jiggle) that
+//                       polls `sample` for the live RAW stick state and narrates
+//                       each step. It yields via hal_delay_ms so the controller's
+//                       task keeps producing samples. Decoupled from ControllerModule
+//                       (takes a sampler) so the module can own a calibration without
+//                       a circular include.
 //
 // v1 keeps calibration in RAM (recalibrate after reboot); it also prints the
 // measured values. Flash persistence is a follow-up.
@@ -39,7 +42,17 @@ public:
         return o;
     }
 
-    void run(ControllerModule &pad, Writer &out);
+    // Sampler the interactive run() polls for the live RAW stick state (must be
+    // pre-apply()). The owner passes one that returns its latest raw sample.
+    using SampleFn = ControllerState (*)(void *ctx);
+    void run(Writer &out, SampleFn sample, void *ctx);
+
+    // Neutralize calibration (center 0, full symmetric range, light deadzone) for a
+    // consumer whose controller isn't the baked-in default profile.
+    void setIdentity() {
+        for (int a = 0; a < NAXIS; a++) { _center[a] = 0; _min[a] = -512; _max[a] = 511; _dead[a] = 40; }
+        _calibrated = false;
+    }
 
 private:
     // Defaults measured from the primary test controller (Wii U Pro via Bluepad32,
@@ -106,9 +119,9 @@ private:
     }
 };
 
-inline void ControllerCalibration::run(ControllerModule &pad, Writer &out) {
+inline void ControllerCalibration::run(Writer &out, SampleFn sample, void *ctx) {
     out.writeln("=== controller calibration ===");
-    if (!pad.state().connected) { out.writeln("no controller connected — pair one first"); return; }
+    if (!sample(ctx).connected) { out.writeln("no controller connected — pair one first"); return; }
 
     int32_t  acc[NAXIS]; uint32_t n;
     int16_t  neutral1[NAXIS];
@@ -119,7 +132,7 @@ inline void ControllerCalibration::run(ControllerModule &pad, Writer &out) {
     n = 0;
     _cdSec = -1;
     for (uint32_t start = now_ms(); now_ms() - start < 3000; ) {
-        const ControllerState &s = pad.state();
+        ControllerState s = sample(ctx);
         for (int a = 0; a < NAXIS; a++) acc[a] += axisOf(s, a);
         n++;
         countdown(out, "  hold... ", 3000, now_ms() - start);
@@ -129,10 +142,11 @@ inline void ControllerCalibration::run(ControllerModule &pad, Writer &out) {
 
     // ── Phase 2/4: rotate to full extent (8s) → min/max ───────────────────────
     out.writeln("2/4: rotate BOTH sticks in full circles to the edges (8s)");
-    for (int a = 0; a < NAXIS; a++) { _min[a] = axisOf(pad.state(), a); _max[a] = _min[a]; }
+    { ControllerState s0 = sample(ctx);
+      for (int a = 0; a < NAXIS; a++) { _min[a] = axisOf(s0, a); _max[a] = _min[a]; } }
     _cdSec = -1;
     for (uint32_t start = now_ms(); now_ms() - start < 8000; ) {
-        const ControllerState &s = pad.state();
+        ControllerState s = sample(ctx);
         for (int a = 0; a < NAXIS; a++) {
             int16_t v = axisOf(s, a);
             if (v < _min[a]) _min[a] = v;
@@ -148,7 +162,7 @@ inline void ControllerCalibration::run(ControllerModule &pad, Writer &out) {
     n = 0;
     _cdSec = -1;
     for (uint32_t start = now_ms(); now_ms() - start < 3000; ) {
-        const ControllerState &s = pad.state();
+        ControllerState s = sample(ctx);
         for (int a = 0; a < NAXIS; a++) acc[a] += axisOf(s, a);
         n++;
         countdown(out, "  hold... ", 3000, now_ms() - start);
@@ -164,7 +178,7 @@ inline void ControllerCalibration::run(ControllerModule &pad, Writer &out) {
     int16_t jig[NAXIS] = {0, 0, 0, 0};
     _cdSec = -1;
     for (uint32_t start = now_ms(); now_ms() - start < 4000; ) {
-        const ControllerState &s = pad.state();
+        ControllerState s = sample(ctx);
         for (int a = 0; a < NAXIS; a++) {
             int16_t d = norm(axisOf(s, a), a);
             if (d < 0) d = -d;
