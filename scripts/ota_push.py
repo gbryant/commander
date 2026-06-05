@@ -51,17 +51,23 @@ def parse_build(text: str):
     return int(m.group(1)) if m else None
 
 
-def device_build(host: str, timeout: float = 5) -> "int | None":
-    """Connect, run `version`, return the running build number (or None)."""
+def run_command(host: str, cmd: str, timeout: float = 5) -> "str | None":
+    """Connect, run one shell command, return the device's reply text (or None)."""
     try:
         s = socket.create_connection((host, 23), timeout=timeout)
         recv_until_prompt(s, timeout)          # banner + prompt
-        s.sendall(b"version\r\n")
+        s.sendall((cmd + "\r\n").encode())
         reply = recv_until_prompt(s, timeout)
         s.close()
-        return parse_build(reply)
+        return reply
     except OSError:
         return None
+
+
+def device_build(host: str, timeout: float = 5) -> "int | None":
+    """Run `version` and return the running build number (or None)."""
+    reply = run_command(host, "version", timeout)
+    return parse_build(reply) if reply is not None else None
 
 
 def expected_build() -> "int | None":
@@ -83,7 +89,25 @@ def main() -> int:
         return 1
     print(f"==> device on build {before}"
           + (f"; pushing build {expect}" if expect else ""), flush=True)
-    time.sleep(1)   # let the single-client telnet server free the slot
+
+    # Pre-flight: confirm the device actually HAS an `ota` command before the
+    # (destructive) push — so a firmware that dropped it (MAX_COMMANDS overflow or
+    # an image too old to support OTA) fails in ~1 s with a clear message instead
+    # of after the full version-match wait. Bare `ota` prints "usage: ota <url>";
+    # a missing command prints "unknown: ota".
+    time.sleep(0.5)
+    probe = run_command(host, "ota")
+    if probe is not None:
+        low = probe.lower()
+        if "unknown" in low:
+            print("error: device firmware has no `ota` command — it was dropped "
+                  "(MAX_COMMANDS too small) or the running image is too old to "
+                  "support OTA. Reflash via USB.", file=sys.stderr)
+            return 1
+        if "usage" not in low:
+            print("warning: could not confirm the `ota` command exists; trying anyway.",
+                  flush=True)
+    time.sleep(0.5)   # let the single-client telnet server free the slot
 
     # Reach the prompt, fire the ota command, close. The connection drops once
     # sector-by-sector erase begins; the device downloads + reboots on its own.
