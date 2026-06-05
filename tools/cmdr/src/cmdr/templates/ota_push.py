@@ -6,13 +6,14 @@ Environment variables (set by the calling shell script):
   OTA_URL   — full HTTP URL of the fota image
                (e.g. http://192.168.1.x:8000/app_fota_image.bin)
 
-Exits 0 on success, 1 on timeout or error.
-
-Timeline: ~30 s erase + ~15 s download + ~20 s reboot/WiFi ≈ 65 s typical.
-The HTTP server must stay alive for the entire erase+download window, so the
-calling script is responsible for keeping it running and killing it on exit.
+Confirms the OTA actually took: it reads the device's reported build number
+(`version`) afterward and checks it against ./.build_number (the image just
+built); if that file is absent it falls back to "did the build number change?".
+A telnet reconnect alone is NOT treated as success — a failed download leaves the
+device running the OLD firmware with telnet still up, which used to read as a
+false success. Exits 0 only when the new build is confirmed running; 1 otherwise.
 """
-import os, socket, time, sys
+import os, re, socket, time, sys
 
 
 def strip_iac(data: bytes) -> bytes:
@@ -27,71 +28,106 @@ def strip_iac(data: bytes) -> bytes:
     return bytes(out)
 
 
-def try_connect(host: str, timeout: float = 5) -> str | None:
-    """Return the banner string if the device answers on port 23, else None."""
-    try:
-        s = socket.create_connection((host, 23), timeout=timeout)
-        s.settimeout(timeout)
-        banner = strip_iac(s.recv(256)).decode("utf-8", errors="ignore").strip()
-        s.close()
-        return banner
-    except OSError:
-        return None
-
-
-def main() -> int:
-    host = os.environ["OTA_HOST"]
-    url  = os.environ["OTA_URL"]
-
-    # Connect with retries (device may still be booting or reconnecting to WiFi)
-    sock = None
-    for attempt in range(10):
-        try:
-            sock = socket.create_connection((host, 23), timeout=10)
-            break
-        except OSError as e:
-            if attempt < 9:
-                print(f"  waiting for {host}... ({e})", flush=True)
-                time.sleep(3)
-            else:
-                print(f"error: could not connect to {host}:23", file=sys.stderr)
-                return 1
-
-    # Wait for the shell prompt
-    sock.settimeout(15.0)
+def recv_until_prompt(s, timeout: float = 15.0) -> str:
+    """Read until the shell prompt ('> '), returning the decoded text."""
+    s.settimeout(timeout)
     raw = b""
     while True:
         try:
-            chunk = sock.recv(256)
+            chunk = s.recv(256)
         except OSError:
             break
         if not chunk:
             break
         raw += chunk
-        if strip_iac(raw).endswith(b"> "):
+        if strip_iac(raw).rstrip().endswith(b">"):
             break
+    return strip_iac(raw).decode("utf-8", errors="ignore")
 
-    # Send the ota command then close immediately.
-    # The telnet connection drops when sector-by-sector erase begins, but WiFi
-    # stays alive — each sector is only ~100 ms IRQ-disabled.  The device
-    # downloads firmware from the HTTP server and reboots.
+
+def parse_build(text: str):
+    """Pull the integer build number out of a `version` reply, or None."""
+    m = re.search(r"build\s+(\d+)", text)
+    return int(m.group(1)) if m else None
+
+
+def device_build(host: str, timeout: float = 5) -> "int | None":
+    """Connect, run `version`, return the running build number (or None)."""
+    try:
+        s = socket.create_connection((host, 23), timeout=timeout)
+        recv_until_prompt(s, timeout)          # banner + prompt
+        s.sendall(b"version\r\n")
+        reply = recv_until_prompt(s, timeout)
+        s.close()
+        return parse_build(reply)
+    except OSError:
+        return None
+
+
+def expected_build() -> "int | None":
+    """The build number just built (./.build_number written by VersionStamp), or None."""
+    try:
+        with open(".build_number") as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def main() -> int:
+    host   = os.environ["OTA_HOST"]
+    url    = os.environ["OTA_URL"]
+    expect = expected_build()
+    before = device_build(host, timeout=10)
+    if before is None:
+        print(f"error: could not reach {host}:23 to read current version", file=sys.stderr)
+        return 1
+    print(f"==> device on build {before}"
+          + (f"; pushing build {expect}" if expect else ""), flush=True)
+    time.sleep(1)   # let the single-client telnet server free the slot
+
+    # Reach the prompt, fire the ota command, close. The connection drops once
+    # sector-by-sector erase begins; the device downloads + reboots on its own.
+    try:
+        sock = socket.create_connection((host, 23), timeout=10)
+    except OSError as e:
+        print(f"error: could not connect to {host}:23 ({e})", file=sys.stderr)
+        return 1
+    recv_until_prompt(sock)
     sock.sendall(f"ota {url}\r\n".encode())
     print(f"==> sent: ota {url}", flush=True)
-    print("==> download+erase interleaved — HTTP hit should appear shortly...", flush=True)
+    print("==> erase+download interleaved — watch the HTTP server for a GET and "
+          "USB serial for [ota] lines...", flush=True)
     try:
         sock.close()
     except OSError:
         pass
 
-    # Poll for device to reboot with new firmware
+    # Poll for the device to return, then CONFIRM via the build number.
     for attempt in range(40):
         time.sleep(3)
-        banner = try_connect(host)
-        if banner:
-            print(f"==> OTA complete — device is back: {banner}", flush=True)
-            return 0
-        if attempt % 5 == 4:
-            print(f"  still waiting... ({(attempt + 1) * 3}s)", flush=True)
+        after = device_build(host)
+        if after is None:
+            if attempt % 5 == 4:
+                print(f"  still waiting... ({(attempt + 1) * 3}s)", flush=True)
+            continue
+
+        target = expect if expect is not None else None
+        if target is not None:
+            if after == target:
+                print(f"==> OTA confirmed: device is running build {after}.", flush=True)
+                return 0
+            print(f"==> OTA DID NOT TAKE: device is on build {after}, expected {target}. "
+                  f"The download/flash failed — the device is still running the old "
+                  f"image. Check USB serial for [ota] errors (no HTTP GET on the "
+                  f"server = it never fetched the firmware).", file=sys.stderr)
+            return 1
+        # No .build_number to compare against — fall back to "did it change?".
+        if after == before:
+            print(f"==> OTA DID NOT TAKE: still on build {after} (unchanged). "
+                  f"Check USB serial for [ota] errors.", file=sys.stderr)
+            return 1
+        print(f"==> OTA complete — device is running build {after} (was {before}).", flush=True)
+        return 0
 
     print("==> timeout: device did not return. Check serial for details.", file=sys.stderr)
     return 1
