@@ -95,12 +95,35 @@ extern "C" void commander_wifi_on() {
 __attribute__((weak)) void commander_on_controller_ready(ControllerModule &) {}
 #endif
 
+// Bring up the network services after the FIRST successful association — whether
+// that's the initial boot connect or a later watchdog reconnect. mDNS + the telnet
+// listener are set up once (idempotent); the app hook runs on every (re)connect.
+// Without this, a boot where the initial connect failed and the watchdog recovered
+// the link would have WiFi up but no mDNS/telnet (they only ran in the initial path).
+static bool _wifi_services_up = false;
+static void wifiBringUpServices() {
+    if (!_wifi_services_up) {
+        cyw43_arch_lwip_begin();
+        mdns_resp_init();
+        mdns_resp_add_netif(netif_default, _cfg.hostname);
+        cyw43_arch_lwip_end();
+        if (_cfg.enable_telnet) {
+            const char *tgreeting = _cfg.telnet_greeting ? _cfg.telnet_greeting : _cfg.hostname;
+            _telnet.begin(_registry, tgreeting);
+            xTaskCreate(TelnetTransport::taskBody, "telnet", 4096, &_telnet, 2, nullptr);
+        }
+        _wifi_services_up = true;
+        if (_cfg.debug) printf("[wifi] services up (mdns+telnet)\n");
+    }
+    commander_on_wifi_connected();      // app hook: every (re)connect
+}
+
 // ── WiFi link watchdog ────────────────────────────────────────────────────
 // The Pico connects once at boot; if that link later drops (AP reboot, RF glitch,
 // roaming) nothing re-establishes it and telnet/mDNS go dark until a reflash.
 // Poll the STA link and reconnect when it's down — unless the user ran `wifi off`.
-// The netif persists across a link bounce, so mDNS + the telnet listener come back
-// on their own once the link (and DHCP) return; we only have to nudge the radio.
+// On the first successful (re)connect this also brings up mDNS + telnet, in case the
+// initial boot connect never succeeded (e.g. AP slow after an OTA reboot).
 static void wifiMonitor() {
     bool announced = false;   // log the first down + the recovery, not every poll
     for (;;) {
@@ -119,7 +142,7 @@ static void wifiMonitor() {
         cyw43_arch_enable_sta_mode();
         int err = cyw43_arch_wifi_connect_timeout_ms(
             _cfg.wifi_ssid, _cfg.wifi_password, CYW43_AUTH_WPA2_MIXED_PSK, 15000);
-        if (err == 0) commander_on_wifi_connected();   // re-run app's connect hook
+        if (err == 0) wifiBringUpServices();   // mDNS/telnet (if not yet) + app hook
         // else: next poll retries (the 5 s delay above paces the attempts)
     }
 }
@@ -168,22 +191,10 @@ static void runnerTask(void *) {
                 printf("[wifi] connect=%d\n", err);
             }
             if (err == 0) {
-                cyw43_arch_lwip_begin();
-                mdns_resp_init();
-                mdns_resp_add_netif(netif_default, _cfg.hostname);
-                cyw43_arch_lwip_end();
-
-                if (_cfg.enable_telnet) {
-                    const char *tgreeting = _cfg.telnet_greeting
-                                          ? _cfg.telnet_greeting
-                                          : _cfg.hostname;
-                    _telnet.begin(_registry, tgreeting);
-                    xTaskCreate(TelnetTransport::taskBody, "telnet", 4096, &_telnet, 2, nullptr);
-                }
-                commander_on_wifi_connected();
+                wifiBringUpServices();      // mDNS + telnet + app hook
                 if (_cfg.debug) printf("[wifi] ready (mdns+telnet up)\n");
             } else {
-                printf("[wifi] connect failed (%d)\n", err);
+                printf("[wifi] connect failed (%d) — watchdog will keep trying\n", err);
             }
         }
         // Keep this task alive as the link watchdog (reuses its proven 8 KB stack,
