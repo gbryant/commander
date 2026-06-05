@@ -32,18 +32,27 @@ public:
         int16_t arcWide     = 400;   // turn radius (mm) at the start of the steer band
         int16_t arcTight    = 100;   // turn radius (mm) at the knee (tightest arc)
         int16_t rampRate    = 1500;  // velocity slew limit, mm/s per second
+        bool    stickSpin   = true;  // steer past the knee snaps to a spin. false =
+                                     // steer is arc-ONLY (full deflection = tightest
+                                     // arc); use the spin arg for spin-in-place instead.
     };
 
     DriveMixer() {}                                       // all-default tuning
     explicit DriveMixer(const Config &cfg) : _cfg(cfg) {}
 
-    // throttle/steer in -stickFull..stickFull. Writes the ramped command to
-    // *velOut/*radiusOut. Returns true while commanding motion, false once it has
-    // ramped to a full stop — the caller sends a stop on the true→false edge.
-    bool update(int16_t throttle, int16_t steer, int16_t *velOut, int16_t *radiusOut) {
+    // throttle/steer in -stickFull..stickFull. `spin`: 0 = normal drive; <0 = spin
+    // clockwise, >0 = spin counter-clockwise in place — then steer is ignored and
+    // |throttle| sets the spin wheel speed (so a stick can be "spin speed" while a
+    // trigger holds the spin). Writes the ramped command to *velOut/*radiusOut.
+    // Returns true while commanding motion, false once it has ramped to a full stop
+    // — the caller sends a stop on the true→false edge.
+    bool update(int16_t throttle, int16_t steer, int16_t *velOut, int16_t *radiusOut, int spin = 0) {
         int16_t targetVel    = 0;
         int16_t targetRadius = LOCO_RADIUS_STRAIGHT;
-        if (throttle != 0 || steer != 0) {
+        if (spin != 0) {                                  // trigger spin: |throttle| = speed
+            targetRadius = (spin < 0) ? LOCO_RADIUS_CW : LOCO_RADIUS_CCW;
+            targetVel    = spinSpeed(throttle < 0 ? (int16_t)-throttle : throttle);
+        } else if (throttle != 0 || steer != 0) {
             targetVel    = toVelocity(throttle);
             targetRadius = toRadius(steer);
         }
@@ -89,10 +98,22 @@ private:
         if (v == 0) return LOCO_RADIUS_STRAIGHT;
         int16_t knee = (int16_t)((int32_t)_cfg.stickFull * _cfg.fastKneePct / 100);
         int16_t a    = v < 0 ? (int16_t)-v : v;
-        if (a <= knee) {                                  // wide arc, tightening to the knee
-            int16_t r = map16(a, 1, knee, _cfg.arcWide, _cfg.arcTight);
-            return (int16_t)(v < 0 ? r : -r);             // left = +radius (turn CCW)
-        }
-        return v < 0 ? LOCO_RADIUS_CCW : LOCO_RADIUS_CW;  // hard over = spin in place
+        // Past the knee = spin in place — but ONLY when stickSpin is enabled. With
+        // it off the stick is arc-only (spin lives on the `spin` arg / a trigger).
+        if (_cfg.stickSpin && a > knee)
+            return v < 0 ? LOCO_RADIUS_CCW : LOCO_RADIUS_CW;
+        // Wide arc, tightening toward the knee (stickSpin) or full deflection (off).
+        int16_t hi = _cfg.stickSpin ? knee : (int16_t)(_cfg.stickFull - 1);
+        if (a > hi) a = hi;                               // |v| can hit stickFull (e.g. -512)
+        int16_t r = map16(a, 1, hi, _cfg.arcWide, _cfg.arcTight);
+        return (int16_t)(v < 0 ? r : -r);                 // left = +radius (turn CCW)
+    }
+
+    // |throttle| → spin wheel speed (mm/s), 0..fastMax. Linear so the stick is a
+    // proportional "spin speed" while a trigger holds the spin.
+    int16_t spinSpeed(int16_t mag) const {
+        if (mag <= 0) return 0;
+        if (mag > _cfg.stickFull) mag = _cfg.stickFull;
+        return (int16_t)((int32_t)mag * _cfg.fastMax / _cfg.stickFull);
     }
 };
