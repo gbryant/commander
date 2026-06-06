@@ -1,48 +1,54 @@
 #pragma once
 #include <stdint.h>
+#include <string.h>   // strlen, strncmp
 #include "hal/hal.h"
 #include "core/IModule.h"
 #include "core/CommandRegistry.h"
 #include "i2c_ids.h"
 
-// Texas Instruments INA219 current/power monitor via I²C.
-// Calibrated for a 0.1 Ω shunt (Adafruit / SparkFun standard breakout).
-//   Current_LSB = 100 µA   →  current register × 0.1 = mA
-//   Power_LSB   = 2 mW     →  power   register × 2   = mW
+// Texas Instruments INA219 current/power monitor(s) via I²C, exposed as a single
+// namespaced "ina" command (one command slot, however many sensors you wire):
+//   ina                      — list channels, each with a voltage/current summary
+//   ina <ch>                 — bus voltage / current / power for one channel
+//   ina <ch> volt|amp|watt   — a single reading
+//   ina <ch> stats           — "mv,ma" CSV (one channel; what the solar logger polls)
+//   ina stats                — "<ch>,mv,ma" CSV, one line per channel
+//   ina <ch> init / ina init — re-run calibration (one channel / all)
 //
-// Multiple instances require distinct prefixes to avoid command-name collision:
-//   Ina219Module ina_a(0x40, "a"), ina_b(0x41, "b");
-//   → commands: avolt  aamp  awatt  bvolt  bamp  bwatt
+// A "channel" is a labelled INA219 at a 7-bit address: addChannel("a", 0x40).
+// Calibrated for a 0.1 Ω shunt (Adafruit / SparkFun standard breakout):
+//   Current_LSB = 100 µA  → current register × 0.1 = mA
+//   Power_LSB   = 2 mW    → power   register × 2   = mW
 class Ina219Module : public IModule {
 public:
-    explicit Ina219Module(uint8_t addr, const char *prefix) : _addr(addr) {
-        cat(_volt_cmd,  sizeof(_volt_cmd),  prefix, "volt");
-        cat(_amp_cmd,   sizeof(_amp_cmd),   prefix, "amp");
-        cat(_watt_cmd,  sizeof(_watt_cmd),  prefix, "watt");
-        cat(_init_cmd,  sizeof(_init_cmd),  prefix, "init");
-        cat(_stats_cmd, sizeof(_stats_cmd), prefix, "stats");
+    static constexpr uint8_t kMaxChannels = 4;
+
+    Ina219Module() = default;
+
+    // Add a sensor. `prefix` is a short label ("a", "b"); `addr` its 7-bit I²C
+    // address. Returns false if full or the label is too long. Constructed from
+    // cmdr-generated code (one addChannel per `channels` entry).
+    bool addChannel(const char *prefix, uint8_t addr) {
+        if (_n >= kMaxChannels) return false;
+        size_t len = strlen(prefix);
+        if (len == 0 || len >= sizeof(_ch[0].prefix)) return false;
+        memcpy(_ch[_n].prefix, prefix, len + 1);
+        _ch[_n].addr = addr;
+        _n++;
+        return true;
     }
 
-    const char *name()  const override { return _volt_cmd; }
-    void        init()        override;
+    const char *name() const override { return "ina"; }
+    void        init()        override { for (uint8_t i = 0; i < _n; i++) initChannel(_ch[i].addr); }
     void        registerCommands(CommandRegistry &reg) override;
     void        startTask()   override {}
 
 private:
-    uint8_t _addr;
-    char    _volt_cmd[12];
-    char    _amp_cmd[12];
-    char    _watt_cmd[12];
-    char    _init_cmd[12];
-    char    _stats_cmd[12];
+    struct Channel { char prefix[8]; uint8_t addr; };
+    Channel _ch[kMaxChannels];
+    uint8_t _n = 0;
 
-    static void cat(char *dst, size_t n, const char *a, const char *b) {
-        size_t i = 0;
-        while (*a && i < n - 1) dst[i++] = *a++;
-        while (*b && i < n - 1) dst[i++] = *b++;
-        dst[i] = '\0';
-    }
-
+    // ---- INA219 register access ------------------------------------------
     static bool readReg(uint8_t addr, uint8_t reg, uint16_t &out) {
         uint8_t buf[2];
         if (!hal_i2c_read(addr, reg, buf, 2)) return false;
@@ -50,133 +56,158 @@ private:
         return true;
     }
 
-    static void cmdVolt (const char *, Writer &out, void *ctx);
-    static void cmdAmp  (const char *, Writer &out, void *ctx);
-    static void cmdWatt (const char *, Writer &out, void *ctx);
-    static void cmdInit (const char *, Writer &out, void *ctx);
-    static void cmdStats(const char *, Writer &out, void *ctx);
+    static void initChannel(uint8_t addr) {
+        // INA219 needs ~1 ms after Vcc stable before it ACKs writes; without this
+        // the cal write is silently lost and current/power read back stuck at 0.
+        hal_delay_ms(10);
+        // 32 V bus range, ÷8 PGA (±320 mV shunt), 12-bit ADC, continuous.
+        uint8_t cfg[2] = {0x39, 0x9F};
+        hal_i2c_write(addr, 0x00, cfg, 2);
+        // Cal = 4096 (0x1000) for 0.1 Ω shunt → Current_LSB = 100 µA.
+        uint8_t cal[2] = {0x10, 0x00};
+        hal_i2c_write(addr, 0x05, cal, 2);
+    }
+
+    // ---- no-printf number formatting (matches the codebase idiom) ---------
+    static void putUInt(Writer &out, uint32_t v) {
+        char tmp[11]; int t = 0;
+        if (v == 0) tmp[t++] = '0';
+        while (v) { tmp[t++] = (char)('0' + v % 10); v /= 10; }
+        char s[12]; int i = 0;
+        while (t) s[i++] = tmp[--t];
+        s[i] = '\0';
+        out.write(s);
+    }
+    // current register is signed, 1 LSB = 0.1 mA → "1044.3"
+    static void putMilliAmps(Writer &out, int16_t cur) {
+        if (cur < 0) {
+            out.write("-");
+            cur = (cur == (int16_t)-32768) ? (int16_t)32767 : (int16_t)-cur;
+        }
+        uint16_t u = (uint16_t)cur;
+        putUInt(out, (uint32_t)(u / 10));
+        char f[3] = {'.', (char)('0' + (u % 10)), '\0'};
+        out.write(f);
+    }
+
+    // ---- per-channel readers (true on I²C success) -----------------------
+    static bool emitVolt(Writer &out, uint8_t addr) {
+        uint16_t raw;
+        if (!readReg(addr, 0x02, raw)) return false;
+        putUInt(out, (uint32_t)(raw >> 3) * 4);   // bits [15:3], 1 LSB = 4 mV
+        out.write(" mV");
+        return true;
+    }
+    static bool emitAmp(Writer &out, uint8_t addr) {
+        uint16_t raw;
+        if (!readReg(addr, 0x04, raw)) return false;
+        putMilliAmps(out, (int16_t)raw);
+        out.write(" mA");
+        return true;
+    }
+    static bool emitWatt(Writer &out, uint8_t addr) {
+        uint16_t raw;
+        if (!readReg(addr, 0x03, raw)) return false;
+        putUInt(out, (uint32_t)raw * 2);          // 1 LSB = 2 mW
+        out.write(" mW");
+        return true;
+    }
+    // "mv,ma" from one atomic read pair (same ADC cycle, ~1 ms apart)
+    static bool emitStatsCsv(Writer &out, uint8_t addr) {
+        uint16_t vraw, iraw;
+        if (!readReg(addr, 0x02, vraw) || !readReg(addr, 0x04, iraw)) return false;
+        putUInt(out, (uint32_t)(vraw >> 3) * 4);
+        out.write(",");
+        putMilliAmps(out, (int16_t)iraw);
+        return true;
+    }
+
+    // ---- dispatch --------------------------------------------------------
+    const Channel *find(const char *tok) const {
+        for (uint8_t i = 0; i < _n; i++) {
+            size_t len = strlen(_ch[i].prefix);
+            if (strncmp(tok, _ch[i].prefix, len) == 0 &&
+                (tok[len] == '\0' || tok[len] == ' '))
+                return &_ch[i];
+        }
+        return nullptr;
+    }
+
+    static void inaCmd(const char *args, Writer &out, void *ctx);
+    void        dispatch(const char *args, Writer &out);
+    void        usage(Writer &out);
+
+    static const char *skipSpaces(const char *p) { while (*p == ' ') ++p; return p; }
+    static const char *nextTok(const char *p) { while (*p && *p != ' ') ++p; return skipSpaces(p); }
+    static bool tokIs(const char *p, const char *t) {
+        size_t n = strlen(t);
+        return strncmp(p, t, n) == 0 && (p[n] == '\0' || p[n] == ' ');
+    }
 };
 
-inline void Ina219Module::init() {
-    // INA219 needs ~1 ms after Vcc stable before it will ACK I2C writes.
-    // Without this delay, calibration writes on early boot are silently lost,
-    // leaving the cal register at 0 and the current/power registers stuck at 0.
-    hal_delay_ms(10);
-    // Configuration: 32 V bus range, ÷8 PGA (±320 mV shunt), 12-bit ADC, continuous.
-    uint8_t cfg[2] = {0x39, 0x9F};
-    hal_i2c_write(_addr, 0x00, cfg, 2);
-    // Cal = 4096 (0x1000) for 0.1 Ω shunt → Current_LSB = 100 µA.
-    uint8_t cal[2] = {0x10, 0x00};
-    hal_i2c_write(_addr, 0x05, cal, 2);
+inline void Ina219Module::usage(Writer &out) {
+    out.writeln("ina                  list channels (label addr  v/a)");
+    out.writeln("ina <ch>             voltage / current / power for one channel");
+    out.writeln("ina <ch> volt|amp|watt|stats|init");
+    out.writeln("ina stats            \"<ch>,mv,ma\" CSV, one line per channel");
+    out.writeln("ina init             re-run calibration on all channels");
 }
 
-inline void Ina219Module::cmdVolt(const char *, Writer &out, void *ctx) {
-    auto *m = static_cast<Ina219Module *>(ctx);
-    uint16_t raw;
-    if (!readReg(m->_addr, 0x02, raw)) { out.writeln("err"); return; }
-    // Bits [15:3] hold voltage; 1 LSB = 4 mV.
-    uint32_t mV = (uint32_t)(raw >> 3) * 4;
-    char buf[12]; uint8_t i = 0;
-    if (mV >= 10000) buf[i++] = '0' + (char)(mV / 10000);
-    if (mV >=  1000) buf[i++] = '0' + (char)((mV /  1000) % 10);
-    if (mV >=   100) buf[i++] = '0' + (char)((mV /   100) % 10);
-    if (mV >=    10) buf[i++] = '0' + (char)((mV /    10) % 10);
-    buf[i++] = '0' + (char)(mV % 10);
-    buf[i++] = ' '; buf[i++] = 'm'; buf[i++] = 'V'; buf[i] = '\0';
-    out.writeln(buf);
-}
+inline void Ina219Module::dispatch(const char *args, Writer &out) {
+    const char *p = skipSpaces(args);
 
-inline void Ina219Module::cmdAmp(const char *, Writer &out, void *ctx) {
-    auto *m = static_cast<Ina219Module *>(ctx);
-    uint16_t raw;
-    if (!readReg(m->_addr, 0x04, raw)) { out.writeln("err"); return; }
-    // Current register is signed; 1 LSB = 100 µA = 0.1 mA.
-    int16_t cur = (int16_t)raw;
-    char buf[16]; uint8_t i = 0;
-    if (cur < 0) {
-        buf[i++] = '-';
-        cur = (cur == (int16_t)-32768) ? (int16_t)32767 : (int16_t)-cur;
-    }
-    uint16_t u = (uint16_t)cur;
-    uint16_t mA = u / 10; uint8_t frac = (uint8_t)(u % 10);
-    if (mA >= 1000) buf[i++] = '0' + (char)(mA / 1000);
-    if (mA >=  100) buf[i++] = '0' + (char)((mA /  100) % 10);
-    if (mA >=   10) buf[i++] = '0' + (char)((mA /   10) % 10);
-    buf[i++] = '0' + (char)(mA % 10);
-    buf[i++] = '.'; buf[i++] = '0' + frac;
-    buf[i++] = ' '; buf[i++] = 'm'; buf[i++] = 'A'; buf[i] = '\0';
-    out.writeln(buf);
-}
-
-inline void Ina219Module::cmdWatt(const char *, Writer &out, void *ctx) {
-    auto *m = static_cast<Ina219Module *>(ctx);
-    uint16_t raw;
-    if (!readReg(m->_addr, 0x03, raw)) { out.writeln("err"); return; }
-    // 1 LSB = 20 × Current_LSB = 20 × 100 µA = 2 mW.
-    uint32_t mW = (uint32_t)raw * 2;
-    char buf[12]; uint8_t i = 0;
-    if (mW >= 100000) buf[i++] = '0' + (char)(mW / 100000);
-    if (mW >=  10000) buf[i++] = '0' + (char)((mW /  10000) % 10);
-    if (mW >=   1000) buf[i++] = '0' + (char)((mW /   1000) % 10);
-    if (mW >=    100) buf[i++] = '0' + (char)((mW /    100) % 10);
-    if (mW >=     10) buf[i++] = '0' + (char)((mW /     10) % 10);
-    buf[i++] = '0' + (char)(mW % 10);
-    buf[i++] = ' '; buf[i++] = 'm'; buf[i++] = 'W'; buf[i] = '\0';
-    out.writeln(buf);
-}
-
-inline void Ina219Module::cmdInit(const char *, Writer &out, void *ctx) {
-    static_cast<Ina219Module *>(ctx)->init();
-    out.writeln("ok");
-}
-
-inline void Ina219Module::cmdStats(const char *, Writer &out, void *ctx) {
-    auto *m = static_cast<Ina219Module *>(ctx);
-    uint16_t vraw; uint16_t iraw;
-    // Read voltage and current back-to-back in the same I2C session (~1 ms apart)
-    // so both values come from the same ADC conversion cycle.
-    if (!readReg(m->_addr, 0x02, vraw) || !readReg(m->_addr, 0x04, iraw)) {
-        out.writeln("err");
+    // bare `ina` → list channels with a quick volt/amp summary
+    if (*p == '\0') {
+        if (_n == 0) { out.writeln("no INA219 channels"); return; }
+        for (uint8_t i = 0; i < _n; i++) {
+            out.write(_ch[i].prefix); out.write("  0x");
+            char h[3]; static const char H[] = "0123456789abcdef";
+            h[0] = H[(_ch[i].addr >> 4) & 0xF]; h[1] = H[_ch[i].addr & 0xF]; h[2] = '\0';
+            out.write(h); out.write("  ");
+            if (emitVolt(out, _ch[i].addr)) { out.write("  "); emitAmp(out, _ch[i].addr); }
+            else out.write("err");
+            out.writeln();
+        }
         return;
     }
-    uint32_t mV  = (uint32_t)(vraw >> 3) * 4;
-    int16_t  cur = (int16_t)iraw;
+    if (tokIs(p, "help")) { usage(out); return; }
 
-    // Output: "voltage_mv,current_ma"  e.g. "13880,1044.3"
-    char buf[24];
-    uint8_t i = 0;
-
-    if (mV >= 10000) buf[i++] = '0' + (char)(mV / 10000);
-    if (mV >=  1000) buf[i++] = '0' + (char)((mV /  1000) % 10);
-    if (mV >=   100) buf[i++] = '0' + (char)((mV /   100) % 10);
-    if (mV >=    10) buf[i++] = '0' + (char)((mV /    10) % 10);
-    buf[i++] = '0' + (char)(mV % 10);
-    buf[i++] = ',';
-
-    if (cur < 0) {
-        buf[i++] = '-';
-        cur = (cur == (int16_t)-32768) ? (int16_t)32767 : (int16_t)-cur;
+    // global (no channel) subcommands
+    if (tokIs(p, "init")) { init(); out.writeln("ok"); return; }
+    if (tokIs(p, "stats")) {
+        for (uint8_t i = 0; i < _n; i++) {
+            out.write(_ch[i].prefix); out.write(",");
+            if (!emitStatsCsv(out, _ch[i].addr)) out.write("err");
+            out.writeln();
+        }
+        return;
     }
-    uint16_t u    = (uint16_t)cur;
-    uint16_t mA   = u / 10;
-    uint8_t  frac = (uint8_t)(u % 10);
-    if (mA >= 1000) buf[i++] = '0' + (char)(mA / 1000);
-    if (mA >=  100) buf[i++] = '0' + (char)((mA /  100) % 10);
-    if (mA >=   10) buf[i++] = '0' + (char)((mA /   10) % 10);
-    buf[i++] = '0' + (char)(mA % 10);
-    buf[i++] = '.';
-    buf[i++] = '0' + frac;
-    buf[i]   = '\0';
 
-    out.writeln(buf);
+    // otherwise the first token is a channel label
+    const Channel *ch = find(p);
+    if (!ch) { out.write("unknown channel: "); out.writeln(p); usage(out); return; }
+
+    const char *sub = nextTok(p);
+    bool ok = true;
+    if (*sub == '\0') {                       // `ina <ch>` → full summary
+        ok = emitVolt(out, ch->addr); if (ok) out.writeln();
+        if (ok) { ok = emitAmp(out, ch->addr); if (ok) out.writeln(); }
+        if (ok) { ok = emitWatt(out, ch->addr); if (ok) out.writeln(); }
+    } else if (tokIs(sub, "volt"))  { ok = emitVolt(out, ch->addr); if (ok) out.writeln(); }
+    else if (tokIs(sub, "amp"))     { ok = emitAmp(out, ch->addr);  if (ok) out.writeln(); }
+    else if (tokIs(sub, "watt"))    { ok = emitWatt(out, ch->addr); if (ok) out.writeln(); }
+    else if (tokIs(sub, "stats"))   { ok = emitStatsCsv(out, ch->addr); if (ok) out.writeln(); }
+    else if (tokIs(sub, "init"))    { initChannel(ch->addr); out.writeln("ok"); return; }
+    else { out.write("unknown: "); out.writeln(sub); usage(out); return; }
+
+    if (!ok) out.writeln("err");
+}
+
+inline void Ina219Module::inaCmd(const char *args, Writer &out, void *ctx) {
+    static_cast<Ina219Module *>(ctx)->dispatch(args, out);
 }
 
 inline void Ina219Module::registerCommands(CommandRegistry &reg) {
-    // I2C_NONE: these are local sensor reads, not I²C relay commands.
-    // Two instances share the same handler code but differ by _addr via ctx.
-    reg.registerCommand(CMD(_volt_cmd,  "bus voltage (mV)",                     I2C_NONE, cmdVolt,  this));
-    reg.registerCommand(CMD(_amp_cmd,   "current (mA)",                         I2C_NONE, cmdAmp,   this));
-    reg.registerCommand(CMD(_watt_cmd,  "power (mW)",                           I2C_NONE, cmdWatt,  this));
-    reg.registerCommand(CMD(_init_cmd,  "reinit INA219 (restores calibration)", I2C_NONE, cmdInit,  this));
-    reg.registerCommand(CMD(_stats_cmd, "voltage+current atomic read (csv)",    I2C_NONE, cmdStats, this));
+    // I2C_NONE: local sensor reads, not I²C relay commands. One slot, sub-dispatched.
+    reg.registerCommand(CMD("ina", "INA219 current/power monitor - 'ina' to list", I2C_NONE, inaCmd, this));
 }

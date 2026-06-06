@@ -9,7 +9,7 @@
 #include "core/CommandRegistry.h"
 #include "core/SystemModule.h"
 #include "modules/CompassModule.h"
-#include "modules/I2cModule.h"
+#include "modules/I2CDiagModule.h"
 #include "transport/uart/UartTransport.h"
 #include "transport/telnet/arduino/ArduinoTelnetTransport.h"
 
@@ -31,7 +31,7 @@ static const char* HOSTNAME = "r4";
 static CommandRegistry          registry;
 static SystemModule             systemModule;
 static CompassModule            compassModule;
-static I2cModule                i2cModule;
+static I2CDiagModule            i2cModule;
 static UartTransport            uart;
 static WiFiServer               wifiServer(23);
 static ArduinoTelnetTransport   telnet;

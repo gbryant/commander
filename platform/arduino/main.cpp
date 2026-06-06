@@ -3,7 +3,7 @@
 #include "core/CommandRegistry.h"
 #include "core/SystemModule.h"
 #include "modules/CompassModule.h"
-#include "modules/I2cModule.h"
+#include "modules/I2CDiagModule.h"
 #include "modules/SonarModule.h"
 #include "transport/uart/UartTransport.h"
 #include "IRModule.h"
@@ -11,7 +11,7 @@
 static CommandRegistry registry;
 static SystemModule    systemModule;
 static CompassModule   compassModule;
-static I2cModule       i2cModule;
+static I2CDiagModule   i2cModule;
 static SonarModule     sonarModule(6);  // Grove D6
 static IRModule        irModule;
 static UartTransport   uart;

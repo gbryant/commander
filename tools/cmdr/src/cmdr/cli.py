@@ -596,6 +596,15 @@ MODULE_SPECS = {
         ("sda", "I2C SDA pin", {"pico": "6", "pico2": "6", "esp32": "4", "r4": "4", "uno": "4"}),
         ("scl", "I2C SCL pin", {"pico": "7", "pico2": "7", "esp32": "5", "r4": "5", "uno": "5"}),
     ]},
+    # INA219 current/power monitor(s) over I2C (Adafruit/SparkFun 0.1 Ω breakout).
+    # Multi-instance: `channels` is a comma list of prefix:addr; each gets its own
+    # <prefix>volt / <prefix>amp / <prefix>watt / <prefix>init / <prefix>stats
+    # commands (the `stats` CSV is what solar-monitor logs). esp32 defaults to GPIO8/9.
+    "ina219":  {"always": False, "platforms": None,   "questions": [
+        ("sda",      "I2C SDA pin", {"pico": "6", "pico2": "6", "esp32": "8", "r4": "4", "uno": "4"}),
+        ("scl",      "I2C SCL pin", {"pico": "7", "pico2": "7", "esp32": "9", "r4": "5", "uno": "5"}),
+        ("channels", "INA219 channels as prefix:addr, comma-separated", "a:0x40"),
+    ]},
     # WiFi status/control (wifi status|off|on). Runner implements the hooks, so
     # only WiFi platforms whose runner provides them.
     "wifi":    {"always": False, "platforms": ["pico", "pico2", "r4"], "questions": []},
@@ -670,6 +679,24 @@ def _emit_module(name: str, opts: dict, target: str):
         return (['#include "modules/WifiModule.h"'],
                 ["static WifiModule _m_wifi;"],
                 ["reg.registerModule(_m_wifi);"], [])
+    if name == "ina219":
+        # One namespaced `ina` command for however many INA219 sensors are wired;
+        # `channels` is a comma list of label:addr. Brings up the global HAL I2C
+        # bus (deduped against compass/i2c if the pins match).
+        sda = opts.get("sda", 8)
+        scl = opts.get("scl", 9)
+        regs = [f"hal_i2c_init({sda}, {scl}, 100000);"]
+        for ch in str(opts.get("channels", "a:0x40")).split(","):
+            ch = ch.strip()
+            if not ch:
+                continue
+            prefix, _, addr = ch.partition(":")
+            prefix = prefix.strip() or "a"
+            addr = addr.strip() or "0x40"
+            regs.append(f'_m_ina219.addChannel("{prefix}", {addr});')
+        regs.append("reg.registerModule(_m_ina219);")
+        return (['#include "hal/hal.h"', '#include "modules/Ina219Module.h"'],
+                ["static Ina219Module _m_ina219;"], regs, [])
     if name == "ir":
         # Platform-specific (PIO on Pico). The commander_pico_ir CMake target
         # (linked into pico_runner) provides the PIO build + clean header. IR
@@ -1021,6 +1048,8 @@ def _sync_feature_flags(flags_on: set) -> None:
 _MODULE_COMMANDS = {
     "system": 2, "compass": 1, "sonar": 1, "i2c": 1, "ir": 1,
     "roomba": 1, "locomotion": 4, "loco-bridge": 1, "controller": 5, "wifi": 1,
+    # ina219 is namespaced: one `ina` command no matter how many channels.
+    "ina219": 1,
 }
 # Headroom for runner-registered commands (bootsel on pico, ota when enabled) plus
 # a few app-registered ones. Conservative, since under-sizing silently drops commands.
