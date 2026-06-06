@@ -20,21 +20,7 @@ set(COMMANDER_ENABLE_OTA ON CACHE BOOL "" FORCE)
 add_compile_definitions(COMMANDER_IR_WALL)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../.. commander_lib)
 
-# --------------------------------------------------------------------------
-# App selection — must be set explicitly at configure time.
-# Example: cmake -B build -DCOMMANDER_APP=commander -DPICO_BOARD=pico_w
-# --------------------------------------------------------------------------
-set(COMMANDER_APP "" CACHE STRING "App to build (e.g. commander, serial_monitor)")
-if(NOT COMMANDER_APP)
-    message(FATAL_ERROR
-        "COMMANDER_APP not set. Pass -DCOMMANDER_APP=<name>.\n"
-        "Available apps: ${CMAKE_CURRENT_LIST_DIR}/apps/")
-endif()
-set(APP_DIR ${CMAKE_CURRENT_LIST_DIR}/apps/${COMMANDER_APP})
-if(NOT EXISTS ${APP_DIR}/app.cmake)
-    message(FATAL_ERROR "No app.cmake found at ${APP_DIR}/app.cmake")
-endif()
-message(STATUS "Building app '${COMMANDER_APP}' for board '${PICO_BOARD}'")
+message(STATUS "Building commander for board '${PICO_BOARD}'")
 
 # --------------------------------------------------------------------------
 # pico_fota_bootloader — must come after pico_sdk_init()
@@ -67,65 +53,44 @@ if(NOT GIT_BUILD_NUMBER)
 endif()
 
 # --------------------------------------------------------------------------
-# Load app config — sets APP_SOURCES, APP_LINK_LIBS, APP_PIO, APP_USE_PFB
-# PICO_PLATFORM_DIR and PROJECT_ROOT_DIR are stable path anchors for app.cmake
-# --------------------------------------------------------------------------
-set(PICO_PLATFORM_DIR ${CMAKE_CURRENT_LIST_DIR})
-set(PROJECT_ROOT_DIR  ${CMAKE_CURRENT_LIST_DIR}/../..)
-set(APP_SOURCES      "")
-set(APP_LINK_LIBS    "")
-set(APP_PIO          "")
-set(APP_USE_PFB      OFF)
-set(APP_USE_FREERTOS ON)
-set(APP_COMPILE_DEFS "")
-include(${APP_DIR}/app.cmake)
-
-# --------------------------------------------------------------------------
-# Target
+# Target — the commander reference app. Framework boilerplate (main, WiFi,
+# FreeRTOS wiring) comes from commander::pico_runner; main.cpp here just
+# implements the commander_config()/commander_setup() hooks.
 # --------------------------------------------------------------------------
 add_executable(commander
-    ${APP_DIR}/main.cpp
-    ${APP_SOURCES}
+    ${CMAKE_CURRENT_LIST_DIR}/main.cpp
 )
 
-foreach(pio_src ${APP_PIO})
-    pico_generate_pio_header(commander ${pio_src})
-endforeach()
+# IR receive uses a PIO program (Roomba virtual-wall + NEC/Sony decode).
+pico_generate_pio_header(commander ${CMAKE_CURRENT_LIST_DIR}/ir_rx.pio)
 
 target_compile_definitions(commander PRIVATE
     CYW43_TASK_STACK_SIZE=2048
     BUILD_COMMIT="${GIT_COMMIT}"
     BUILD_NUMBER=${GIT_BUILD_NUMBER}
-    COMMANDER_APP="${COMMANDER_APP}"
     PICO_DEFAULT_UART=1
     PICO_DEFAULT_UART_TX_PIN=20
     PICO_DEFAULT_UART_RX_PIN=21
-    ${APP_COMPILE_DEFS}
 )
 
 target_include_directories(commander PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}  # FreeRTOSConfig.h, lwipopts.h, secrets.h
-    ${APP_DIR}                 # app-local headers
+    ${CMAKE_CURRENT_LIST_DIR}  # secrets.h + app headers (PicoIRModule.h, sdkconfig.h, btstack_config.h)
 )
 
-if(APP_USE_FREERTOS)
-    target_link_libraries(commander
-        pico_stdlib
-        FreeRTOS-Kernel
-        FreeRTOS-Kernel-Heap4
-        ${APP_LINK_LIBS}
-    )
-else()
-    target_link_libraries(commander
-        pico_stdlib
-        ${APP_LINK_LIBS}
-    )
-endif()
+target_link_libraries(commander
+    pico_stdlib
+    FreeRTOS-Kernel
+    FreeRTOS-Kernel-Heap4
+    commander::pico_runner
+    hardware_pio
+    hardware_clocks
+    pico_multicore
+    pico_fota_bootloader_lib
+)
 
 pico_enable_stdio_usb(commander 1)
 pico_enable_stdio_uart(commander 1)
 pico_add_extra_outputs(commander)
 
-if(APP_USE_PFB)
-    pfb_compile_with_bootloader(commander)
-endif()
+# OTA self-flash via pico_fota_bootloader.
+pfb_compile_with_bootloader(commander)

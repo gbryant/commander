@@ -1,5 +1,5 @@
 #!/bin/bash
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")/platform/pico"
-cmake -B build-pico2 -S . -DPICO_BOARD=pico2_w -DCOMMANDER_APP=commander
+cmake -B build-pico2 -S . -DPICO_BOARD=pico2_w
 cmake --build build-pico2

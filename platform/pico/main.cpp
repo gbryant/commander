@@ -2,13 +2,13 @@
 #include "secrets.h"
 #include "core/SystemModule.h"
 #include "modules/CompassModule.h"
-#include "modules/I2cModule.h"
+#include "modules/I2CDiagModule.h"
 #include "modules/SonarModule.h"
 #include "PicoIRModule.h"
 
 static SystemModule  systemModule;
 static CompassModule compassModule;
-static I2cModule     i2cModule;
+static I2CDiagModule i2cModule;
 static SonarModule   sonarModule(6);        // Grove GP6
 static PicoIRModule  irModule(22);          // Grove IR Receiver v1.2 on GP22
 
