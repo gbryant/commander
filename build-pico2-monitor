@@ -1,5 +1,0 @@
-#!/bin/bash
-set -e
-cd "$(dirname "${BASH_SOURCE[0]}")/platform/pico"
-cmake -B build-pico2-monitor -S . -DPICO_BOARD=pico2_w -DCOMMANDER_APP=serial_monitor
-cmake --build build-pico2-monitor
