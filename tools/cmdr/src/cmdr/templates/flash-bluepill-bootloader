@@ -6,8 +6,9 @@
 # Built WITHOUT ENABLE_CHECKSUM (so our plain firmware.bin boots as-is) and WITHOUT
 # ENABLE_PROTECTIONS (so ST-Link/SWD stays usable — it does NOT set RDP / lock the chip).
 set -e
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC="$DIR/third_party/stm32-dfu-bootloader"
+# Shared external dep: lives under ~/u-developer (clone it once with that repo's
+# setup.sh, or it's cloned on first run here), overridable via $STM32_DFU_BOOTLOADER_PATH.
+SRC="${STM32_DFU_BOOTLOADER_PATH:-$HOME/u-developer/stm32-dfu-bootloader}"
 REPO="https://github.com/davidgfnet/stm32-dfu-bootloader.git"
 TC="$HOME/.platformio/packages/toolchain-gccarmnoneeabi/bin"
 SCRIPTS="$HOME/.platformio/packages/tool-openocd/openocd/scripts"

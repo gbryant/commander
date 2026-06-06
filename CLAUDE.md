@@ -141,8 +141,10 @@ holds `clock.c` (HSE→72 MHz, USB 48 MHz), `usb.c`/`usb_descriptors.c` (TinyUSB
 and the offset linker `stm32f103c8_dfu.ld`.
 
 **USB-DFU upload (no ST-Link).** `dev/bluepill/flash-bootloader` installs the davidgfnet
-DFU bootloader (GPL-3.0; cloned into gitignored `third_party/`, patched for macOS — no
-WinUSB — and to release D+ after its re-enum nudge) once via ST-Link. Then `bootloader`
+DFU bootloader (GPL-3.0; an external dep under `~/u-developer/stm32-dfu-bootloader` like
+the other SDKs — cloned by `~/u-developer/setup.sh`, overridable via
+`$STM32_DFU_BOOTLOADER_PATH` — patched for macOS, no WinUSB, and to release D+ after its
+re-enum nudge) once via ST-Link. Then `bootloader`
 (a shell command, gated by `-DCOMMANDER_STM32_DFU`) reboots into DFU and
 `dev/bluepill/upload-usb` flashes over USB with `dfu-util` (DfuSe `-s 0x08001000:leave`).
 `dev/bluepill/unlock` clears RDP on clones that ship read-protected.

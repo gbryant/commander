@@ -12,4 +12,3 @@ secrets.h
 __pycache__/
 .claude/settings.local.json
 platform/esp32/managed_components/
-third_party/stm32-dfu-bootloader/
