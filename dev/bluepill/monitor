@@ -1,0 +1,17 @@
+#!/bin/bash
+# Console over tio at 115200.
+#   dev/bluepill/monitor                        # auto-detect the USB-CDC port (VID:PID 0483:5740)
+#   dev/bluepill/monitor /dev/cu.usbserial-XXX  # explicit port (e.g. the USART1 USB-TTL adapter)
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORT="${1:-}"
+if [ -z "$PORT" ]; then
+  for i in $(seq 1 20); do
+    PORT=$(python3 "$DIR/../../scripts/find_port.py" bluepill 2>/dev/null) && break
+    [ $i -eq 1 ] && echo "Waiting for the bluepill USB-CDC port (press reset after plugging in)..."
+    sleep 0.5
+  done
+  [ -n "$PORT" ] || { echo "error: no bluepill USB-CDC port (0483:5740) found. For the USART1 path, pass the adapter port explicitly." >&2; exit 1; }
+fi
+echo "Connecting to $PORT  (Ctrl-T q to quit)"
+tio --baudrate 115200 "$PORT"

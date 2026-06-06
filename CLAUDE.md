@@ -44,9 +44,13 @@ Override it in platform main for board-specific diagnostics (LED blink, etc.).
 
 ## Building
 
+Per-board dev scripts live under `dev/<board>/` — `build`, `bum` (build+upload+
+monitor), `upload`, `monitor`, and `bum-ota` where supported (e.g. `dev/pico/bum`,
+`dev/esp32/build`). `ls dev/<board>/` shows what's available for each target.
+
 ### Arduino Uno
 ```bash
-./bum-uno          # build + upload + monitor in one command
+dev/uno/bum          # build + upload + monitor in one command
 pio run -e uno     # build only
 ```
 Port is hardcoded to `/dev/cu.usbmodem1413301` in `platformio.ini`.
@@ -83,8 +87,8 @@ Build system is CMake + Pico SDK. `pico_sdk_import.cmake` and
 `FreeRTOS_Kernel_import.cmake` are checked in at the repo root.
 
 ```bash
-./bum-pico           # build + upload + monitor in one command
-./build-pico         # cmake build only
+dev/pico/bum           # build + upload + monitor in one command
+dev/pico/build         # cmake build only
 ```
 
 ### Pico 2 W (RP2350)
@@ -92,8 +96,8 @@ Same CMakeLists as Pico W — board is overridden via `-DPICO_BOARD=pico2_w`.
 Uses a separate build directory (`platform/pico/build-pico2/`).
 
 ```bash
-./bum-pico2          # build + upload + monitor in one command
-./build-pico2        # cmake build only
+dev/pico2/bum          # build + upload + monitor in one command
+dev/pico2/build        # cmake build only
 ```
 BOOTSEL volume is `/Volumes/RP2350` (vs `/Volumes/RPI-RP2` on RP2040).
 `FreeRTOSConfig.h` auto-detects `PICO_RP2350` and enables dual-core SMP,
@@ -103,10 +107,10 @@ Cortex-M33 FPU, and 200 KB heap (vs 128 KB on RP2040).
 Uses ESP-IDF v5. Project root is `platform/esp32/`; component sources are in `platform/esp32/main/`.
 
 ```bash
-./bum-esp32          # build + upload + monitor in one command
-./build-esp32        # build only (runs set-target on first run)
-./upload-esp32       # flash via esptool (auto-detects port)
-./monitor-esp32      # tio at 115200 baud
+dev/esp32/bum          # build + upload + monitor in one command
+dev/esp32/build        # build only (runs set-target on first run)
+dev/esp32/upload       # flash via esptool (auto-detects port)
+dev/esp32/monitor      # tio at 115200 baud
 ```
 
 First build runs `idf.py set-target esp32s3` automatically (detects missing `sdkconfig`).
@@ -114,7 +118,7 @@ First build runs `idf.py set-target esp32s3` automatically (detects missing `sdk
 Transport uses native USB (USB Serial/JTAG, GPIO19/20) — connect tio to the `usbmodem` port.
 The board has no USB-to-serial chip; UART0 (GPIO43/44) is on headers only.
 
-**ESP-IDF environment:** run `esp` before any `idf.py` or `bum-esp32` command.
+**ESP-IDF environment:** run `esp` before any `idf.py` or `dev/esp32/*` command.
 `esp` is a shell alias for `. ~/u-developer/esp-idf/export.sh`.
 
 ### STM32 Bluepill (STM32F103C8)
@@ -125,7 +129,7 @@ kernel and USB stack from `$FREERTOS_KERNEL_PATH` and a TinyUSB checkout
 and `scripts/stm32_tinyusb.py` (they `env.BuildSources` the external trees).
 
 ```bash
-./bum-bluepill                # build + upload (USART1) via ST-Link
+dev/bluepill/bum                # build + upload (USART1) via ST-Link
 pio run -e bluepill           # USART1 console (PA9 TX / PA10 RX)
 pio run -e bluepill-usb       # USB CDC console (raw TinyUSB, fsdev port)
 pio run -e bluepill-usb-dfu   # USB CDC, app @ 0x08001000 (runs above the DFU bootloader)
@@ -136,12 +140,12 @@ USART1; **I2C is stubbed** — compass not yet supported). `platform/stm32-bluep
 holds `clock.c` (HSE→72 MHz, USB 48 MHz), `usb.c`/`usb_descriptors.c` (TinyUSB CDC),
 and the offset linker `stm32f103c8_dfu.ld`.
 
-**USB-DFU upload (no ST-Link).** `./flash-bluepill-bootloader` installs the davidgfnet
+**USB-DFU upload (no ST-Link).** `dev/bluepill/flash-bootloader` installs the davidgfnet
 DFU bootloader (GPL-3.0; cloned into gitignored `third_party/`, patched for macOS — no
 WinUSB — and to release D+ after its re-enum nudge) once via ST-Link. Then `bootloader`
 (a shell command, gated by `-DCOMMANDER_STM32_DFU`) reboots into DFU and
-`./upload-bluepill-usb` flashes over USB with `dfu-util` (DfuSe `-s 0x08001000:leave`).
-`./unlock-bluepill` clears RDP on clones that ship read-protected.
+`dev/bluepill/upload-usb` flashes over USB with `dfu-util` (DfuSe `-s 0x08001000:leave`).
+`dev/bluepill/unlock` clears RDP on clones that ship read-protected.
 
 **D+ pull-up caveat.** Many Bluepill clones have a too-weak D+ pull-up (R10 ~10k instead
 of 1.5k), so USB may only enumerate after pressing RESET post-plug. Real fix: add a
@@ -287,8 +291,8 @@ attached (don't reintroduce "first `cu.usb*`" guessing). `cmdr module list` show
 commander/
 ├── PLAN.md                      # roadmap and status — update as work lands
 ├── CLAUDE.md                    # this file
-├── platformio.ini               # Arduino Uno build (run from repo root)
-├── bum-uno                      # build + upload + monitor script
+├── platformio.ini               # Arduino Uno/R4/Bluepill builds (run from repo root)
+├── dev/<board>/                 # per-board dev scripts (build, bum, upload, monitor, bum-ota)
 ├── scripts/patch_freertos.py    # pre-build FreeRTOS config patch for Uno
 ├── include/i2c_ids.h            # wire protocol — DO NOT diverge between platforms
 ├── core/                        # pure C++, zero platform deps
@@ -349,7 +353,7 @@ commander/
   `drive`/`stop`/`loco sensors` over `hal_i2c_*` ↔ R4 `loco-bridge` I2C slave →
   shared `Roomba`), plus the `i2c` scan/read/write diagnostic module.
 - Pico W: builds clean, `help` confirmed over USB CDC serial.
-- Pico 2 W (RP2350): builds clean via `./build-pico2`. Needs hardware test.
+- Pico 2 W (RP2350): builds clean via `dev/pico2/build`. Needs hardware test.
 - ESP32-S3-N16R8: builds clean, `help` confirmed over native USB CDC (USB Serial/JTAG).
 - STM32 Bluepill (STM32F103C8): hardware-confirmed — blink, `help` over USART1, `help`
   over USB CDC, and USB-DFU upload with no ST-Link. I2C/compass pending. `cmdr init

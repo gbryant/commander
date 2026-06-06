@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+PORT=""
+for i in $(seq 1 20); do
+    PORT=$(python3 scripts/find_port.py pico2 2>/dev/null) && break
+    [ $i -eq 1 ] && echo "Waiting for Pico 2 W..."
+    sleep 0.5
+done
+[ -n "$PORT" ] || { echo "error: Pico 2 W CDC port did not appear" >&2; exit 1; }
+echo "Connecting to $PORT  (Ctrl-T q to quit)"
+tio "$PORT"

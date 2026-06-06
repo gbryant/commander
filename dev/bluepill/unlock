@@ -1,0 +1,40 @@
+#!/bin/bash
+# Remove read-out protection (RDP) from a Bluepill that shipped locked — a common state
+# for cloned STM32F103 boards. This performs a MASS ERASE of flash, then requires a power
+# cycle for the option-byte change to take effect. After that, dev/bluepill/upload works.
+#
+# Symptoms this fixes (seen during `... -t upload`):
+#   Error: stm32x device protected
+#   Error: failed erasing sectors 0 to 23
+set -e
+
+# Prefer openocd on PATH; fall back to the PlatformIO-bundled one. Either way, use the
+# bundled scripts dir for the interface/target .cfg files.
+OOCD="$(command -v openocd || true)"
+PIO_OOCD="$HOME/.platformio/packages/tool-openocd/bin/openocd"
+SCRIPTS="$HOME/.platformio/packages/tool-openocd/openocd/scripts"
+[ -n "$OOCD" ] || OOCD="$PIO_OOCD"
+
+if [ ! -x "$OOCD" ] && ! command -v "$OOCD" >/dev/null 2>&1; then
+  echo "error: openocd not found (looked on PATH and at $PIO_OOCD)" >&2
+  exit 1
+fi
+
+echo "Unlocking Bluepill via ST-Link (this mass-erases flash)..."
+"$OOCD" -s "$SCRIPTS" \
+  -f interface/stlink.cfg -f target/stm32f1x.cfg \
+  -c "init; reset halt; stm32f1x unlock 0; reset halt; exit"
+
+cat <<'EOF'
+
+Unlock command sent. NOW:
+  1. Power-cycle the board (unplug + replug — a warm reset is not enough).
+  2. Re-flash:  dev/bluepill/upload           (USART build)
+            or  pio run -e bluepill-usb -t upload   (USB CDC build)
+
+If 'stm32f1x unlock 0' errored on a stubborn clone, retry with connect-under-reset:
+  openocd -s ~/.platformio/packages/tool-openocd/openocd/scripts \
+    -f interface/stlink.cfg -f target/stm32f1x.cfg \
+    -c "reset_config srst_only srst_nogate connect_assert_srst" \
+    -c "init; reset halt; stm32f1x unlock 0; reset halt; exit"
+EOF

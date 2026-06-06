@@ -1,6 +1,0 @@
-#!/bin/bash
-set -e
-cd "$(dirname "${BASH_SOURCE[0]}")"
-PORT=$(python3 scripts/find_port.py uno)
-echo "Connecting to $PORT  (Ctrl-T q to quit)"
-tio --baudrate 115200 "$PORT"

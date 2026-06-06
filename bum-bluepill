@@ -1,9 +1,0 @@
-#!/bin/bash
-# Build + upload (ST-Link). Optionally monitor: pass the USART1 adapter port as $1.
-#   ./bum-bluepill                         # build + flash
-#   ./bum-bluepill /dev/cu.usbserial-XXXX  # build + flash + open the USART1 console
-set -e
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"$DIR/build-bluepill"
-"$DIR/upload-bluepill"
-[ -n "$1" ] && "$DIR/monitor-bluepill" "$1"

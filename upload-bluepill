@@ -1,5 +1,0 @@
-#!/bin/bash
-# Flash via the ST-Link clone (SWD). openocd auto-detects the ST-Link — no port needed.
-set -e
-cd "$(dirname "${BASH_SOURCE[0]}")"
-pio run -e bluepill -t upload

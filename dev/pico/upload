@@ -1,0 +1,47 @@
+#!/bin/bash
+# Flash Pico W via picotool.
+# If a pfb bootloader is found in the build tree: two-step flash (bootloader + app).
+# Otherwise: single-step flash (app only).
+set -e
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+BUILD_DIR="$REPO_ROOT/platform/pico/build"
+APP_UF2="$BUILD_DIR/commander.uf2"
+BOOT_UF2=$(find "$BUILD_DIR" -name "pico_fota_bootloader.uf2" 2>/dev/null | head -1)
+
+enter_bootsel() {
+    PORT=$(python3 "$REPO_ROOT/scripts/find_port.py" pico 2>/dev/null || true)
+    if [ -n "$PORT" ]; then
+        echo "Sending bootloader command to $PORT..."
+        python3 - "$PORT" <<'EOF'
+import sys, serial, time
+with serial.Serial(sys.argv[1], 115200, timeout=2) as s:
+    time.sleep(0.1)
+    s.write(b'bootloader\r\n')
+    time.sleep(0.5)
+EOF
+        echo "Waiting for BOOTSEL..."
+        for i in $(seq 1 20); do
+            picotool info &>/dev/null && return 0
+            sleep 0.5
+        done
+        echo "error: device did not enter BOOTSEL" >&2; exit 1
+    else
+        echo "No running device found. Hold BOOTSEL while plugging in, then press Enter."
+        read -r
+    fi
+}
+
+picotool info &>/dev/null || enter_bootsel
+picotool info &>/dev/null || { echo "error: no device in BOOTSEL mode" >&2; exit 1; }
+
+if [ -n "$BOOT_UF2" ]; then
+    echo "pfb build detected — two-step flash (bootloader + app)"
+    picotool load -f "$BOOT_UF2"
+else
+    echo "No pfb bootloader found — single-step flash"
+fi
+
+picotool load -f "$APP_UF2"
+picotool reboot
+echo "Done."

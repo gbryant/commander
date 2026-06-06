@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")/../../platform/esp32"
+if [ ! -f sdkconfig ]; then
+    idf.py set-target esp32s3
+fi
+idf.py build
