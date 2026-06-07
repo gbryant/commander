@@ -25,8 +25,13 @@
 #ifndef IPSTUBE_PIN_RST
 #define IPSTUBE_PIN_RST  26
 #endif
+// The TFT displays' backlight is TFT_ENABLE_PIN = GPIO4, an active-low,
+// PWM-dimmable transistor (IPSTube dims it "inverted", CALCDIMVALUE = 255 - x).
+// NOT GPIO5 — that's the WS2812 ambient LED chain (BACKLIGHTS_PIN), a separate
+// addressable-LED feature (see `ipstube led`, TODO) that needs the WS2812
+// protocol, not PWM.
 #ifndef IPSTUBE_PIN_BL
-#define IPSTUBE_PIN_BL    5
+#define IPSTUBE_PIN_BL    4
 #endif
 // Per-display chip-selects, digit order: seconds-ones … hours-tens. Driven
 // manually as GPIOs (active-low) — the six displays share one SPI device, so
@@ -44,7 +49,7 @@
 #define IPSTUBE_SPI_MODE 0         // ST7789 is usually mode 0; try 3 if no image
 #endif
 #ifndef IPSTUBE_BL_ACTIVE_LOW
-#define IPSTUBE_BL_ACTIVE_LOW 0    // set 1 if the backlight is wired active-low
+#define IPSTUBE_BL_ACTIVE_LOW 1    // IPSTube TFT_ENABLE is active-low (on = pin low)
 #endif
 
 // ── Panel tunables — runtime-adjustable too (ipstube invert/gap/swap/mirror) ───

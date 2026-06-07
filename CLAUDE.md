@@ -258,8 +258,11 @@ up one shared SPI bus with a **single** `esp_lcd` ST7789 panel and **manual GPIO
 chip-select** for the six displays (per-display CS 15/2/27/14/12/13 driven active-low;
 an ESP32 SPI host has only 3 hardware CS slots, so 6 panel_io can't work — select-all
 inits all six in parallel, select-one draws to a digit; shared DC=25/RST=26/MOSI=32/
-SCLK=33, backlight=GPIO5 via LEDC), exposing `ipstube on/off/dim/fill/clear/test` plus
-a C++ API (`pushDigit`/`fill`/`backlight`).
+SCLK=33; the TFT backlight is `TFT_ENABLE_PIN=GPIO4`, **active-low** PWM via LEDC —
+GPIO5 is the separate WS2812 ambient LED chain, not the TFT backlight), exposing
+`ipstube on/off/dim/fill/clear/test` + debug (`info/cs/reinit/invert/swap/mirror/gap`)
+plus a C++ API (`pushDigit`/`fill`/`backlight`). The 6 WS2812 ambient LEDs (GPIO5) are
+a TODO follow-on (`ipstube led`).
 The clock-face logic lives in the app via the weak `commander_on_ipstube_ready(IpstubeModule&)`
 hook the generated file calls. The header keeps esp_lcd types out so the app can
 include it freely; the `.cpp` compiles in the runner only when enabled — `cmdr module
