@@ -91,6 +91,10 @@ static int  s_gap_y  = IPSTUBE_GAP_Y;
 static bool s_swap   = IPSTUBE_SWAP_XY;
 static bool s_mir_x  = IPSTUBE_MIRROR_X;
 static bool s_mir_y  = IPSTUBE_MIRROR_Y;
+// These take effect only when the panel is (re)built — `ipstube spi`/`rgb`.
+static int  s_spi_mode = IPSTUBE_SPI_MODE;
+static int  s_spi_hz   = IPSTUBE_SPI_HZ;
+static bool s_bgr      = IPSTUBE_RGB_BGR;
 
 // esp_lcd queues color transactions and returns before they finish, so with
 // manual CS we must wait for completion before raising the chip-select — else
@@ -146,6 +150,39 @@ static void reinit_panels() {
     apply_config();
 }
 
+// (Re)create the shared panel_io + ST7789 panel with the current SPI mode/clock
+// and colour order. The SPI *bus* is created once in init() and kept.
+static esp_err_t build_panels() {
+    esp_lcd_panel_io_spi_config_t io_cfg = {};
+    io_cfg.cs_gpio_num         = (gpio_num_t)-1;            // manual CS via GPIO
+    io_cfg.dc_gpio_num         = (gpio_num_t)IPSTUBE_PIN_DC;
+    io_cfg.spi_mode            = s_spi_mode;
+    io_cfg.pclk_hz             = s_spi_hz;
+    io_cfg.trans_queue_depth   = 10;
+    io_cfg.lcd_cmd_bits        = 8;
+    io_cfg.lcd_param_bits      = 8;
+    io_cfg.on_color_trans_done = on_color_done;             // draw_wait() blocks on this
+    esp_err_t err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)IPSTUBE_SPI_HOST, &io_cfg, &s_io);
+    if (err != ESP_OK) { ESP_LOGE(TAG, "panel_io: %s", esp_err_to_name(err)); return err; }
+
+    esp_lcd_panel_dev_config_t pcfg = {};
+    pcfg.reset_gpio_num = (gpio_num_t)IPSTUBE_PIN_RST;       // shared RST line
+    pcfg.rgb_ele_order  = s_bgr ? LCD_RGB_ELEMENT_ORDER_BGR : LCD_RGB_ELEMENT_ORDER_RGB;
+    pcfg.bits_per_pixel = 16;
+    err = esp_lcd_new_panel_st7789(s_io, &pcfg, &s_panel);
+    if (err != ESP_OK) { ESP_LOGE(TAG, "panel: %s", esp_err_to_name(err)); return err; }
+    return ESP_OK;
+}
+
+// Tear down and rebuild the panel with new SPI mode/clock/colour order, then re-init.
+static bool rebuild() {
+    if (s_panel) { esp_lcd_panel_del(s_panel); s_panel = nullptr; }
+    if (s_io)    { esp_lcd_panel_io_del(s_io); s_io = nullptr; }
+    if (build_panels() != ESP_OK) return false;
+    reinit_panels();
+    return true;
+}
+
 // ── Bring-up ──────────────────────────────────────────────────────────────────
 void IpstubeModule::init() {
     if (!s_done) s_done = xSemaphoreCreateBinary();
@@ -171,28 +208,9 @@ void IpstubeModule::init() {
 
     // One panel_io for the shared bus — no hardware CS (cs = -1); we drive the
     // six enable lines ourselves. A single ST7789 panel object talks to whichever
-    // displays are currently selected.
-    esp_lcd_panel_io_spi_config_t io_cfg = {};
-    io_cfg.cs_gpio_num       = (gpio_num_t)-1;
-    io_cfg.dc_gpio_num       = (gpio_num_t)IPSTUBE_PIN_DC;
-    io_cfg.spi_mode          = IPSTUBE_SPI_MODE;
-    io_cfg.pclk_hz           = IPSTUBE_SPI_HZ;
-    io_cfg.trans_queue_depth = 10;
-    io_cfg.lcd_cmd_bits      = 8;
-    io_cfg.lcd_param_bits    = 8;
-    io_cfg.on_color_trans_done = on_color_done;   // so draw_wait() can block on completion
-    err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)IPSTUBE_SPI_HOST, &io_cfg, &s_io);
-    if (err != ESP_OK) { ESP_LOGE(TAG, "panel_io: %s", esp_err_to_name(err)); return; }
-
-    esp_lcd_panel_dev_config_t pcfg = {};
-    pcfg.reset_gpio_num = (gpio_num_t)IPSTUBE_PIN_RST;   // shared RST line
-    pcfg.rgb_ele_order  = IPSTUBE_RGB_BGR ? LCD_RGB_ELEMENT_ORDER_BGR
-                                          : LCD_RGB_ELEMENT_ORDER_RGB;
-    pcfg.bits_per_pixel = 16;
-    err = esp_lcd_new_panel_st7789(s_io, &pcfg, &s_panel);
-    if (err != ESP_OK) { ESP_LOGE(TAG, "panel: %s", esp_err_to_name(err)); return; }
-
-    reinit_panels();   // reset + init + apply orientation on all six in parallel
+    // displays are currently selected. Then reset + init + orientation on all six.
+    if (build_panels() != ESP_OK) return;
+    reinit_panels();
 
     // Backlight via LEDC PWM (shared line, all six dim together).
     ledc_timer_config_t lt = {};
@@ -263,6 +281,8 @@ void IpstubeModule::usage(Writer &out) {
     out.writeln("ipstube swap <0|1>      swap X/Y (rotate)");
     out.writeln("ipstube mirror <x> <y>  mirror axes (0/1 each)");
     out.writeln("ipstube gap <x> <y>     panel offset (re-fill to see)");
+    out.writeln("ipstube spi <mode> [hz] rebuild bus: SPI mode 0-3, opt clock Hz");
+    out.writeln("ipstube rgb <0|1>       colour order RGB(0)/BGR(1), rebuilds");
 }
 
 void IpstubeModule::dispatch(const char *args, Writer &out) {
@@ -287,15 +307,15 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
         char b[96];
         snprintf(b, sizeof(b), "spi: host=%d mosi=%d sclk=%d dc=%d rst=%d hz=%d mode=%d",
                  (int)IPSTUBE_SPI_HOST, IPSTUBE_PIN_MOSI, IPSTUBE_PIN_SCLK,
-                 IPSTUBE_PIN_DC, IPSTUBE_PIN_RST, (int)IPSTUBE_SPI_HZ, IPSTUBE_SPI_MODE);
+                 IPSTUBE_PIN_DC, IPSTUBE_PIN_RST, s_spi_hz, s_spi_mode);
         out.writeln(b);
         snprintf(b, sizeof(b), "cs:  %d %d %d %d %d %d",
                  s_cs[0], s_cs[1], s_cs[2], s_cs[3], s_cs[4], s_cs[5]);
         out.writeln(b);
         snprintf(b, sizeof(b), "bl:  pin=%d active_low=%d", IPSTUBE_PIN_BL, IPSTUBE_BL_ACTIVE_LOW);
         out.writeln(b);
-        snprintf(b, sizeof(b), "cfg: invert=%d swap=%d mirror=%d,%d gap=%d,%d",
-                 s_invert, s_swap, s_mir_x, s_mir_y, s_gap_x, s_gap_y);
+        snprintf(b, sizeof(b), "cfg: invert=%d bgr=%d swap=%d mirror=%d,%d gap=%d,%d",
+                 s_invert, s_bgr, s_swap, s_mir_x, s_mir_y, s_gap_x, s_gap_y);
         out.writeln(b);
         return;
     }
@@ -350,6 +370,20 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
         const char *p = next(args); long x, y;
         if (!num(p, &x) || !num(next(p), &y)) { out.writeln("usage: ipstube gap <x> <y>"); return; }
         s_gap_x = (int)x; s_gap_y = (int)y; apply_config(); out.writeln("ok (re-fill to see)"); return;
+    }
+    if (tok(args, "spi")) {
+        const char *p = next(args); long mode, hz;
+        if (!num(p, &mode) || mode < 0 || mode > 3) { out.writeln("usage: ipstube spi <mode 0-3> [hz]"); return; }
+        s_spi_mode = (int)mode;
+        if (num(next(p), &hz) && hz > 0) s_spi_hz = (int)hz;
+        out.writeln(rebuild() ? "ok: rebuilt (re-fill to see)" : "err: rebuild failed (see log)");
+        return;
+    }
+    if (tok(args, "rgb")) {
+        long v; if (!num(next(args), &v)) { out.writeln("usage: ipstube rgb <0|1>"); return; }
+        s_bgr = v != 0;
+        out.writeln(rebuild() ? "ok: rebuilt (re-fill to see)" : "err: rebuild failed (see log)");
+        return;
     }
     out.write("unknown ipstube subcommand: "); out.writeln(args);
     usage(out);
