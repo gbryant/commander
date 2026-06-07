@@ -12,6 +12,7 @@
 #include "esp_event.h"
 #include "mdns.h"
 #include "hal/hal.h"
+#include "core/WifiHooks.h"
 #include "transport/uart/UartTransport.h"
 #include "transport/telnet/TelnetTransport.h"
 #include <string.h>
@@ -34,7 +35,9 @@ static EventGroupHandle_t s_wifi_eg;
 #define WIFI_FAIL_BIT      BIT1
 #define WIFI_MAX_RETRIES   10
 
-static int s_wifi_retries = 0;
+static int            s_wifi_retries = 0;
+static esp_netif_t   *_sta_netif     = nullptr;  // for IP lookup in the wifi command
+static bool           _wifi_suppress = false;    // `wifi off` suppresses auto-reconnect
 
 static void on_wifi(void *, esp_event_base_t, int32_t id, void *data) {
     if (id == WIFI_EVENT_STA_START) {
@@ -42,6 +45,7 @@ static void on_wifi(void *, esp_event_base_t, int32_t id, void *data) {
     } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
         auto *d = (wifi_event_sta_disconnected_t *)data;
         ESP_LOGW(TAG, "disconnected reason: %d", (int)d->reason);
+        if (_wifi_suppress) return;   // user ran `wifi off` — stay down
         if (s_wifi_retries < WIFI_MAX_RETRIES) {
             esp_wifi_connect();
             s_wifi_retries++;
@@ -66,7 +70,7 @@ static bool wifi_connect(const char *ssid, const char *password) {
     }
     esp_netif_init();
     esp_event_loop_create_default();
-    esp_netif_create_default_wifi_sta();
+    _sta_netif = esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
@@ -93,6 +97,33 @@ static bool wifi_connect(const char *ssid, const char *password) {
                                             WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
                                             pdFALSE, pdFALSE, portMAX_DELAY);
     return (bits & WIFI_CONNECTED_BIT) != 0;
+}
+
+// ── WiFi command hooks (modules/WifiModule.h → `wifi status|off|on`) ────────────
+extern "C" bool commander_wifi_status(WifiInfo *info) {
+    memset(info, 0, sizeof(*info));
+    wifi_ap_record_t ap;
+    if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) return false;  // not associated
+    info->connected = true;
+    strlcpy(info->ssid, (const char *)ap.ssid, sizeof(info->ssid));
+    info->rssi = ap.rssi;
+    if (_sta_netif) {
+        esp_netif_ip_info_t ip;
+        if (esp_netif_get_ip_info(_sta_netif, &ip) == ESP_OK)
+            esp_ip4addr_ntoa(&ip.ip, info->ip, sizeof(info->ip));
+    }
+    return true;
+}
+
+extern "C" void commander_wifi_off() {
+    _wifi_suppress = true;       // keep the disconnect handler from reconnecting
+    esp_wifi_disconnect();
+}
+
+extern "C" void commander_wifi_on() {
+    _wifi_suppress = false;
+    s_wifi_retries = 0;
+    esp_wifi_connect();
 }
 
 // ── Main FreeRTOS task ────────────────────────────────────────────────────────

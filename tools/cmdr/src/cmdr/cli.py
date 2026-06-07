@@ -607,7 +607,7 @@ MODULE_SPECS = {
     ]},
     # WiFi status/control (wifi status|off|on). Runner implements the hooks, so
     # only WiFi platforms whose runner provides them.
-    "wifi":    {"always": False, "platforms": ["pico", "pico2", "r4"], "questions": []},
+    "wifi":    {"always": False, "platforms": ["pico", "pico2", "r4", "esp32"], "questions": []},
     "ir":      {"always": False, "platforms": ["pico", "pico2", "uno", "r4"], "questions": [
         ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5", "r4": "5"}),
     ], "features": [
