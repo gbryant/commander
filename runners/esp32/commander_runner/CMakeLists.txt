@@ -25,6 +25,7 @@ idf_component_register(
         esp_driver_i2c
         esp_driver_gpio
         esp_driver_usb_serial_jtag
+        esp_driver_uart   # classic ESP32 / S2 console (no USB-Serial/JTAG peripheral)
         esp_timer
         freertos
         nvs_flash

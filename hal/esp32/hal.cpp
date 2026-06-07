@@ -1,12 +1,25 @@
 #include "../hal.h"
 #include "driver/i2c_master.h"
 #include "driver/gpio.h"
-#include "driver/usb_serial_jtag.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "soc/soc_caps.h"
 #include <string.h>
+
+// The original ESP32 (and S2) have no USB-Serial/JTAG peripheral — its console is
+// a regular UART over the board's USB-to-UART bridge. Chips that do have it (S3,
+// C3, C6, H2, …) use the native USB CDC. SOC_USB_SERIAL_JTAG_SUPPORTED is 0 /
+// undefined on chips without the peripheral, so `#if` selects the right backend.
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
+#include "driver/usb_serial_jtag.h"
+#else
+#include "driver/uart.h"
+#ifndef HAL_UART_PORT
+#define HAL_UART_PORT UART_NUM_0   // UART0 = the console pins on the USB bridge
+#endif
+#endif
 
 static const char *TAG = "hal_i2c";
 
@@ -92,8 +105,11 @@ uint32_t hal_pulse_in_us(uint8_t pin, bool level, uint32_t timeout_us) {
 void     hal_delay_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 uint64_t hal_time_us(void)         { return (uint64_t)esp_timer_get_time(); }
 
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
+
 void hal_uart_init(uint32_t baud) {
     // baud is ignored — USB CDC negotiates speed with the host
+    (void)baud;
     usb_serial_jtag_driver_config_t cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
     esp_err_t err = usb_serial_jtag_driver_install(&cfg);
     // ESP_ERR_INVALID_STATE = already installed by IDF console VFS; that's fine
@@ -107,3 +123,30 @@ int hal_uart_getchar(uint32_t timeout_ms) {
 
 void hal_uart_putchar(char c)     { usb_serial_jtag_write_bytes(&c, 1, pdMS_TO_TICKS(10)); }
 void hal_uart_puts(const char *s) { usb_serial_jtag_write_bytes(s, strlen(s), pdMS_TO_TICKS(100)); }
+
+#else  // classic ESP32 / S2 — console over UART0
+
+void hal_uart_init(uint32_t baud) {
+    uart_config_t cfg = {};
+    cfg.baud_rate  = (int)baud;
+    cfg.data_bits  = UART_DATA_8_BITS;
+    cfg.parity     = UART_PARITY_DISABLE;
+    cfg.stop_bits  = UART_STOP_BITS_1;
+    cfg.flow_ctrl  = UART_HW_FLOWCTRL_DISABLE;
+    cfg.source_clk = UART_SCLK_DEFAULT;
+    // INVALID_STATE if the IDF console already installed a driver on this port; fine.
+    esp_err_t err = uart_driver_install(HAL_UART_PORT, 256, 0, 0, NULL, 0);
+    (void)err;
+    uart_param_config(HAL_UART_PORT, &cfg);
+    // UART0's default TX/RX pins are already routed to the USB bridge — no set_pin.
+}
+
+int hal_uart_getchar(uint32_t timeout_ms) {
+    uint8_t c;
+    return uart_read_bytes(HAL_UART_PORT, &c, 1, pdMS_TO_TICKS(timeout_ms)) == 1 ? (int)c : -1;
+}
+
+void hal_uart_putchar(char c)     { uart_write_bytes(HAL_UART_PORT, &c, 1); }
+void hal_uart_puts(const char *s) { uart_write_bytes(HAL_UART_PORT, s, strlen(s)); }
+
+#endif
