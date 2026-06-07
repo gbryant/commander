@@ -1,5 +1,6 @@
 #include "platform/esp32/IpstubeModule.h"
 #include "driver/spi_master.h"
+#include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"   // esp_lcd_new_panel_st7789
@@ -26,7 +27,9 @@
 #ifndef IPSTUBE_PIN_BL
 #define IPSTUBE_PIN_BL    5
 #endif
-// Per-display chip-selects, digit order: seconds-ones … hours-tens.
+// Per-display chip-selects, digit order: seconds-ones … hours-tens. Driven
+// manually as GPIOs (active-low) — the six displays share one SPI device, so
+// the SPI peripheral sees no hardware CS (an ESP32 host has only 3 CS slots).
 #ifndef IPSTUBE_CS_PINS
 #define IPSTUBE_CS_PINS  {15, 2, 27, 14, 12, 13}
 #endif
@@ -59,15 +62,36 @@
 
 static const char *TAG = "ipstube";
 
-static esp_lcd_panel_handle_t s_panel[IpstubeModule::kNumDisplays] = {};
+// One shared SPI device for all six displays; digit select is done in GPIO.
+static esp_lcd_panel_io_handle_t s_io    = nullptr;
+static esp_lcd_panel_handle_t    s_panel = nullptr;
 static const int s_cs[IpstubeModule::kNumDisplays] = IPSTUBE_CS_PINS;
 
 #define BL_LEDC_MODE    LEDC_LOW_SPEED_MODE
 #define BL_LEDC_TIMER   LEDC_TIMER_0
 #define BL_LEDC_CHANNEL LEDC_CHANNEL_0
 
+// ── Manual chip-select (active-low). select(-1) = all six, select(d) = one. ────
+static void cs_select(int d) {
+    for (int i = 0; i < IpstubeModule::kNumDisplays; i++)
+        gpio_set_level((gpio_num_t)s_cs[i], (d < 0 || d == i) ? 0 : 1);
+}
+static void cs_none() {
+    for (int i = 0; i < IpstubeModule::kNumDisplays; i++)
+        gpio_set_level((gpio_num_t)s_cs[i], 1);
+}
+
 // ── Bring-up ──────────────────────────────────────────────────────────────────
 void IpstubeModule::init() {
+    // Chip-select GPIOs as outputs, idle high (all deselected).
+    uint64_t cs_mask = 0;
+    for (int i = 0; i < kNumDisplays; i++) cs_mask |= (1ULL << s_cs[i]);
+    gpio_config_t cs_cfg = {};
+    cs_cfg.pin_bit_mask = cs_mask;
+    cs_cfg.mode         = GPIO_MODE_OUTPUT;
+    gpio_config(&cs_cfg);
+    cs_none();
+
     spi_bus_config_t bus = {};
     bus.mosi_io_num     = IPSTUBE_PIN_MOSI;
     bus.miso_io_num     = -1;                 // displays are write-only
@@ -78,42 +102,41 @@ void IpstubeModule::init() {
     esp_err_t err = spi_bus_initialize((spi_host_device_t)IPSTUBE_SPI_HOST, &bus, SPI_DMA_CH_AUTO);
     if (err != ESP_OK) { ESP_LOGE(TAG, "spi_bus_initialize: %s", esp_err_to_name(err)); return; }
 
-    for (int i = 0; i < kNumDisplays; i++) {
-        esp_lcd_panel_io_handle_t io = nullptr;
-        esp_lcd_panel_io_spi_config_t io_cfg = {};
-        io_cfg.cs_gpio_num       = (gpio_num_t)s_cs[i];
-        io_cfg.dc_gpio_num       = (gpio_num_t)IPSTUBE_PIN_DC;   // shared DC line
-        io_cfg.spi_mode          = 0;
-        io_cfg.pclk_hz           = IPSTUBE_SPI_HZ;
-        io_cfg.trans_queue_depth = 10;
-        io_cfg.lcd_cmd_bits      = 8;
-        io_cfg.lcd_param_bits    = 8;
-        err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)IPSTUBE_SPI_HOST, &io_cfg, &io);
-        if (err != ESP_OK) { ESP_LOGE(TAG, "panel_io[%d]: %s", i, esp_err_to_name(err)); return; }
+    // One panel_io for the shared bus — no hardware CS (cs = -1); we drive the
+    // six enable lines ourselves. So a single ST7789 panel object talks to
+    // whichever displays are currently selected.
+    esp_lcd_panel_io_spi_config_t io_cfg = {};
+    io_cfg.cs_gpio_num       = (gpio_num_t)-1;
+    io_cfg.dc_gpio_num       = (gpio_num_t)IPSTUBE_PIN_DC;
+    io_cfg.spi_mode          = 0;
+    io_cfg.pclk_hz           = IPSTUBE_SPI_HZ;
+    io_cfg.trans_queue_depth = 10;
+    io_cfg.lcd_cmd_bits      = 8;
+    io_cfg.lcd_param_bits    = 8;
+    err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)IPSTUBE_SPI_HOST, &io_cfg, &s_io);
+    if (err != ESP_OK) { ESP_LOGE(TAG, "panel_io: %s", esp_err_to_name(err)); return; }
 
-        esp_lcd_panel_dev_config_t pcfg = {};
-        // RST is shared — let only the first panel own the line; the rest reset with it.
-        pcfg.reset_gpio_num = (gpio_num_t)((i == 0) ? IPSTUBE_PIN_RST : -1);
-        pcfg.rgb_ele_order  = IPSTUBE_RGB_BGR ? LCD_RGB_ELEMENT_ORDER_BGR
-                                              : LCD_RGB_ELEMENT_ORDER_RGB;
-        pcfg.bits_per_pixel = 16;
-        err = esp_lcd_new_panel_st7789(io, &pcfg, &s_panel[i]);
-        if (err != ESP_OK) { ESP_LOGE(TAG, "panel[%d]: %s", i, esp_err_to_name(err)); return; }
-    }
+    esp_lcd_panel_dev_config_t pcfg = {};
+    pcfg.reset_gpio_num = (gpio_num_t)IPSTUBE_PIN_RST;   // shared RST line
+    pcfg.rgb_ele_order  = IPSTUBE_RGB_BGR ? LCD_RGB_ELEMENT_ORDER_BGR
+                                          : LCD_RGB_ELEMENT_ORDER_RGB;
+    pcfg.bits_per_pixel = 16;
+    err = esp_lcd_new_panel_st7789(s_io, &pcfg, &s_panel);
+    if (err != ESP_OK) { ESP_LOGE(TAG, "panel: %s", esp_err_to_name(err)); return; }
 
-    // One hardware reset on the shared RST line (panel 0 owns it) resets all six.
-    esp_lcd_panel_reset(s_panel[0]);
+    // Initialise all six at once: select them all, then reset + init goes to
+    // every display in parallel over the shared bus.
+    cs_select(-1);
+    esp_lcd_panel_reset(s_panel);
     vTaskDelay(pdMS_TO_TICKS(120));
-
-    for (int i = 0; i < kNumDisplays; i++) {
-        esp_lcd_panel_init(s_panel[i]);
+    esp_lcd_panel_init(s_panel);
 #if IPSTUBE_INVERT
-        esp_lcd_panel_invert_color(s_panel[i], true);
+    esp_lcd_panel_invert_color(s_panel, true);
 #endif
-        esp_lcd_panel_set_gap(s_panel[i], IPSTUBE_GAP_X, IPSTUBE_GAP_Y);
-        esp_lcd_panel_mirror(s_panel[i], IPSTUBE_MIRROR_X, IPSTUBE_MIRROR_Y);
-        esp_lcd_panel_disp_on_off(s_panel[i], true);
-    }
+    esp_lcd_panel_set_gap(s_panel, IPSTUBE_GAP_X, IPSTUBE_GAP_Y);
+    esp_lcd_panel_mirror(s_panel, IPSTUBE_MIRROR_X, IPSTUBE_MIRROR_Y);
+    esp_lcd_panel_disp_on_off(s_panel, true);
+    cs_none();
 
     // Backlight via LEDC PWM (shared line, all six dim together).
     ledc_timer_config_t lt = {};
@@ -133,15 +156,19 @@ void IpstubeModule::init() {
     ledc_channel_config(&lc);
 
     _ready = true;
-    for (int i = 0; i < kNumDisplays; i++) fill((uint8_t)i, 0x0000);  // clear to black
-    ESP_LOGI(TAG, "6x ST7789 up (%dx%d) on SPI%d", kWidth, kHeight, (int)IPSTUBE_SPI_HOST);
+    fill(kAll, 0x0000);   // clear all to black
+    ESP_LOGI(TAG, "6x ST7789 up (%dx%d) on SPI%d, manual CS", kWidth, kHeight, (int)IPSTUBE_SPI_HOST);
 }
 
 // ── App API ───────────────────────────────────────────────────────────────────
 bool IpstubeModule::pushDigit(uint8_t d, const uint16_t *fb) {
     if (!_ready || d >= kNumDisplays || !fb) return false;
-    // x_end/y_end are exclusive.
-    return esp_lcd_panel_draw_bitmap(s_panel[d], 0, 0, kWidth, kHeight, fb) == ESP_OK;
+    cs_select(d);
+    // draw_bitmap is blocking here (no on_color_trans_done callback registered),
+    // so the CS line is safe to raise once it returns. x_end/y_end are exclusive.
+    esp_err_t r = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, kWidth, kHeight, fb);
+    cs_none();
+    return r == ESP_OK;
 }
 
 void IpstubeModule::fill(uint8_t d, uint16_t color) {
@@ -150,8 +177,10 @@ void IpstubeModule::fill(uint8_t d, uint16_t color) {
     for (int x = 0; x < kWidth; x++) line[x] = color;
     for (int i = 0; i < kNumDisplays; i++) {
         if (d != kAll && d != i) continue;
+        cs_select(i);
         for (int y = 0; y < kHeight; y++)
-            esp_lcd_panel_draw_bitmap(s_panel[i], 0, y, kWidth, y + 1, line);
+            esp_lcd_panel_draw_bitmap(s_panel, 0, y, kWidth, y + 1, line);
+        cs_none();
     }
 }
 
@@ -190,9 +219,8 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
     if (!_ready) { out.writeln("ipstube: not initialised (SPI/panel bring-up failed — see boot log)"); return; }
 
     if (*args == '\0') {
-        out.write("ipstube: 6x ST7789 ");
-        char b[16]; int n = snprintf(b, sizeof(b), "%dx%d", kWidth, kHeight); (void)n;
-        out.write(b); out.writeln(" ready");
+        char b[16]; snprintf(b, sizeof(b), "%dx%d", kWidth, kHeight);
+        out.write("ipstube: 6x ST7789 "); out.write(b); out.writeln(" ready");
         return;
     }
     if (tok(args, "help")) { usage(out); return; }

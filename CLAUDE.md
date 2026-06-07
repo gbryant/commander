@@ -254,9 +254,12 @@ libs link the cyw43_arch **`_headers`** target — the arch `.c` are INTERFACE s
 only the executable links the full flavor.)
 `ipstube` (ESP32 only — the six ST7789 135×240 IPS displays on the IPSTube clock).
 A platform-specific display **driver**: `platform/esp32/IpstubeModule.{h,cpp}` brings
-up one shared SPI bus with six `esp_lcd` panel_io handles (per-display CS 15/2/27/14/
-12/13, shared DC=25/RST=26/MOSI=32/SCLK=33, backlight=GPIO5 via LEDC), exposing
-`ipstube on/off/dim/fill/clear/test` plus a C++ API (`pushDigit`/`fill`/`backlight`).
+up one shared SPI bus with a **single** `esp_lcd` ST7789 panel and **manual GPIO
+chip-select** for the six displays (per-display CS 15/2/27/14/12/13 driven active-low;
+an ESP32 SPI host has only 3 hardware CS slots, so 6 panel_io can't work — select-all
+inits all six in parallel, select-one draws to a digit; shared DC=25/RST=26/MOSI=32/
+SCLK=33, backlight=GPIO5 via LEDC), exposing `ipstube on/off/dim/fill/clear/test` plus
+a C++ API (`pushDigit`/`fill`/`backlight`).
 The clock-face logic lives in the app via the weak `commander_on_ipstube_ready(IpstubeModule&)`
 hook the generated file calls. The header keeps esp_lcd types out so the app can
 include it freely; the `.cpp` compiles in the runner only when enabled — `cmdr module
