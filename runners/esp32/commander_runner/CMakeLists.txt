@@ -31,13 +31,21 @@ set(CMDR_REQUIRES
     app_update
     esp_http_client
     espressif__mdns
+    # ipstube display driver deps. Unconditional: REQUIRES is resolved during
+    # ESP-IDF's early-expansion phase, where a CMake cache var like
+    # COMMANDER_ENABLE_IPSTUBE is NOT yet visible — a conditional append here is
+    # silently dropped (the source compiles but the include path is missing).
+    # gc-sections drops the unused code from non-display builds, so the only cost
+    # is building these (small) components.
+    esp_lcd
+    esp_driver_spi
+    esp_driver_ledc
 )
 
-# ipstube display module (6x ST7789): esp_lcd driver, compiled only when the
-# module is enabled (cmdr sets COMMANDER_ENABLE_IPSTUBE in the app CMakeLists).
+# The display *source* is still gated — SRCS are read in the normal phase where
+# COMMANDER_ENABLE_IPSTUBE is set, so only ipstube builds compile the driver.
 if(COMMANDER_ENABLE_IPSTUBE)
     list(APPEND CMDR_SRCS "${COMMANDER_ROOT}/platform/esp32/IpstubeModule.cpp")
-    list(APPEND CMDR_REQUIRES esp_lcd esp_driver_spi esp_driver_ledc)
 endif()
 
 idf_component_register(
