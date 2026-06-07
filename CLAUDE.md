@@ -165,7 +165,11 @@ registration lines are deduped, so several I2C modules (e.g. `compass` + `i2c` +
 `locomotion`) share a single `hal_i2c_init` bring-up. The app's
 `main.cpp` just calls that hook, so disabled modules aren't compiled (no flags).
 Available: `system` (always), `compass` (HAL I2C — its emitter calls
-`hal_i2c_init`), `sonar` (HAL GPIO, one pin), `i2c` (bus diagnostics —
+`hal_i2c_init`), `sonar` (HAL GPIO, one pin), `ds1302` (DS1302 RTC over a
+bit-banged 3-wire interface on `hal_gpio_*`, portable/all platforms; `sclk`/`io`/
+`ce` pins, default the IPSTube wiring 22/19/21; command `rtc` get / `rtc set
+YYYY-MM-DD HH:MM:SS` / `rtc dump`, app reads/writes via `commander_on_ds1302_ready`),
+`i2c` (bus diagnostics —
 `i2c scan`/`read`/`write` over `hal_i2c_*`, one command slot, all platforms;
 handy for bringing up the locomotion bridge), `ina219` (INA219 current/power
 monitor(s) over HAL I2C, all platforms — one namespaced `ina` command for however

@@ -651,6 +651,14 @@ MODULE_SPECS = {
         ("count", "number of LEDs in the chain", "6"),
         ("order", "colour order (GRB/RGB/BRG/RBG/GBR/BGR)", "GRB"),
     ]},
+    # DS1302 RTC — Maxim 3-wire, bit-banged over hal_gpio_* (portable, all
+    # platforms). Command `rtc`; the app reads/writes time via
+    # commander_on_ds1302_ready. Pins default to the IPSTube wiring.
+    "ds1302": {"always": False, "platforms": None, "questions": [
+        ("sclk", "DS1302 SCLK (clock) pin", "22"),
+        ("io",   "DS1302 IO (data) pin",    "19"),
+        ("ce",   "DS1302 CE (enable/reset) pin", "21"),
+    ]},
 }
 
 
@@ -717,6 +725,15 @@ def _emit_module(name: str, opts: dict, target: str):
                  "void commander_on_ws2812_ready(Ws2812Module &);"],
                 ["reg.registerModule(_m_ws2812);",
                  "commander_on_ws2812_ready(_m_ws2812);"], [])
+    if name == "ds1302":
+        sclk = opts.get("sclk", 22)
+        io   = opts.get("io", 19)
+        ce   = opts.get("ce", 21)
+        return (['#include "modules/Ds1302Module.h"'],
+                [f"static Ds1302Module _m_ds1302({sclk}, {io}, {ce});",
+                 "void commander_on_ds1302_ready(Ds1302Module &);"],
+                ["reg.registerModule(_m_ds1302);",
+                 "commander_on_ds1302_ready(_m_ds1302);"], [])
     if name == "ina219":
         # One namespaced `ina` command for however many INA219 sensors are wired;
         # `channels` is a comma list of label:addr. Brings up the global HAL I2C
@@ -1092,6 +1109,8 @@ _MODULE_COMMANDS = {
     "ipstube": 1,
     # ws2812: one `wled` command.
     "ws2812": 1,
+    # ds1302: one `rtc` command.
+    "ds1302": 1,
 }
 # Headroom for runner-registered commands (bootsel on pico, ota when enabled) plus
 # a few app-registered ones. Conservative, since under-sizing silently drops commands.
