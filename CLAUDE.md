@@ -262,16 +262,25 @@ select-one draws to a digit; **SPI mode 3** (HW-confirmed), shared DC=25/RST=26/
 SCLK=33; the TFT backlight is `TFT_ENABLE_PIN=GPIO4`, **active-low** PWM via LEDC —
 GPIO5 is the separate WS2812 ambient LED chain, not the TFT backlight), exposing
 `ipstube on/off/dim/fill/clear/test` + debug (`info/cs/reinit/invert/swap/mirror/gap/spi/rgb`)
-plus a C++ API (`pushDigit`/`fill`/`backlight`). The 6 WS2812 ambient LEDs (GPIO5) are
-a TODO follow-on (`ipstube led`).
+plus a C++ API (`pushDigit`/`fill`/`backlight`). The IPSTube's 6 WS2812 ambient LEDs
+(GPIO5) are driven by the separate `ws2812` module (below), enabled alongside `ipstube`.
 The clock-face logic lives in the app via the weak `commander_on_ipstube_ready(IpstubeModule&)`
 hook the generated file calls. The header keeps esp_lcd types out so the app can
 include it freely; the `.cpp` compiles in the runner only when enabled — `cmdr module
 enable ipstube` sets `COMMANDER_ENABLE_IPSTUBE` in the app CMake, which makes the runner
 add the `.cpp` + `esp_lcd`/`esp_driver_spi`/`esp_driver_ledc` REQUIRES. Panel tunables
 (invert, RGB/BGR, gap X/Y, mirror) and all pins are `-DIPSTUBE_*` overridable.
+`ws2812` (ESP32 only — a generic WS2812/SK6812 addressable-RGB chain over the RMT
+peripheral; `platform/esp32/Ws2812Module.{h,cpp}`). Questions: `pin`, `count`, colour
+`order` (GRB default). Command `wled`: `wled <r> <g> <b>` (all), `wled <i> <r> <g> <b>`
+(one pixel), `wled off`, `wled bright <0-255>`; the app drives effects via the weak
+`commander_on_ws2812_ready(Ws2812Module&)` hook (`setPixel`/`fill`/`show`). A board's
+onboard RGB LED is just this with `count=1`; multiple chains would follow the ina219
+`channels` pattern. Enable injects `COMMANDER_ENABLE_WS2812` (gates the `.cpp` in the
+runner); `esp_driver_rmt` is an unconditional runner REQUIRE. The IPSTube enables both
+`ipstube` (displays) and `ws2812` (GPIO5 ambient) — separate peripherals, separate modules.
 Cross-platform modules use the same emitter on every target; `ir`, `roomba`,
-`locomotion`/`loco-bridge`, `controller`, and `ipstube` are platform-gated, and a module may declare per-target question defaults (e.g.
+`locomotion`/`loco-bridge`, `controller`, `ipstube`, and `ws2812` are platform-gated, and a module may declare per-target question defaults (e.g.
 IR pin 22 on Pico, 5 on Uno) and `pio_lib_deps` (PlatformIO libs to add on
 enable). Uno is in the module system via a no-WiFi hook main.
 

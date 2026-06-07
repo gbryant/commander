@@ -40,12 +40,18 @@ set(CMDR_REQUIRES
     esp_lcd
     esp_driver_spi
     esp_driver_ledc
+    # ws2812 LED driver dep (RMT). Unconditional for the same early-expansion
+    # reason as the display deps above.
+    esp_driver_rmt
 )
 
-# The display *source* is still gated — SRCS are read in the normal phase where
-# COMMANDER_ENABLE_IPSTUBE is set, so only ipstube builds compile the driver.
+# Feature *sources* are gated — SRCS are read in the normal phase where the
+# COMMANDER_ENABLE_* cache vars are set, so only the relevant builds compile them.
 if(COMMANDER_ENABLE_IPSTUBE)
     list(APPEND CMDR_SRCS "${COMMANDER_ROOT}/platform/esp32/IpstubeModule.cpp")
+endif()
+if(COMMANDER_ENABLE_WS2812)
+    list(APPEND CMDR_SRCS "${COMMANDER_ROOT}/platform/esp32/Ws2812Module.cpp")
 endif()
 
 idf_component_register(

@@ -642,6 +642,15 @@ MODULE_SPECS = {
     # commander_on_ipstube_ready() hook. Pins default to the IPSTube wiring; enable
     # injects COMMANDER_ENABLE_IPSTUBE so the runner pulls esp_lcd + compiles it.
     "ipstube": {"always": False, "platforms": ["esp32"], "questions": []},
+    # Generic WS2812/SK6812 addressable-RGB chain (ESP32 RMT). Command `wled`; the
+    # app drives effects via commander_on_ws2812_ready. A board's onboard RGB LED
+    # is just this with count=1. Enable injects COMMANDER_ENABLE_WS2812 so the
+    # runner compiles it (esp_driver_rmt is already required unconditionally).
+    "ws2812": {"always": False, "platforms": ["esp32"], "questions": [
+        ("pin",   "WS2812 data GPIO", "5"),
+        ("count", "number of LEDs in the chain", "6"),
+        ("order", "colour order (GRB/RGB/BRG/RBG/GBR/BGR)", "GRB"),
+    ]},
 }
 
 
@@ -695,6 +704,19 @@ def _emit_module(name: str, opts: dict, target: str):
                  "void commander_on_ipstube_ready(IpstubeModule &);"],
                 ["reg.registerModule(_m_ipstube);",
                  "commander_on_ipstube_ready(_m_ipstube);"], [])
+    if name == "ws2812":
+        if target != "esp32":
+            die(f"ws2812 module is not supported on target '{target}'")
+        pin   = opts.get("pin", 5)
+        count = opts.get("count", 6)
+        order = str(opts.get("order", "GRB")).strip().upper()
+        if order not in ("GRB", "RGB", "BRG", "RBG", "GBR", "BGR"):
+            die(f"ws2812 'order' must be one of GRB/RGB/BRG/RBG/GBR/BGR (got '{order}')")
+        return (['#include "platform/esp32/Ws2812Module.h"'],
+                [f"static Ws2812Module _m_ws2812({pin}, {count}, Ws2812Module::{order});",
+                 "void commander_on_ws2812_ready(Ws2812Module &);"],
+                ["reg.registerModule(_m_ws2812);",
+                 "commander_on_ws2812_ready(_m_ws2812);"], [])
     if name == "ina219":
         # One namespaced `ina` command for however many INA219 sensors are wired;
         # `channels` is a comma list of label:addr. Brings up the global HAL I2C
@@ -1068,6 +1090,8 @@ _MODULE_COMMANDS = {
     "ina219": 1,
     # ipstube: one namespaced `ipstube` command (on/off/dim/fill/clear/test).
     "ipstube": 1,
+    # ws2812: one `wled` command.
+    "ws2812": 1,
 }
 # Headroom for runner-registered commands (bootsel on pico, ota when enabled) plus
 # a few app-registered ones. Conservative, since under-sizing silently drops commands.
@@ -1175,6 +1199,36 @@ def _ipstube_cmake_disable() -> None:
     print("  • CMakeLists.txt: removed COMMANDER_ENABLE_IPSTUBE (wipe build dir to reconfigure)")
 
 
+# ESP32 CMake injection for the ws2812 module — same mechanism as ipstube: the
+# COMMANDER_ENABLE_WS2812 cache var (set before the IDF include) makes the runner
+# compile Ws2812Module.cpp (esp_driver_rmt is already required unconditionally).
+_WS2812_OPT = 'set(COMMANDER_ENABLE_WS2812 ON CACHE BOOL "" FORCE)  # commander ws2812 (RMT)'
+
+
+def _ws2812_cmake_enable() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        print("  ! no CMakeLists.txt — set COMMANDER_ENABLE_WS2812 ON before the IDF include manually")
+        return
+    text = cmake.read_text()
+    if "COMMANDER_ENABLE_WS2812" not in text and _IPSTUBE_ANCHOR in text:
+        text = text.replace(_IPSTUBE_ANCHOR, _WS2812_OPT + "\n" + _IPSTUBE_ANCHOR, 1)
+        cmake.write_text(text)
+        print("  • CMakeLists.txt: COMMANDER_ENABLE_WS2812=ON (runner builds the RMT driver)")
+    print("  • drive the LEDs from the shell (`wled`) or commander_on_ws2812_ready()")
+    print("  • wipe the build dir (build-esp32/) to reconfigure")
+
+
+def _ws2812_cmake_disable() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        return
+    text = cmake.read_text()
+    text = text.replace(_WS2812_OPT + "\n", "")
+    cmake.write_text(text)
+    print("  • CMakeLists.txt: removed COMMANDER_ENABLE_WS2812 (wipe build dir to reconfigure)")
+
+
 def cmd_module(args: argparse.Namespace) -> None:
     manifest = Path("cmdr.toml")
 
@@ -1245,6 +1299,8 @@ def cmd_module(args: argparse.Namespace) -> None:
             _controller_cmake_enable()
         if name == "ipstube":
             _ipstube_cmake_enable()
+        if name == "ws2812":
+            _ws2812_cmake_enable()
         print(f"enabled module: {name}")
     elif args.action == "disable":
         if name not in modules:
@@ -1261,6 +1317,8 @@ def cmd_module(args: argparse.Namespace) -> None:
             _controller_cmake_disable()
         if name == "ipstube":
             _ipstube_cmake_disable()
+        if name == "ws2812":
+            _ws2812_cmake_disable()
         print(f"disabled module: {name}")
 
 
