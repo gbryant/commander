@@ -729,11 +729,12 @@ def _emit_module(name: str, opts: dict, target: str):
         sclk = opts.get("sclk", 22)
         io   = opts.get("io", 19)
         ce   = opts.get("ce", 21)
+        # Header-only module: the hook is a weak *declaration* (see the header),
+        # so null-check before calling — no forward-decl, no weak definition to host.
         return (['#include "modules/Ds1302Module.h"'],
-                [f"static Ds1302Module _m_ds1302({sclk}, {io}, {ce});",
-                 "void commander_on_ds1302_ready(Ds1302Module &);"],
+                [f"static Ds1302Module _m_ds1302({sclk}, {io}, {ce});"],
                 ["reg.registerModule(_m_ds1302);",
-                 "commander_on_ds1302_ready(_m_ds1302);"], [])
+                 "if (commander_on_ds1302_ready) commander_on_ds1302_ready(_m_ds1302);"], [])
     if name == "ina219":
         # One namespaced `ina` command for however many INA219 sensors are wired;
         # `channels` is a comma list of label:addr. Brings up the global HAL I2C

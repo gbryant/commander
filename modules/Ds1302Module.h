@@ -115,8 +115,11 @@ private:
     }
 };
 
-// Weak app hook — the generated commander_modules.h calls this after registering.
-extern "C" void commander_on_ds1302_ready(Ds1302Module &);
+// Weak app hook — the generated commander_modules.h null-checks and calls this
+// after registering. Header-only module, so this is a weak *declaration* (no
+// definition to host): if the app doesn't define it, the symbol resolves to null
+// and the generated call is skipped; an app-provided strong definition wins.
+extern "C" __attribute__((weak)) void commander_on_ds1302_ready(Ds1302Module &);
 
 inline void Ds1302Module::dispatch(const char *args, Writer &out) {
     while (*args == ' ') ++args;
