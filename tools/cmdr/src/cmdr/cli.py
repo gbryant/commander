@@ -637,6 +637,11 @@ MODULE_SPECS = {
         ("baud", "Roomba OI baud rate", "115200"),
         ("brc",  "BRC/wake pin (Mini-DIN 5), -1 if none", "-1"),
     ]},
+    # IPSTube clock: six ST7789 (135x240) IPS displays on one SPI bus, per-display
+    # CS, shared backlight. esp_lcd driver; the app drives the displays via the
+    # commander_on_ipstube_ready() hook. Pins default to the IPSTube wiring; enable
+    # injects COMMANDER_ENABLE_IPSTUBE so the runner pulls esp_lcd + compiles it.
+    "ipstube": {"always": False, "platforms": ["esp32"], "questions": []},
 }
 
 
@@ -679,6 +684,17 @@ def _emit_module(name: str, opts: dict, target: str):
         return (['#include "modules/WifiModule.h"'],
                 ["static WifiModule _m_wifi;"],
                 ["reg.registerModule(_m_wifi);"], [])
+    if name == "ipstube":
+        if target != "esp32":
+            die(f"ipstube module is not supported on target '{target}'")
+        # esp_lcd driver lives in platform/esp32 and compiles in the runner under
+        # COMMANDER_ENABLE_IPSTUBE (set by _ipstube_cmake_enable). The app gets a
+        # reference via the weak commander_on_ipstube_ready hook (forward-declared).
+        return (['#include "platform/esp32/IpstubeModule.h"'],
+                ["static IpstubeModule _m_ipstube;",
+                 "void commander_on_ipstube_ready(IpstubeModule &);"],
+                ["reg.registerModule(_m_ipstube);",
+                 "commander_on_ipstube_ready(_m_ipstube);"], [])
     if name == "ina219":
         # One namespaced `ina` command for however many INA219 sensors are wired;
         # `channels` is a comma list of label:addr. Brings up the global HAL I2C
@@ -1050,6 +1066,8 @@ _MODULE_COMMANDS = {
     "roomba": 1, "locomotion": 4, "loco-bridge": 1, "controller": 5, "wifi": 1,
     # ina219 is namespaced: one `ina` command no matter how many channels.
     "ina219": 1,
+    # ipstube: one namespaced `ipstube` command (on/off/dim/fill/clear/test).
+    "ipstube": 1,
 }
 # Headroom for runner-registered commands (bootsel on pico, ota when enabled) plus
 # a few app-registered ones. Conservative, since under-sizing silently drops commands.
@@ -1126,6 +1144,37 @@ def _controller_cmake_disable() -> None:
     print("  • CMakeLists.txt: removed controller CMake lines (wipe build dir to reconfigure)")
 
 
+# ESP32 CMake injection for the ipstube module. COMMANDER_ENABLE_IPSTUBE must be
+# set before the IDF include so the runner component compiles IpstubeModule.cpp and
+# pulls esp_lcd / esp_driver_spi / esp_driver_ledc into its REQUIRES.
+_IPSTUBE_OPT = 'set(COMMANDER_ENABLE_IPSTUBE ON CACHE BOOL "" FORCE)  # commander ipstube (esp_lcd)'
+_IPSTUBE_ANCHOR = "include($ENV{IDF_PATH}/tools/cmake/project.cmake)"
+
+
+def _ipstube_cmake_enable() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        print("  ! no CMakeLists.txt — set COMMANDER_ENABLE_IPSTUBE ON before the IDF include manually")
+        return
+    text = cmake.read_text()
+    if "COMMANDER_ENABLE_IPSTUBE" not in text and _IPSTUBE_ANCHOR in text:
+        text = text.replace(_IPSTUBE_ANCHOR, _IPSTUBE_OPT + "\n" + _IPSTUBE_ANCHOR, 1)
+        cmake.write_text(text)
+        print("  • CMakeLists.txt: COMMANDER_ENABLE_IPSTUBE=ON (runner builds esp_lcd driver)")
+    print("  • six ST7789 on the IPSTube pinout; drive them from commander_on_ipstube_ready()")
+    print("  • wipe the build dir (build-esp32/) to reconfigure")
+
+
+def _ipstube_cmake_disable() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        return
+    text = cmake.read_text()
+    text = text.replace(_IPSTUBE_OPT + "\n", "")
+    cmake.write_text(text)
+    print("  • CMakeLists.txt: removed COMMANDER_ENABLE_IPSTUBE (wipe build dir to reconfigure)")
+
+
 def cmd_module(args: argparse.Namespace) -> None:
     manifest = Path("cmdr.toml")
 
@@ -1194,6 +1243,8 @@ def cmd_module(args: argparse.Namespace) -> None:
         _sync_max_commands(modules)
         if name == "controller":
             _controller_cmake_enable()
+        if name == "ipstube":
+            _ipstube_cmake_enable()
         print(f"enabled module: {name}")
     elif args.action == "disable":
         if name not in modules:
@@ -1208,6 +1259,8 @@ def cmd_module(args: argparse.Namespace) -> None:
         _sync_max_commands(modules)
         if name == "controller":
             _controller_cmake_disable()
+        if name == "ipstube":
+            _ipstube_cmake_disable()
         print(f"disabled module: {name}")
 
 

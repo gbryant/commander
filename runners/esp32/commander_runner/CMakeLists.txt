@@ -10,31 +10,43 @@ if(NOT DEFINED COMMANDER_ROOT)
     get_filename_component(COMMANDER_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 endif()
 
+set(CMDR_SRCS
+    "runner.cpp"
+    "${COMMANDER_ROOT}/core/CommandRegistry.cpp"
+    "${COMMANDER_ROOT}/hal/esp32/hal.cpp"
+    "${COMMANDER_ROOT}/transport/uart/UartTransport.cpp"
+    "${COMMANDER_ROOT}/transport/telnet/TelnetTransport.cpp"
+)
+set(CMDR_REQUIRES
+    esp_driver_i2c
+    esp_driver_gpio
+    esp_driver_usb_serial_jtag
+    esp_driver_uart   # classic ESP32 / S2 console (no USB-Serial/JTAG peripheral)
+    esp_timer
+    freertos
+    nvs_flash
+    esp_netif
+    esp_wifi
+    esp_event
+    app_update
+    esp_http_client
+    espressif__mdns
+)
+
+# ipstube display module (6x ST7789): esp_lcd driver, compiled only when the
+# module is enabled (cmdr sets COMMANDER_ENABLE_IPSTUBE in the app CMakeLists).
+if(COMMANDER_ENABLE_IPSTUBE)
+    list(APPEND CMDR_SRCS "${COMMANDER_ROOT}/platform/esp32/IpstubeModule.cpp")
+    list(APPEND CMDR_REQUIRES esp_lcd esp_driver_spi esp_driver_ledc)
+endif()
+
 idf_component_register(
-    SRCS
-        "runner.cpp"
-        "${COMMANDER_ROOT}/core/CommandRegistry.cpp"
-        "${COMMANDER_ROOT}/hal/esp32/hal.cpp"
-        "${COMMANDER_ROOT}/transport/uart/UartTransport.cpp"
-        "${COMMANDER_ROOT}/transport/telnet/TelnetTransport.cpp"
+    SRCS ${CMDR_SRCS}
     INCLUDE_DIRS
         "${COMMANDER_ROOT}"
         "${COMMANDER_ROOT}/include"
         "${CMAKE_CURRENT_LIST_DIR}"
-    REQUIRES
-        esp_driver_i2c
-        esp_driver_gpio
-        esp_driver_usb_serial_jtag
-        esp_driver_uart   # classic ESP32 / S2 console (no USB-Serial/JTAG peripheral)
-        esp_timer
-        freertos
-        nvs_flash
-        esp_netif
-        esp_wifi
-        esp_event
-        app_update
-        esp_http_client
-        espressif__mdns
+    REQUIRES ${CMDR_REQUIRES}
 )
 
 if(COMMANDER_ENABLE_OTA)

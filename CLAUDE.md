@@ -252,8 +252,19 @@ runner then builds the opt-in `commander_pico_controller` target (needs
 so WiFi (telnet/OTA) and a Bluetooth controller coexist on the one CYW43. (Static
 libs link the cyw43_arch **`_headers`** target — the arch `.c` are INTERFACE sources;
 only the executable links the full flavor.)
+`ipstube` (ESP32 only — the six ST7789 135×240 IPS displays on the IPSTube clock).
+A platform-specific display **driver**: `platform/esp32/IpstubeModule.{h,cpp}` brings
+up one shared SPI bus with six `esp_lcd` panel_io handles (per-display CS 15/2/27/14/
+12/13, shared DC=25/RST=26/MOSI=32/SCLK=33, backlight=GPIO5 via LEDC), exposing
+`ipstube on/off/dim/fill/clear/test` plus a C++ API (`pushDigit`/`fill`/`backlight`).
+The clock-face logic lives in the app via the weak `commander_on_ipstube_ready(IpstubeModule&)`
+hook the generated file calls. The header keeps esp_lcd types out so the app can
+include it freely; the `.cpp` compiles in the runner only when enabled — `cmdr module
+enable ipstube` sets `COMMANDER_ENABLE_IPSTUBE` in the app CMake, which makes the runner
+add the `.cpp` + `esp_lcd`/`esp_driver_spi`/`esp_driver_ledc` REQUIRES. Panel tunables
+(invert, RGB/BGR, gap X/Y, mirror) and all pins are `-DIPSTUBE_*` overridable.
 Cross-platform modules use the same emitter on every target; `ir`, `roomba`,
-`locomotion`/`loco-bridge`, and `controller` are platform-gated, and a module may declare per-target question defaults (e.g.
+`locomotion`/`loco-bridge`, `controller`, and `ipstube` are platform-gated, and a module may declare per-target question defaults (e.g.
 IR pin 22 on Pico, 5 on Uno) and `pio_lib_deps` (PlatformIO libs to add on
 enable). Uno is in the module system via a no-WiFi hook main.
 
