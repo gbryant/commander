@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -39,10 +40,16 @@
 #ifndef IPSTUBE_SPI_HZ
 #define IPSTUBE_SPI_HZ   (40 * 1000 * 1000)
 #endif
+#ifndef IPSTUBE_SPI_MODE
+#define IPSTUBE_SPI_MODE 0         // ST7789 is usually mode 0; try 3 if no image
+#endif
+#ifndef IPSTUBE_BL_ACTIVE_LOW
+#define IPSTUBE_BL_ACTIVE_LOW 0    // set 1 if the backlight is wired active-low
+#endif
 
-// ── Panel tunables — adjust if the picture is offset / inverted / mirrored ─────
+// ── Panel tunables — runtime-adjustable too (ipstube invert/gap/swap/mirror) ───
 #ifndef IPSTUBE_INVERT
-#define IPSTUBE_INVERT 1            // ST7789 IPS panels usually need inversion on
+#define IPSTUBE_INVERT 1           // ST7789 IPS panels usually need inversion on
 #endif
 #ifndef IPSTUBE_RGB_BGR
 #define IPSTUBE_RGB_BGR 0          // set 1 if red and blue come out swapped
@@ -52,6 +59,9 @@
 #endif
 #ifndef IPSTUBE_GAP_Y
 #define IPSTUBE_GAP_Y 40           // row offset
+#endif
+#ifndef IPSTUBE_SWAP_XY
+#define IPSTUBE_SWAP_XY 0
 #endif
 #ifndef IPSTUBE_MIRROR_X
 #define IPSTUBE_MIRROR_X 0
@@ -67,6 +77,14 @@ static esp_lcd_panel_io_handle_t s_io    = nullptr;
 static esp_lcd_panel_handle_t    s_panel = nullptr;
 static const int s_cs[IpstubeModule::kNumDisplays] = IPSTUBE_CS_PINS;
 
+// Live tunable state (seeded from the defines; mutable via shell commands).
+static bool s_invert = IPSTUBE_INVERT;
+static int  s_gap_x  = IPSTUBE_GAP_X;
+static int  s_gap_y  = IPSTUBE_GAP_Y;
+static bool s_swap   = IPSTUBE_SWAP_XY;
+static bool s_mir_x  = IPSTUBE_MIRROR_X;
+static bool s_mir_y  = IPSTUBE_MIRROR_Y;
+
 #define BL_LEDC_MODE    LEDC_LOW_SPEED_MODE
 #define BL_LEDC_TIMER   LEDC_TIMER_0
 #define BL_LEDC_CHANNEL LEDC_CHANNEL_0
@@ -79,6 +97,29 @@ static void cs_select(int d) {
 static void cs_none() {
     for (int i = 0; i < IpstubeModule::kNumDisplays; i++)
         gpio_set_level((gpio_num_t)s_cs[i], 1);
+}
+
+// Push the current orientation/inversion to all panels (commands need CS asserted).
+static void apply_config() {
+    if (!s_panel) return;
+    cs_select(-1);
+    esp_lcd_panel_invert_color(s_panel, s_invert);
+    esp_lcd_panel_swap_xy(s_panel, s_swap);
+    esp_lcd_panel_mirror(s_panel, s_mir_x, s_mir_y);
+    esp_lcd_panel_set_gap(s_panel, s_gap_x, s_gap_y);
+    cs_none();
+}
+
+// Re-run the ST7789 software init on all panels (not the SPI bus) — for iterating.
+static void reinit_panels() {
+    if (!s_panel) return;
+    cs_select(-1);
+    esp_lcd_panel_reset(s_panel);
+    vTaskDelay(pdMS_TO_TICKS(120));
+    esp_lcd_panel_init(s_panel);
+    esp_lcd_panel_disp_on_off(s_panel, true);
+    cs_none();
+    apply_config();
 }
 
 // ── Bring-up ──────────────────────────────────────────────────────────────────
@@ -103,12 +144,12 @@ void IpstubeModule::init() {
     if (err != ESP_OK) { ESP_LOGE(TAG, "spi_bus_initialize: %s", esp_err_to_name(err)); return; }
 
     // One panel_io for the shared bus — no hardware CS (cs = -1); we drive the
-    // six enable lines ourselves. So a single ST7789 panel object talks to
-    // whichever displays are currently selected.
+    // six enable lines ourselves. A single ST7789 panel object talks to whichever
+    // displays are currently selected.
     esp_lcd_panel_io_spi_config_t io_cfg = {};
     io_cfg.cs_gpio_num       = (gpio_num_t)-1;
     io_cfg.dc_gpio_num       = (gpio_num_t)IPSTUBE_PIN_DC;
-    io_cfg.spi_mode          = 0;
+    io_cfg.spi_mode          = IPSTUBE_SPI_MODE;
     io_cfg.pclk_hz           = IPSTUBE_SPI_HZ;
     io_cfg.trans_queue_depth = 10;
     io_cfg.lcd_cmd_bits      = 8;
@@ -124,19 +165,7 @@ void IpstubeModule::init() {
     err = esp_lcd_new_panel_st7789(s_io, &pcfg, &s_panel);
     if (err != ESP_OK) { ESP_LOGE(TAG, "panel: %s", esp_err_to_name(err)); return; }
 
-    // Initialise all six at once: select them all, then reset + init goes to
-    // every display in parallel over the shared bus.
-    cs_select(-1);
-    esp_lcd_panel_reset(s_panel);
-    vTaskDelay(pdMS_TO_TICKS(120));
-    esp_lcd_panel_init(s_panel);
-#if IPSTUBE_INVERT
-    esp_lcd_panel_invert_color(s_panel, true);
-#endif
-    esp_lcd_panel_set_gap(s_panel, IPSTUBE_GAP_X, IPSTUBE_GAP_Y);
-    esp_lcd_panel_mirror(s_panel, IPSTUBE_MIRROR_X, IPSTUBE_MIRROR_Y);
-    esp_lcd_panel_disp_on_off(s_panel, true);
-    cs_none();
+    reinit_panels();   // reset + init + apply orientation on all six in parallel
 
     // Backlight via LEDC PWM (shared line, all six dim together).
     ledc_timer_config_t lt = {};
@@ -151,13 +180,14 @@ void IpstubeModule::init() {
     lc.speed_mode = BL_LEDC_MODE;
     lc.channel    = BL_LEDC_CHANNEL;
     lc.timer_sel  = BL_LEDC_TIMER;
-    lc.duty       = 255;
+    lc.duty       = 0;
     lc.hpoint     = 0;
     ledc_channel_config(&lc);
 
     _ready = true;
+    backlight(true);      // full brightness
     fill(kAll, 0x0000);   // clear all to black
-    ESP_LOGI(TAG, "6x ST7789 up (%dx%d) on SPI%d, manual CS", kWidth, kHeight, (int)IPSTUBE_SPI_HOST);
+    ESP_LOGI(TAG, "6x ST7789 up (%dx%d), manual CS — try `ipstube test`", kWidth, kHeight);
 }
 
 // ── App API ───────────────────────────────────────────────────────────────────
@@ -188,18 +218,26 @@ void IpstubeModule::backlight(bool on) { setBrightness(on ? 255 : 0); }
 
 void IpstubeModule::setBrightness(uint8_t duty) {
     if (!_ready) return;
-    ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL, duty);
+    uint32_t d = IPSTUBE_BL_ACTIVE_LOW ? (255u - duty) : duty;
+    ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL, d);
     ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL);
 }
 
 // ── Shell command: `ipstube [sub]` ────────────────────────────────────────────
 void IpstubeModule::usage(Writer &out) {
     out.writeln("ipstube                 status");
+    out.writeln("ipstube info            dump pins + current tunables");
     out.writeln("ipstube on | off        backlight full / off");
     out.writeln("ipstube dim <0-255>     backlight PWM duty");
-    out.writeln("ipstube fill <d|all> <rgb565>   solid colour (rgb565 hex/dec)");
+    out.writeln("ipstube fill <d|all> <rgb565>   solid colour (hex/dec)");
     out.writeln("ipstube clear <d|all>   fill black");
-    out.writeln("ipstube test            colour bars across all six");
+    out.writeln("ipstube test            R G B Y C W bars, one per display");
+    out.writeln("ipstube cs <d|all|none> drive chip-selects (wiring probe)");
+    out.writeln("ipstube reinit          re-run ST7789 init on all panels");
+    out.writeln("ipstube invert <0|1>    colour inversion");
+    out.writeln("ipstube swap <0|1>      swap X/Y (rotate)");
+    out.writeln("ipstube mirror <x> <y>  mirror axes (0/1 each)");
+    out.writeln("ipstube gap <x> <y>     panel offset (re-fill to see)");
 }
 
 void IpstubeModule::dispatch(const char *args, Writer &out) {
@@ -209,10 +247,10 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
         return strncmp(p, t, n) == 0 && (p[n] == '\0' || p[n] == ' ');
     };
     auto next = [](const char *p) { while (*p && *p != ' ') ++p; while (*p == ' ') ++p; return p; };
+    auto num  = [](const char *p, long *v) { char *e; *v = strtol(p, &e, 0); return e != p; };
     auto digit = [&](const char *p, uint8_t *out_d) -> bool {
         if (tok(p, "all")) { *out_d = kAll; return true; }
-        char *e; long v = strtol(p, &e, 0);
-        if (e == p || v < 0 || v >= kNumDisplays) return false;
+        long v; if (!num(p, &v) || v < 0 || v >= kNumDisplays) return false;
         *out_d = (uint8_t)v; return true;
     };
 
@@ -224,12 +262,27 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
         return;
     }
     if (tok(args, "help")) { usage(out); return; }
+
+    if (tok(args, "info")) {
+        char b[96];
+        snprintf(b, sizeof(b), "spi: host=%d mosi=%d sclk=%d dc=%d rst=%d hz=%d mode=%d",
+                 (int)IPSTUBE_SPI_HOST, IPSTUBE_PIN_MOSI, IPSTUBE_PIN_SCLK,
+                 IPSTUBE_PIN_DC, IPSTUBE_PIN_RST, (int)IPSTUBE_SPI_HZ, IPSTUBE_SPI_MODE);
+        out.writeln(b);
+        snprintf(b, sizeof(b), "cs:  %d %d %d %d %d %d",
+                 s_cs[0], s_cs[1], s_cs[2], s_cs[3], s_cs[4], s_cs[5]);
+        out.writeln(b);
+        snprintf(b, sizeof(b), "bl:  pin=%d active_low=%d", IPSTUBE_PIN_BL, IPSTUBE_BL_ACTIVE_LOW);
+        out.writeln(b);
+        snprintf(b, sizeof(b), "cfg: invert=%d swap=%d mirror=%d,%d gap=%d,%d",
+                 s_invert, s_swap, s_mir_x, s_mir_y, s_gap_x, s_gap_y);
+        out.writeln(b);
+        return;
+    }
     if (tok(args, "on"))   { backlight(true);  out.writeln("ok"); return; }
     if (tok(args, "off"))  { backlight(false); out.writeln("ok"); return; }
-    if (tok(args, "dim")) {
-        const char *p = next(args);
-        char *e; long v = strtol(p, &e, 0);
-        if (e == p) { out.writeln("usage: ipstube dim <0-255>"); return; }
+    if (tok(args, "dim") || tok(args, "bl")) {
+        long v; if (!num(next(args), &v)) { out.writeln("usage: ipstube dim <0-255>"); return; }
         if (v < 0)   v = 0;
         if (v > 255) v = 255;
         setBrightness((uint8_t)v); out.writeln("ok"); return;
@@ -242,9 +295,7 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
     if (tok(args, "fill")) {
         const char *p = next(args); uint8_t d;
         if (!digit(p, &d)) { out.writeln("usage: ipstube fill <d|all> <rgb565>"); return; }
-        const char *c = next(p);
-        char *e; long v = strtol(c, &e, 0);
-        if (e == c) { out.writeln("usage: ipstube fill <d|all> <rgb565>"); return; }
+        long v; if (!num(next(p), &v)) { out.writeln("usage: ipstube fill <d|all> <rgb565>"); return; }
         fill(d, (uint16_t)v); out.writeln("ok"); return;
     }
     if (tok(args, "test")) {
@@ -252,6 +303,33 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
             {0xF800, 0x07E0, 0x001F, 0xFFE0, 0x07FF, 0xFFFF};  // R G B Y C W
         for (int i = 0; i < kNumDisplays; i++) fill((uint8_t)i, bars[i]);
         out.writeln("ok"); return;
+    }
+    if (tok(args, "cs")) {
+        const char *p = next(args);
+        if (tok(p, "none")) { cs_none(); out.writeln("cs: all deselected"); return; }
+        uint8_t d; if (!digit(p, &d)) { out.writeln("usage: ipstube cs <d|all|none>"); return; }
+        cs_select(d == kAll ? -1 : (int)d);
+        out.writeln("cs: asserted (low) — next draw command re-drives CS");
+        return;
+    }
+    if (tok(args, "reinit")) { reinit_panels(); fill(kAll, 0x0000); out.writeln("ok: reinitialised"); return; }
+    if (tok(args, "invert")) {
+        long v; if (!num(next(args), &v)) { out.writeln("usage: ipstube invert <0|1>"); return; }
+        s_invert = v != 0; apply_config(); out.writeln("ok"); return;
+    }
+    if (tok(args, "swap")) {
+        long v; if (!num(next(args), &v)) { out.writeln("usage: ipstube swap <0|1>"); return; }
+        s_swap = v != 0; apply_config(); out.writeln("ok (re-fill to see)"); return;
+    }
+    if (tok(args, "mirror")) {
+        const char *p = next(args); long x, y;
+        if (!num(p, &x) || !num(next(p), &y)) { out.writeln("usage: ipstube mirror <x> <y>"); return; }
+        s_mir_x = x != 0; s_mir_y = y != 0; apply_config(); out.writeln("ok (re-fill to see)"); return;
+    }
+    if (tok(args, "gap")) {
+        const char *p = next(args); long x, y;
+        if (!num(p, &x) || !num(next(p), &y)) { out.writeln("usage: ipstube gap <x> <y>"); return; }
+        s_gap_x = (int)x; s_gap_y = (int)y; apply_config(); out.writeln("ok (re-fill to see)"); return;
     }
     out.write("unknown ipstube subcommand: "); out.writeln(args);
     usage(out);
