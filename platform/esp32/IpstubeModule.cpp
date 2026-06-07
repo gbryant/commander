@@ -6,8 +6,10 @@
 #include "esp_lcd_panel_vendor.h"   // esp_lcd_new_panel_st7789
 #include "esp_lcd_panel_ops.h"
 #include "esp_log.h"
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -90,6 +92,23 @@ static bool s_swap   = IPSTUBE_SWAP_XY;
 static bool s_mir_x  = IPSTUBE_MIRROR_X;
 static bool s_mir_y  = IPSTUBE_MIRROR_Y;
 
+// esp_lcd queues color transactions and returns before they finish, so with
+// manual CS we must wait for completion before raising the chip-select — else
+// the data is still in flight when CS goes high and nothing reaches the panel.
+static SemaphoreHandle_t s_done = nullptr;
+
+static bool IRAM_ATTR on_color_done(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t *, void *) {
+    BaseType_t hp = pdFALSE;
+    xSemaphoreGiveFromISR(s_done, &hp);
+    return hp == pdTRUE;
+}
+
+// Draw one rectangle and block until the SPI transfer actually completes.
+static void draw_wait(int x0, int y0, int x1, int y1, const void *data) {
+    if (esp_lcd_panel_draw_bitmap(s_panel, x0, y0, x1, y1, data) == ESP_OK)
+        xSemaphoreTake(s_done, portMAX_DELAY);
+}
+
 #define BL_LEDC_MODE    LEDC_LOW_SPEED_MODE
 #define BL_LEDC_TIMER   LEDC_TIMER_0
 #define BL_LEDC_CHANNEL LEDC_CHANNEL_0
@@ -129,6 +148,8 @@ static void reinit_panels() {
 
 // ── Bring-up ──────────────────────────────────────────────────────────────────
 void IpstubeModule::init() {
+    if (!s_done) s_done = xSemaphoreCreateBinary();
+
     // Chip-select GPIOs as outputs, idle high (all deselected).
     uint64_t cs_mask = 0;
     for (int i = 0; i < kNumDisplays; i++) cs_mask |= (1ULL << s_cs[i]);
@@ -159,6 +180,7 @@ void IpstubeModule::init() {
     io_cfg.trans_queue_depth = 10;
     io_cfg.lcd_cmd_bits      = 8;
     io_cfg.lcd_param_bits    = 8;
+    io_cfg.on_color_trans_done = on_color_done;   // so draw_wait() can block on completion
     err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)IPSTUBE_SPI_HOST, &io_cfg, &s_io);
     if (err != ESP_OK) { ESP_LOGE(TAG, "panel_io: %s", esp_err_to_name(err)); return; }
 
@@ -199,11 +221,9 @@ void IpstubeModule::init() {
 bool IpstubeModule::pushDigit(uint8_t d, const uint16_t *fb) {
     if (!_ready || d >= kNumDisplays || !fb) return false;
     cs_select(d);
-    // draw_bitmap is blocking here (no on_color_trans_done callback registered),
-    // so the CS line is safe to raise once it returns. x_end/y_end are exclusive.
-    esp_err_t r = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, kWidth, kHeight, fb);
+    draw_wait(0, 0, kWidth, kHeight, fb);   // waits for completion before CS up
     cs_none();
-    return r == ESP_OK;
+    return true;
 }
 
 void IpstubeModule::fill(uint8_t d, uint16_t color) {
@@ -214,7 +234,7 @@ void IpstubeModule::fill(uint8_t d, uint16_t color) {
         if (d != kAll && d != i) continue;
         cs_select(i);
         for (int y = 0; y < kHeight; y++)
-            esp_lcd_panel_draw_bitmap(s_panel, 0, y, kWidth, y + 1, line);
+            draw_wait(0, y, kWidth, y + 1, line);
         cs_none();
     }
 }
@@ -261,12 +281,7 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
 
     if (!_ready) { out.writeln("ipstube: not initialised (SPI/panel bring-up failed — see boot log)"); return; }
 
-    if (*args == '\0') {
-        char b[16]; snprintf(b, sizeof(b), "%dx%d", kWidth, kHeight);
-        out.write("ipstube: 6x ST7789 "); out.write(b); out.writeln(" ready");
-        return;
-    }
-    if (tok(args, "help")) { usage(out); return; }
+    if (*args == '\0' || tok(args, "help")) { usage(out); return; }
 
     if (tok(args, "info")) {
         char b[96];
