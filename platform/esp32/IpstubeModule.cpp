@@ -35,11 +35,14 @@
 #ifndef IPSTUBE_PIN_BL
 #define IPSTUBE_PIN_BL    4
 #endif
-// Per-display chip-selects, digit order: seconds-ones … hours-tens. Driven
-// manually as GPIOs (active-low) — the six displays share one SPI device, so
-// the SPI peripheral sees no hardware CS (an ESP32 host has only 3 CS slots).
+// Per-display chip-selects, left-to-right: index 0 = leftmost display (hours
+// tens) … index 5 = rightmost (seconds ones), so the array reads HH:MM:SS. This
+// is EleksTube's digit pin list {15,2,27,14,12,13} (seconds-ones … hours-tens)
+// reversed. Driven manually as GPIOs (active-low) — the six displays share one
+// SPI device, so the SPI peripheral sees no hardware CS (an ESP32 host has only
+// 3 CS slots).
 #ifndef IPSTUBE_CS_PINS
-#define IPSTUBE_CS_PINS  {15, 2, 27, 14, 12, 13}
+#define IPSTUBE_CS_PINS  {13, 12, 14, 27, 2, 15}
 #endif
 #ifndef IPSTUBE_SPI_HOST
 #define IPSTUBE_SPI_HOST SPI2_HOST
@@ -48,7 +51,7 @@
 #define IPSTUBE_SPI_HZ   (40 * 1000 * 1000)
 #endif
 #ifndef IPSTUBE_SPI_MODE
-#define IPSTUBE_SPI_MODE 0         // ST7789 is usually mode 0; try 3 if no image
+#define IPSTUBE_SPI_MODE 3         // IPSTube ST7789 needs mode 3 (confirmed on HW)
 #endif
 #ifndef IPSTUBE_BL_ACTIVE_LOW
 #define IPSTUBE_BL_ACTIVE_LOW 1    // IPSTube TFT_ENABLE is active-low (on = pin low)

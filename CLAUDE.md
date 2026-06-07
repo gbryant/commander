@@ -255,12 +255,13 @@ only the executable links the full flavor.)
 `ipstube` (ESP32 only — the six ST7789 135×240 IPS displays on the IPSTube clock).
 A platform-specific display **driver**: `platform/esp32/IpstubeModule.{h,cpp}` brings
 up one shared SPI bus with a **single** `esp_lcd` ST7789 panel and **manual GPIO
-chip-select** for the six displays (per-display CS 15/2/27/14/12/13 driven active-low;
-an ESP32 SPI host has only 3 hardware CS slots, so 6 panel_io can't work — select-all
-inits all six in parallel, select-one draws to a digit; shared DC=25/RST=26/MOSI=32/
+chip-select** for the six displays (per-display CS, left-to-right 13/12/14/27/2/15 so
+display 0 = leftmost = hours-tens, driven active-low; an ESP32 SPI host has only 3
+hardware CS slots, so 6 panel_io can't work — select-all inits all six in parallel,
+select-one draws to a digit; **SPI mode 3** (HW-confirmed), shared DC=25/RST=26/MOSI=32/
 SCLK=33; the TFT backlight is `TFT_ENABLE_PIN=GPIO4`, **active-low** PWM via LEDC —
 GPIO5 is the separate WS2812 ambient LED chain, not the TFT backlight), exposing
-`ipstube on/off/dim/fill/clear/test` + debug (`info/cs/reinit/invert/swap/mirror/gap`)
+`ipstube on/off/dim/fill/clear/test` + debug (`info/cs/reinit/invert/swap/mirror/gap/spi/rgb`)
 plus a C++ API (`pushDigit`/`fill`/`backlight`). The 6 WS2812 ambient LEDs (GPIO5) are
 a TODO follow-on (`ipstube led`).
 The clock-face logic lives in the app via the weak `commander_on_ipstube_ready(IpstubeModule&)`
