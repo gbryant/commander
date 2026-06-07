@@ -81,8 +81,8 @@ void IpstubeModule::init() {
     for (int i = 0; i < kNumDisplays; i++) {
         esp_lcd_panel_io_handle_t io = nullptr;
         esp_lcd_panel_io_spi_config_t io_cfg = {};
-        io_cfg.cs_gpio_num       = s_cs[i];
-        io_cfg.dc_gpio_num       = IPSTUBE_PIN_DC;     // shared DC line
+        io_cfg.cs_gpio_num       = (gpio_num_t)s_cs[i];
+        io_cfg.dc_gpio_num       = (gpio_num_t)IPSTUBE_PIN_DC;   // shared DC line
         io_cfg.spi_mode          = 0;
         io_cfg.pclk_hz           = IPSTUBE_SPI_HZ;
         io_cfg.trans_queue_depth = 10;
@@ -93,7 +93,7 @@ void IpstubeModule::init() {
 
         esp_lcd_panel_dev_config_t pcfg = {};
         // RST is shared — let only the first panel own the line; the rest reset with it.
-        pcfg.reset_gpio_num = (i == 0) ? IPSTUBE_PIN_RST : -1;
+        pcfg.reset_gpio_num = (gpio_num_t)((i == 0) ? IPSTUBE_PIN_RST : -1);
         pcfg.rgb_ele_order  = IPSTUBE_RGB_BGR ? LCD_RGB_ELEMENT_ORDER_BGR
                                               : LCD_RGB_ELEMENT_ORDER_RGB;
         pcfg.bits_per_pixel = 16;
@@ -202,7 +202,8 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
         const char *p = next(args);
         char *e; long v = strtol(p, &e, 0);
         if (e == p) { out.writeln("usage: ipstube dim <0-255>"); return; }
-        if (v < 0) v = 0; if (v > 255) v = 255;
+        if (v < 0)   v = 0;
+        if (v > 255) v = 255;
         setBrightness((uint8_t)v); out.writeln("ok"); return;
     }
     if (tok(args, "clear")) {
