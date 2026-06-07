@@ -141,21 +141,23 @@ inline void Ds1302Module::dispatch(const char *args, Writer &out) {
     }
     if (isTok(p, "set")) {
         // rtc set YYYY-MM-DD HH:MM:SS
-        while (*p && *p != ' ') ++p; while (*p == ' ') ++p;
-        char *e; RtcTime t; t.weekday = 0;
-        t.year  = (int)strtol(p, &e, 10); if (*e != '-') goto bad; p = e + 1;
-        t.month = (int)strtol(p, &e, 10); if (*e != '-') goto bad; p = e + 1;
-        t.day   = (int)strtol(p, &e, 10); if (*e != ' ' && *e != 'T') goto bad; p = e + 1;
-        t.hour  = (int)strtol(p, &e, 10); if (*e != ':') goto bad; p = e + 1;
-        t.minute= (int)strtol(p, &e, 10); if (*e != ':') goto bad; p = e + 1;
-        t.second= (int)strtol(p, &e, 10);
-        if (t.year < 2000 || t.year > 2099 || t.month < 1 || t.month > 12 ||
-            t.day < 1 || t.day > 31 || t.hour > 23 || t.minute > 59 || t.second > 59) goto bad;
+        while (*p && *p != ' ') ++p;   // skip "set"
+        while (*p == ' ') ++p;
+        char *e;
+        RtcTime t;
+        t.weekday = 0;
+        bool ok = true;
+        t.year   = (int)strtol(p, &e, 10); ok = ok && (*e == '-');               p = *e ? e + 1 : e;
+        t.month  = (int)strtol(p, &e, 10); ok = ok && (*e == '-');               p = *e ? e + 1 : e;
+        t.day    = (int)strtol(p, &e, 10); ok = ok && (*e == ' ' || *e == 'T');  p = *e ? e + 1 : e;
+        t.hour   = (int)strtol(p, &e, 10); ok = ok && (*e == ':');               p = *e ? e + 1 : e;
+        t.minute = (int)strtol(p, &e, 10); ok = ok && (*e == ':');               p = *e ? e + 1 : e;
+        t.second = (int)strtol(p, &e, 10);
+        ok = ok && t.year >= 2000 && t.year <= 2099 && t.month >= 1 && t.month <= 12 &&
+             t.day >= 1 && t.day <= 31 && t.hour <= 23 && t.minute <= 59 && t.second <= 59;
+        if (!ok) { out.writeln("usage: rtc set YYYY-MM-DD HH:MM:SS"); return; }
         setTime(t);
         out.writeln("ok: clock set");
-        return;
-    bad:
-        out.writeln("usage: rtc set YYYY-MM-DD HH:MM:SS");
         return;
     }
     if (isTok(p, "dump")) {
