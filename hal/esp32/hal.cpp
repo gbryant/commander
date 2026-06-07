@@ -75,18 +75,13 @@ bool hal_i2c_read(uint8_t addr, uint8_t reg, uint8_t *data, size_t len) {
     return ret == ESP_OK;
 }
 
-void hal_gpio_set_output(uint8_t pin) {
-    gpio_config_t cfg = {};
-    cfg.pin_bit_mask = 1ULL << pin;
-    cfg.mode         = GPIO_MODE_OUTPUT;
-    gpio_config(&cfg);
-}
-void hal_gpio_set_input(uint8_t pin) {
-    gpio_config_t cfg = {};
-    cfg.pin_bit_mask = 1ULL << pin;
-    cfg.mode         = GPIO_MODE_INPUT;
-    gpio_config(&cfg);
-}
+// gpio_set_direction (not gpio_config) so repeated direction flips — e.g. a
+// bit-banged 3-wire bus like the DS1302, which switches its IO line in/out many
+// times per read — don't re-run gpio_config's pin reservation and spam IDF's
+// "conflict found for GPIO[n]" warning. gpio_set_direction still routes the pin
+// to the GPIO function and enables the requested direction.
+void hal_gpio_set_output(uint8_t pin) { gpio_set_direction((gpio_num_t)pin, GPIO_MODE_OUTPUT); }
+void hal_gpio_set_input (uint8_t pin) { gpio_set_direction((gpio_num_t)pin, GPIO_MODE_INPUT); }
 void hal_gpio_write(uint8_t pin, bool high) { gpio_set_level((gpio_num_t)pin, high ? 1 : 0); }
 bool hal_gpio_read (uint8_t pin) { return gpio_get_level((gpio_num_t)pin) != 0; }
 
