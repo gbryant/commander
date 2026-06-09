@@ -25,6 +25,9 @@ except ImportError:
 
 
 def fit_image(img, w, h, mode):
+    if img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info):
+        img = img.convert("RGBA")
+        img = Image.alpha_composite(Image.new("RGBA", img.size, (0, 0, 0, 255)), img)
     img = img.convert("RGB")
     if mode == "stretch":
         return img.resize((w, h), Image.LANCZOS)
