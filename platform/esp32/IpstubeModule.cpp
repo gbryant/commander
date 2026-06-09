@@ -249,15 +249,22 @@ bool IpstubeModule::pushDigit(uint8_t d, const uint16_t *fb) {
 
 void IpstubeModule::fill(uint8_t d, uint16_t color) {
     if (!_ready) return;
-    static uint16_t line[kWidth];
-    for (int x = 0; x < kWidth; x++) line[x] = color;
-    for (int i = 0; i < kNumDisplays; i++) {
-        if (d != kAll && d != i) continue;
-        cs_select(i);
-        for (int y = 0; y < kHeight; y++)
-            draw_wait(0, y, kWidth, y + 1, line);
-        cs_none();
+    if (d != kAll && d >= kNumDisplays) return;
+
+    // Solid fill in row-stripes (one transfer per ~16 rows) instead of per-line —
+    // 240 rows → 15 transfers. DMA-safe internal .bss; 240 = 16*15 (even).
+    static constexpr int kStripeRows = 16;
+    static uint16_t stripe[kWidth * kStripeRows];
+    for (int i = 0; i < kWidth * kStripeRows; i++) stripe[i] = color;
+
+    // kAll fills every display with identical data, so assert all six CS and draw
+    // once (the parallel-write trick init() uses) — 6x fewer transfers.
+    cs_select(d == kAll ? -1 : (int)d);
+    for (int y = 0; y < kHeight; y += kStripeRows) {
+        int rows = (kHeight - y < kStripeRows) ? (kHeight - y) : kStripeRows;
+        draw_wait(0, y, kWidth, y + rows, stripe);
     }
+    cs_none();
 }
 
 void IpstubeModule::backlight(bool on) { setBrightness(on ? 255 : 0); }
