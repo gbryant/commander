@@ -243,10 +243,11 @@ void IpstubeModule::init() {
 }
 
 // ── App API ───────────────────────────────────────────────────────────────────
-bool IpstubeModule::pushDigit(uint8_t d, const uint16_t *fb) {
-    if (!_ready || d >= kNumDisplays || !fb) return false;
-    cs_select(d);
-    draw_wait(0, 0, kWidth, kHeight, fb);   // waits for completion before CS up
+bool IpstubeModule::drawBitmap(uint8_t d, int x, int y, int w, int h, const uint16_t *data) {
+    if (!_ready || !data) return false;
+    if (d != kAll && d >= kNumDisplays) return false;
+    cs_select(d == kAll ? -1 : (int)d);     // kAll → same image to all six at once
+    draw_wait(x, y, x + w, y + h, data);    // waits for completion before CS up
     cs_none();
     return true;
 }

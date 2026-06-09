@@ -28,8 +28,14 @@ public:
     void        startTask() override {}
 
     // ── App-facing API (call these from commander_on_ipstube_ready) ───────────
-    // Blit a kWidth*kHeight RGB565 framebuffer to one display (0..kNumDisplays-1).
-    bool pushDigit(uint8_t display, const uint16_t *fb);
+    // Blit a w*h RGB565 region to (x,y) on one display, or every display with
+    // display == kAll. Coordinates are in panel pixels (0,0 = top-left); the
+    // panel gap/offset is applied for you. data is w*h little-endian RGB565.
+    bool drawBitmap(uint8_t display, int x, int y, int w, int h, const uint16_t *data);
+    // Full-screen convenience — blit a kWidth*kHeight framebuffer.
+    bool drawBitmap(uint8_t display, const uint16_t *data) {
+        return drawBitmap(display, 0, 0, kWidth, kHeight, data);
+    }
     // Solid-fill one display, or all of them with display == kAll.
     void fill(uint8_t display, uint16_t rgb565);
     void clear(uint8_t display) { fill(display, 0x0000); }

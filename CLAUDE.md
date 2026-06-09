@@ -266,7 +266,8 @@ select-one draws to a digit; **SPI mode 3** (HW-confirmed), shared DC=25/RST=26/
 SCLK=33; the TFT backlight is `TFT_ENABLE_PIN=GPIO4`, **active-low** PWM via LEDC —
 GPIO5 is the separate WS2812 ambient LED chain, not the TFT backlight), exposing
 `ipstube on/off/dim/fill/clear/test` + debug (`info/cs/reinit/invert/swap/mirror/gap/spi/rgb`)
-plus a C++ API (`pushDigit`/`fill`/`backlight`). The IPSTube's 6 WS2812 ambient LEDs
+plus a use-agnostic C++ API (`drawBitmap(display,x,y,w,h,rgb565)` + full-screen
+overload / `fill` / `backlight`). The IPSTube's 6 WS2812 ambient LEDs
 (GPIO5) are driven by the separate `ws2812` module (below), enabled alongside `ipstube`.
 The clock-face logic lives in the app via the weak `commander_on_ipstube_ready(IpstubeModule&)`
 hook the generated file calls. The header keeps esp_lcd types out so the app can
