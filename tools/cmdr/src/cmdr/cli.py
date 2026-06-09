@@ -641,7 +641,8 @@ MODULE_SPECS = {
     # CS, shared backlight. esp_lcd driver; the app drives the displays via the
     # commander_on_ipstube_ready() hook. Pins default to the IPSTube wiring; enable
     # injects COMMANDER_ENABLE_IPSTUBE so the runner pulls esp_lcd + compiles it.
-    "ipstube": {"always": False, "platforms": ["esp32"], "questions": []},
+    "ipstube": {"always": False, "platforms": ["esp32"], "questions": [],
+                "tools": ["img2rgb565.py"]},
     # Generic WS2812/SK6812 addressable-RGB chain (ESP32 RMT). Command `wled`; the
     # app drives effects via commander_on_ws2812_ready. A board's onboard RGB LED
     # is just this with count=1. Enable injects COMMANDER_ENABLE_WS2812 so the
