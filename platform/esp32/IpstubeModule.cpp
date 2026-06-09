@@ -171,6 +171,10 @@ static esp_err_t build_panels() {
     esp_lcd_panel_dev_config_t pcfg = {};
     pcfg.reset_gpio_num = (gpio_num_t)IPSTUBE_PIN_RST;       // shared RST line
     pcfg.rgb_ele_order  = s_bgr ? LCD_RGB_ELEMENT_ORDER_BGR : LCD_RGB_ELEMENT_ORDER_RGB;
+    // ESP32 is little-endian and the SPI io sends raw memory bytes; tell the ST7789
+    // (via its RAMCTRL endian bit) to read them LSB-first, so a natural RGB565 value
+    // (0xF800 = red) lands correctly — no per-pixel byte-swapping in the app.
+    pcfg.data_endian    = LCD_RGB_DATA_ENDIAN_LITTLE;
     pcfg.bits_per_pixel = 16;
     err = esp_lcd_new_panel_st7789(s_io, &pcfg, &s_panel);
     if (err != ESP_OK) { ESP_LOGE(TAG, "panel: %s", esp_err_to_name(err)); return err; }
