@@ -117,6 +117,12 @@ public:
     void drawVScroll(uint8_t display, int ay, const char *str, const TextStyle &s);
     // Total column height for `str` at `s` — the ay sweep range. (Builds the cache.)
     int  vscrollHeight(const char *str, const TextStyle &s);
+
+    // Single-panel horizontal scroll — drawMarquee restricted to one panel (or
+    // kAll), sharing the marquee band cache. The message's left edge sits at local
+    // x = ax; sweep ax from kWidth down to -<text width> (use measureText) to
+    // scroll it leftward across the one panel. Cheap (one panel) → smooth.
+    void drawHScroll(uint8_t display, int ax, const char *str, const TextStyle &s);
     // Backlight (shared across all six): on/off, or 0..255 PWM duty.
     void backlight(bool on);
     void setBrightness(uint8_t duty);

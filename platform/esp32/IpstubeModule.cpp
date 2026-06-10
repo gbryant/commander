@@ -617,6 +617,27 @@ void IpstubeModule::drawVScroll(uint8_t display, int ay, const char *str, const 
     drawBitmap(display, panel);          // single panel = 1/6 the bytes → high fps
 }
 
+void IpstubeModule::drawHScroll(uint8_t display, int ax, const char *str, const TextStyle &s) {
+    if (!_ready || !s_font_ok || !str) return;
+    if (display != kAll && display >= kNumDisplays) return;
+    int rebuilt = mq_ensure(str, s);     // shares the marquee band cache
+    if (rebuilt < 0) return;
+    if (rebuilt) fill(display, s.bg);    // new message — clear the panel(s) once (band-only blit after)
+    uint16_t *panel = panel_buf();
+    if (!panel) return;
+    // Like drawMarquee but the message's left edge sits at local x = ax within this
+    // one panel (no per-panel strip offset). Sweep ax kWidth → -<textWidth> to scroll.
+    for (int ry = 0; ry < s_mq_h; ++ry) {
+        uint16_t *dst = &panel[ry * kWidth];
+        const uint16_t *src = &s_mq_buf[ry * s_mq_w];
+        for (int lx = 0; lx < kWidth; ++lx) {
+            int sx = lx - ax;
+            dst[lx] = (sx >= 0 && sx < s_mq_w) ? src[sx] : s.bg;
+        }
+    }
+    drawBitmap(display, 0, s_mq_y0, kWidth, s_mq_h, panel);
+}
+
 // Ensure the marquee cache holds `str` at `st`. Returns 1 if it rebuilt (caller
 // should clear the panels to bg first), 0 on a cache hit, -1 on failure. The
 // raster is just the text band (px + headroom), centered vertically — so frames
@@ -740,6 +761,7 @@ void IpstubeModule::usage(Writer &out) {
     out.writeln("ipstube flow <s>        flow text across panels (whole words)");
     out.writeln("ipstube scroll <s>      one frame of marquee text across all six");
     out.writeln("ipstube vscroll <d|all> <s>  top frame of a vertical reader (app scrolls)");
+    out.writeln("ipstube hscroll <d|all> <s>  start frame of a 1-panel scroller (app scrolls)");
     out.writeln("ipstube test            R G B Y C W bars, one per display");
     out.writeln("ipstube cs <d|all|none> drive chip-selects (wiring probe)");
     out.writeln("ipstube reinit          re-run ST7789 init on all panels");
@@ -845,6 +867,17 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
         TextStyle st; st.px = 40; st.halign = TextStyle::Left;   // a reading size
         drawVScroll(d, 0, str, st);     // ay=0 → top of the wrapped column
         out.writeln("ok (top frame — the app sweeps ay to scroll)");
+        return;
+    }
+    if (tok(args, "hscroll")) {
+        const char *p = next(args); uint8_t d;
+        if (!digit(p, &d)) { out.writeln("usage: ipstube hscroll <d|all> <string>"); return; }
+        const char *str = next(p);
+        if (*str == '\0') { out.writeln("usage: ipstube hscroll <d|all> <string>"); return; }
+        if (!s_font_ok)   { out.writeln("ipstube: no font loaded (app must call loadFont)"); return; }
+        TextStyle st;                   // default 120px white-on-black
+        drawHScroll(d, 0, str, st);     // ax=0 → message start at the panel's left edge
+        out.writeln("ok (start frame — the app sweeps ax to scroll)");
         return;
     }
     if (tok(args, "flow")) {
