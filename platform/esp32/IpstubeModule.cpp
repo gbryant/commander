@@ -275,6 +275,14 @@ static int            s_mq_w = 0, s_mq_h = 0, s_mq_y0 = 0;
 static char           s_mq_key[192] = {0};
 static int            mq_ensure(const char *str, const IpstubeModule::TextStyle &st);  // defined below
 
+// Vertical-scroll cache: the message word-wrapped to one panel's width and
+// rendered once into a tall column (kWidth × s_vs_h). A panel blits a kHeight
+// window at a sliding vertical offset. Keyed like the marquee cache.
+static uint16_t      *s_vs_buf = nullptr;
+static int            s_vs_h = 0;
+static char           s_vs_key[224] = {0};
+static int            vs_ensure(const char *str, const IpstubeModule::TextStyle &st);  // defined below
+
 static uint16_t *panel_buf() {
     if (!s_panel_buf)
         s_panel_buf = (uint16_t *)heap_caps_malloc(
@@ -583,6 +591,32 @@ void IpstubeModule::drawMarquee(int ax, const char *str, const TextStyle &s) {
     }
 }
 
+int IpstubeModule::vscrollHeight(const char *str, const TextStyle &s) {
+    if (!_ready || !s_font_ok || !str) return 0;
+    if (vs_ensure(str, s) < 0) return 0;
+    return s_vs_h;                       // total column height — the ay sweep range
+}
+
+void IpstubeModule::drawVScroll(uint8_t display, int ay, const char *str, const TextStyle &s) {
+    if (!_ready || !s_font_ok || !str) return;
+    if (display != kAll && display >= kNumDisplays) return;
+    if (vs_ensure(str, s) < 0) return;
+    uint16_t *panel = panel_buf();
+    if (!panel) return;
+    // Window the cached column at vertical offset ay: panel row r shows column row
+    // ay+r (bg where that's outside the column). Same width → contiguous memcpy.
+    for (int r = 0; r < kHeight; ++r) {
+        int sy = ay + r;
+        uint16_t *dst = &panel[r * kWidth];
+        if (sy >= 0 && sy < s_vs_h) {
+            memcpy(dst, &s_vs_buf[sy * kWidth], kWidth * 2);
+        } else {
+            for (int x = 0; x < kWidth; ++x) dst[x] = s.bg;
+        }
+    }
+    drawBitmap(display, panel);          // single panel = 1/6 the bytes → high fps
+}
+
 // Ensure the marquee cache holds `str` at `st`. Returns 1 if it rebuilt (caller
 // should clear the panels to bg first), 0 on a cache hit, -1 on failure. The
 // raster is just the text band (px + headroom), centered vertically — so frames
@@ -611,6 +645,45 @@ static int mq_ensure(const char *str, const IpstubeModule::TextStyle &st) {
     render_line(s_mq_buf, w, bandH, 0, (bandH - st.px) / 2 + (int)(asc * scale), str, end, st.fg, scale);
     strncpy(s_mq_key, key, sizeof(s_mq_key) - 1);
     s_mq_key[sizeof(s_mq_key) - 1] = '\0';
+    return 1;
+}
+
+// Ensure the vertical-scroll cache holds `str` at `st`: the message wrapped to
+// one panel's width and rendered into a kWidth × s_vs_h column. Returns 1 if it
+// rebuilt, 0 on a cache hit, -1 on failure. The column width equals the panel
+// width, so window rows blit as a contiguous memcpy.
+static int vs_ensure(const char *str, const IpstubeModule::TextStyle &st) {
+    char key[224];
+    snprintf(key, sizeof(key), "%d|%04x|%04x|%d|%s", st.px, st.fg, st.bg, (int)st.halign, str);
+    if (s_vs_buf && strcmp(key, s_vs_key) == 0) return 0;          // cache hit
+
+    float scale = stbtt_ScaleForPixelHeight(&s_font, (float)st.px);
+    int asc, desc, gap;
+    stbtt_GetFontVMetrics(&s_font, &asc, &desc, &gap);
+    float lineAdv = (asc - desc + gap) * scale;
+    const int pad = 8;
+    int boxW = IpstubeModule::kWidth - 2 * pad;
+    if (boxW < 1) boxW = IpstubeModule::kWidth;
+    constexpr int kMaxLines = 64;
+    WrapLine L[kMaxLines];
+    int n = wrap_lines(str, scale, boxW, L, kMaxLines);
+    int H = (int)ceilf(n * lineAdv) + (int)ceilf(lineAdv * 0.3f);  // small tail past the last line
+    if (H < 1) H = 1;
+
+    if (s_vs_buf) { free(s_vs_buf); s_vs_buf = nullptr; }
+    s_vs_buf = (uint16_t *)heap_caps_malloc((size_t)IpstubeModule::kWidth * H * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_vs_buf) { s_vs_h = 0; s_vs_key[0] = '\0'; return -1; }
+    s_vs_h = H;
+    for (int i = 0; i < IpstubeModule::kWidth * H; ++i) s_vs_buf[i] = st.bg;
+    int ascPx = (int)(asc * scale);
+    for (int i = 0; i < n; ++i) {
+        int lw = (int)ceilf(measure_range(L[i].b, L[i].e, scale));
+        int x = pad + (st.halign == IpstubeModule::TextStyle::Center ? (boxW - lw) / 2
+                     : st.halign == IpstubeModule::TextStyle::Right  ? (boxW - lw) : 0);
+        render_line(s_vs_buf, IpstubeModule::kWidth, H, x, (int)(i * lineAdv) + ascPx, L[i].b, L[i].e, st.fg, scale);
+    }
+    strncpy(s_vs_key, key, sizeof(s_vs_key) - 1);
+    s_vs_key[sizeof(s_vs_key) - 1] = '\0';
     return 1;
 }
 
@@ -666,6 +739,7 @@ void IpstubeModule::usage(Writer &out) {
     out.writeln("ipstube wrap <d|all> <s>  word-wrap, auto-sized to the panel");
     out.writeln("ipstube flow <s>        flow text across panels (whole words)");
     out.writeln("ipstube scroll <s>      one frame of marquee text across all six");
+    out.writeln("ipstube vscroll <d|all> <s>  top frame of a vertical reader (app scrolls)");
     out.writeln("ipstube test            R G B Y C W bars, one per display");
     out.writeln("ipstube cs <d|all|none> drive chip-selects (wiring probe)");
     out.writeln("ipstube reinit          re-run ST7789 init on all panels");
@@ -760,6 +834,17 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
         if (!s_font_ok)   { out.writeln("ipstube: no font loaded (app must call loadFont)"); return; }
         TextStyle st; st.px = 0;     // auto-size to fill the panel
         out.writeln(drawTextWrapped(d, str, st) ? "ok" : "err");
+        return;
+    }
+    if (tok(args, "vscroll")) {
+        const char *p = next(args); uint8_t d;
+        if (!digit(p, &d)) { out.writeln("usage: ipstube vscroll <d|all> <string>"); return; }
+        const char *str = next(p);
+        if (*str == '\0') { out.writeln("usage: ipstube vscroll <d|all> <string>"); return; }
+        if (!s_font_ok)   { out.writeln("ipstube: no font loaded (app must call loadFont)"); return; }
+        TextStyle st; st.px = 40; st.halign = TextStyle::Left;   // a reading size
+        drawVScroll(d, 0, str, st);     // ay=0 → top of the wrapped column
+        out.writeln("ok (top frame — the app sweeps ay to scroll)");
         return;
     }
     if (tok(args, "flow")) {

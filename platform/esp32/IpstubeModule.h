@@ -108,6 +108,15 @@ public:
     // per-frame glyph rasterizing, and only the text rows are transferred. Call it
     // in a loop with a decreasing ax (text is vertically centered on the panels).
     void drawMarquee(int ax, const char *str, const TextStyle &s);
+
+    // Single-panel vertical scroll — `str` word-wrapped to the panel width and
+    // rendered once into a cached column; each frame shows a kHeight window at
+    // vertical offset `ay` (bg outside the column). Sweep ay from -kHeight up to
+    // vscrollHeight() to creep the text upward (a single panel is cheap → smooth).
+    // display may be kAll to mirror the same scroll on every panel.
+    void drawVScroll(uint8_t display, int ay, const char *str, const TextStyle &s);
+    // Total column height for `str` at `s` — the ay sweep range. (Builds the cache.)
+    int  vscrollHeight(const char *str, const TextStyle &s);
     // Backlight (shared across all six): on/off, or 0..255 PWM duty.
     void backlight(bool on);
     void setBrightness(uint8_t duty);
