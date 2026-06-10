@@ -3,6 +3,17 @@
 #include "core/IModule.h"
 #include "core/Writer.h"
 
+// Input line-editor buffer (one command line). Small by default on AVR (the Uno
+// has 2 KB SRAM), roomier elsewhere so long arguments — e.g. a `read`/`marquee`
+// message — aren't truncated. Override with -DCOMMANDER_UART_LINE_BUF=<n>.
+#ifndef COMMANDER_UART_LINE_BUF
+#  if defined(__AVR__)
+#    define COMMANDER_UART_LINE_BUF 64
+#  else
+#    define COMMANDER_UART_LINE_BUF 256
+#  endif
+#endif
+
 class UartTransport {
 public:
     // Call with baud to initialize UART hardware (e.g. Uno).
@@ -21,8 +32,8 @@ private:
 
     CommandRegistry *_reg      = nullptr;
     const char      *_greeting = nullptr;
-    char    _buf[64];
-    uint8_t _pos = 0;
+    char     _buf[COMMANDER_UART_LINE_BUF];
+    uint16_t _pos = 0;                     // wide enough for buffers > 255
 
     static constexpr uint8_t kMaxTickers = 2;
     IModule *_tickers[kMaxTickers] = {};
