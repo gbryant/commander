@@ -76,6 +76,14 @@ public:
     // used as-is. Lines align per s.halign; the stack places per s.valign.
     bool drawTextWrapped(uint8_t display, const char *str, TextStyle s, int pad = 8);
 
+    // Static cross-panel flow: lay `str` left-to-right across the six panels, one
+    // word-wrapped line per panel (whole words/characters only — never split a
+    // glyph across the bezel). With s.px<=0 the size is auto-fit to flow within as
+    // few panels as possible (≤6); otherwise s.px is used. Each panel's line is
+    // aligned per s.halign and placed per s.valign. Returns the panels used (≤6;
+    // text longer than 6 panels at the minimum size is truncated).
+    int drawTextFlow(const char *str, TextStyle s, int pad = 8);
+
     // Draw `str` on one display (or all with display==kAll). (ax,ay) is the panel-
     // local anchor; alignment places the text box around it (Center/Middle =
     // centered on that point). The panel is cleared to s.bg first. Pixels off the

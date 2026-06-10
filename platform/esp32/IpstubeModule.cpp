@@ -409,6 +409,25 @@ static int fit_wrap_px(const char *str, int boxW, int boxH) {
     return best;
 }
 
+// Largest px at which `str` flows across at most `maxPanels` panels (each panel
+// = one wrapped line of width boxW, height boxH). Line count grows monotonically
+// with px, so binary search. The auto-size for drawTextFlow.
+static int fit_flow_px(const char *str, int boxW, int boxH, int maxPanels) {
+    constexpr int kMaxLines = 24;
+    int lo = 6, hi = boxH, best = 6;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        float scale = stbtt_ScaleForPixelHeight(&s_font, (float)mid);
+        WrapLine L[kMaxLines];
+        int n = wrap_lines(str, scale, boxW, L, kMaxLines);
+        bool fits = (n <= maxPanels);
+        for (int i = 0; fits && i < n; ++i)
+            if (measure_range(L[i].b, L[i].e, scale) > boxW + 0.5f) fits = false;
+        if (fits) { best = mid; lo = mid + 1; } else { hi = mid - 1; }
+    }
+    return best;
+}
+
 // Wrapped multi-line text laid out inside box (boxX,boxY,boxW,boxH); each line is
 // aligned per st.halign and the stack is placed per st.valign.
 static void blit_wrapped(uint16_t *dst, int W, int H, int boxX, int boxY, int boxW, int boxH,
@@ -474,6 +493,36 @@ bool IpstubeModule::drawTextWrapped(uint8_t display, const char *str, TextStyle 
     for (int i = 0; i < kWidth * kHeight; ++i) buf[i] = s.bg;
     blit_wrapped(buf, kWidth, kHeight, pad, pad, boxW, boxH, str, s);
     return drawBitmap(display, buf);
+}
+
+int IpstubeModule::drawTextFlow(const char *str, TextStyle s, int pad) {
+    if (!_ready || !s_font_ok || !str) return 0;
+    int boxW = kWidth - 2 * pad, boxH = kHeight - 2 * pad;
+    if (boxW <= 0 || boxH <= 0) return 0;
+    if (s.px <= 0) s.px = fit_flow_px(str, boxW, boxH, kNumDisplays);
+    float scale = stbtt_ScaleForPixelHeight(&s_font, (float)s.px);
+    int asc, desc, gap;
+    stbtt_GetFontVMetrics(&s_font, &asc, &desc, &gap);
+    int ascPx = (int)(asc * scale);
+    WrapLine L[kNumDisplays];
+    int n = wrap_lines(str, scale, boxW, L, kNumDisplays);   // one line per panel
+    uint16_t *buf = panel_buf();
+    if (!buf) return 0;
+    // Each panel: clear to bg, then (if it has a line) render it, vertically
+    // placed per valign and aligned per halign within the panel's inset box.
+    int top = (s.valign == TextStyle::Middle ? (boxH - s.px) / 2
+             : s.valign == TextStyle::Bottom ? (boxH - s.px) : 0);
+    for (int d = 0; d < kNumDisplays; ++d) {
+        for (int i = 0; i < kWidth * kHeight; ++i) buf[i] = s.bg;
+        if (d < n) {
+            int lw = (int)ceilf(measure_range(L[d].b, L[d].e, scale));
+            int x = pad + (s.halign == TextStyle::Center ? (boxW - lw) / 2
+                         : s.halign == TextStyle::Right  ? (boxW - lw) : 0);
+            render_line(buf, kWidth, kHeight, x, pad + top + ascPx, L[d].b, L[d].e, s.fg, scale);
+        }
+        drawBitmap((uint8_t)d, buf);
+    }
+    return n;
 }
 
 bool IpstubeModule::drawText(uint8_t d, int ax, int ay, const char *str, const TextStyle &s) {
@@ -553,6 +602,7 @@ void IpstubeModule::usage(Writer &out) {
     out.writeln("ipstube text <d|all> <s>  draw text (needs app-loaded font)");
     out.writeln("ipstube fit <d|all> <s>   draw text sized to fill the panel");
     out.writeln("ipstube wrap <d|all> <s>  word-wrap, auto-sized to the panel");
+    out.writeln("ipstube flow <s>        flow text across panels (whole words)");
     out.writeln("ipstube scroll <s>      one frame of marquee text across all six");
     out.writeln("ipstube test            R G B Y C W bars, one per display");
     out.writeln("ipstube cs <d|all|none> drive chip-selects (wiring probe)");
@@ -648,6 +698,16 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
         if (!s_font_ok)   { out.writeln("ipstube: no font loaded (app must call loadFont)"); return; }
         TextStyle st; st.px = 0;     // auto-size to fill the panel
         out.writeln(drawTextWrapped(d, str, st) ? "ok" : "err");
+        return;
+    }
+    if (tok(args, "flow")) {
+        const char *str = next(args);
+        if (*str == '\0') { out.writeln("usage: ipstube flow <string>"); return; }
+        if (!s_font_ok)   { out.writeln("ipstube: no font loaded (app must call loadFont)"); return; }
+        TextStyle st; st.px = 0;     // auto-size to flow across as few panels as possible
+        int used = drawTextFlow(str, st);
+        char b[40]; snprintf(b, sizeof(b), "ok (%d panel%s)", used, used == 1 ? "" : "s");
+        out.writeln(b);
         return;
     }
     if (tok(args, "scroll")) {
