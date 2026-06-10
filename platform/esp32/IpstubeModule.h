@@ -71,6 +71,11 @@ public:
     // on every edge) and draw `str` centered. Mutates a copy of `s` (px/align).
     bool drawTextFit(uint8_t display, const char *str, TextStyle s, int pad = 8);
 
+    // Word-wrapped multi-line text within a panel (inset by `pad`). With s.px<=0,
+    // the size is auto-fit so all wrapped lines fill the panel; otherwise s.px is
+    // used as-is. Lines align per s.halign; the stack places per s.valign.
+    bool drawTextWrapped(uint8_t display, const char *str, TextStyle s, int pad = 8);
+
     // Draw `str` on one display (or all with display==kAll). (ax,ay) is the panel-
     // local anchor; alignment places the text box around it (Center/Middle =
     // centered on that point). The panel is cleared to s.bg first. Pixels off the

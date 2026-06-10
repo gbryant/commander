@@ -289,40 +289,26 @@ static inline uint16_t blend565(uint16_t bg, uint16_t fg, uint8_t a) {
     return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
-// Sum of glyph advances (with kerning) at `scale`, in pixels — the text width.
-static float measure_px(const char *str, float scale) {
+// Sum of glyph advances (with kerning) over [begin,end) at `scale`, in pixels.
+static float measure_range(const char *begin, const char *end, float scale) {
     float x = 0;
-    for (const char *p = str; *p; ++p) {
+    for (const char *p = begin; p < end; ++p) {
         int aw, lsb;
         stbtt_GetCodepointHMetrics(&s_font, (unsigned char)*p, &aw, &lsb);
         x += aw * scale;
-        unsigned char nx = (unsigned char)p[1];
-        if (nx) x += scale * stbtt_GetCodepointKernAdvance(&s_font, (unsigned char)*p, nx);
+        if (p + 1 < end) x += scale * stbtt_GetCodepointKernAdvance(&s_font, (unsigned char)*p, (unsigned char)p[1]);
     }
     return x;
 }
+static float measure_px(const char *str, float scale) { return measure_range(str, str + strlen(str), scale); }
 
-// Composite `str` into dst (W*H RGB565, row stride = W) with fg over whatever is
-// already there. The text box is aligned about (ax,ay) per st.halign/valign;
-// pixels outside [0,W)x[0,H) are clipped (so ax may run off-canvas for scrolling).
-static void blit_glyphs(uint16_t *dst, int W, int H, int ax, int ay,
-                        const char *str, const IpstubeModule::TextStyle &st) {
-    float scale = stbtt_ScaleForPixelHeight(&s_font, (float)st.px);
-    int asc, desc, gap;
-    stbtt_GetFontVMetrics(&s_font, &asc, &desc, &gap);
-    int box_w = (int)ceilf(measure_px(str, scale));
-    int box_h = st.px;
-
-    int x0 = (st.halign == IpstubeModule::TextStyle::Center) ? ax - box_w / 2
-           : (st.halign == IpstubeModule::TextStyle::Right)  ? ax - box_w
-                                                             : ax;
-    int y0 = (st.valign == IpstubeModule::TextStyle::Middle) ? ay - box_h / 2
-           : (st.valign == IpstubeModule::TextStyle::Bottom) ? ay - box_h
-                                                             : ay;
-    int baseline = (int)(scale * asc);   // top-of-box → baseline
-
+// Render one line of glyphs [begin,end) into dst (W*H RGB565, stride W): pen
+// starts at penX, sits on baselineY. Composites fg over existing pixels; pixels
+// outside [0,W)x[0,H) clip (so penX/baselineY may run off-canvas for scrolling).
+static void render_line(uint16_t *dst, int W, int H, int penX, int baselineY,
+                        const char *begin, const char *end, uint16_t fg, float scale) {
     float xpos = 0;
-    for (const char *p = str; *p; ++p) {
+    for (const char *p = begin; p < end; ++p) {
         int cp = (unsigned char)*p;
         int aw, lsb;
         stbtt_GetCodepointHMetrics(&s_font, cp, &aw, &lsb);
@@ -334,8 +320,8 @@ static void blit_glyphs(uint16_t *dst, int W, int H, int ax, int ay,
             unsigned char *bm = (unsigned char *)ips_stb_malloc((size_t)gw * gh);
             if (bm) {
                 stbtt_MakeCodepointBitmapSubpixel(&s_font, bm, gw, gh, gw, scale, scale, xshift, 0, cp);
-                int dx0 = x0 + (int)floorf(xpos) + gx0;
-                int dy0 = y0 + baseline + gy0;
+                int dx0 = penX + (int)floorf(xpos) + gx0;
+                int dy0 = baselineY + gy0;
                 for (int gy = 0; gy < gh; ++gy) {
                     int dy = dy0 + gy;
                     if (dy < 0 || dy >= H) continue;
@@ -345,15 +331,104 @@ static void blit_glyphs(uint16_t *dst, int W, int H, int ax, int ay,
                         uint8_t a = bm[gy * gw + gx];
                         if (!a) continue;
                         uint16_t *o = &dst[dy * W + dx];
-                        *o = blend565(*o, st.fg, a);
+                        *o = blend565(*o, fg, a);
                     }
                 }
                 free(bm);
             }
         }
         xpos += aw * scale;
-        unsigned char nx = (unsigned char)p[1];
-        if (nx) xpos += scale * stbtt_GetCodepointKernAdvance(&s_font, cp, nx);
+        if (p + 1 < end) xpos += scale * stbtt_GetCodepointKernAdvance(&s_font, cp, (unsigned char)p[1]);
+    }
+}
+
+// One line, aligned about (ax,ay) per st.halign/valign — the single-line path.
+static void blit_glyphs(uint16_t *dst, int W, int H, int ax, int ay,
+                        const char *str, const IpstubeModule::TextStyle &st) {
+    float scale = stbtt_ScaleForPixelHeight(&s_font, (float)st.px);
+    int asc, desc, gap;
+    stbtt_GetFontVMetrics(&s_font, &asc, &desc, &gap);
+    const char *end = str + strlen(str);
+    int box_w = (int)ceilf(measure_range(str, end, scale));
+    int x0 = (st.halign == IpstubeModule::TextStyle::Center) ? ax - box_w / 2
+           : (st.halign == IpstubeModule::TextStyle::Right)  ? ax - box_w : ax;
+    int y0 = (st.valign == IpstubeModule::TextStyle::Middle) ? ay - st.px / 2
+           : (st.valign == IpstubeModule::TextStyle::Bottom) ? ay - st.px : ay;
+    render_line(dst, W, H, x0, y0 + (int)(scale * asc), str, end, st.fg, scale);
+}
+
+// Greedy word-wrap of `str` to width boxW at `scale`. Lines are returned as
+// [begin,end) spans into the original string (no copies) — reusable for vertical
+// scroll. A single word wider than boxW is force-placed on its own line (it will
+// overflow; the height-fit search shrinks px until even that fits). Returns the
+// line count (capped at maxLines).
+struct WrapLine { const char *b; const char *e; };
+static int wrap_lines(const char *str, float scale, int boxW, WrapLine *out, int maxLines) {
+    int n = 0;
+    const char *p = str;
+    while (*p == ' ') ++p;
+    while (*p && n < maxLines) {
+        const char *lineB = p, *lineE = p;
+        for (;;) {
+            const char *ws = lineE; while (*ws == ' ') ++ws;     // next word start
+            if (!*ws) { p = ws; break; }                          // no more words
+            const char *we = ws; while (*we && *we != ' ') ++we;  // next word end
+            if (measure_range(lineB, we, scale) <= boxW || lineE == lineB) {
+                lineE = we;                                       // accept word (force first)
+                if (!*we) { p = we; break; }
+            } else {
+                p = ws; break;                                    // word starts next line
+            }
+        }
+        out[n].b = lineB; out[n].e = lineE; ++n;
+        while (*p == ' ') ++p;
+        if (p == lineB) break;                                    // no progress safety
+    }
+    return n;
+}
+
+// Largest px at which word-wrapped `str` fits boxW*boxH (all lines within width,
+// stacked height within boxH). Binary search — total height grows monotonically
+// with px. The auto-size for drawTextWrapped (style.px <= 0).
+static int fit_wrap_px(const char *str, int boxW, int boxH) {
+    int asc, desc, gap;
+    stbtt_GetFontVMetrics(&s_font, &asc, &desc, &gap);
+    constexpr int kMaxLines = 24;
+    int lo = 6, hi = boxH, best = 6;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        float scale = stbtt_ScaleForPixelHeight(&s_font, (float)mid);
+        WrapLine L[kMaxLines];
+        int n = wrap_lines(str, scale, boxW, L, kMaxLines);
+        float lineAdv = (asc - desc + gap) * scale;
+        bool fits = (n < kMaxLines) && (n * lineAdv <= (float)boxH);
+        for (int i = 0; fits && i < n; ++i)
+            if (measure_range(L[i].b, L[i].e, scale) > boxW + 0.5f) fits = false;
+        if (fits) { best = mid; lo = mid + 1; } else { hi = mid - 1; }
+    }
+    return best;
+}
+
+// Wrapped multi-line text laid out inside box (boxX,boxY,boxW,boxH); each line is
+// aligned per st.halign and the stack is placed per st.valign.
+static void blit_wrapped(uint16_t *dst, int W, int H, int boxX, int boxY, int boxW, int boxH,
+                         const char *str, const IpstubeModule::TextStyle &st) {
+    float scale = stbtt_ScaleForPixelHeight(&s_font, (float)st.px);
+    int asc, desc, gap;
+    stbtt_GetFontVMetrics(&s_font, &asc, &desc, &gap);
+    float lineAdv = (asc - desc + gap) * scale;
+    int ascPx = (int)(asc * scale);
+    constexpr int kMaxLines = 24;
+    WrapLine L[kMaxLines];
+    int n = wrap_lines(str, scale, boxW, L, kMaxLines);
+    float totalH = n * lineAdv;
+    int top = boxY + (st.valign == IpstubeModule::TextStyle::Middle ? (int)((boxH - totalH) / 2)
+                    : st.valign == IpstubeModule::TextStyle::Bottom ? (int)(boxH - totalH) : 0);
+    for (int i = 0; i < n; ++i) {
+        int lw = (int)ceilf(measure_range(L[i].b, L[i].e, scale));
+        int x = boxX + (st.halign == IpstubeModule::TextStyle::Center ? (boxW - lw) / 2
+                      : st.halign == IpstubeModule::TextStyle::Right  ? (boxW - lw) : 0);
+        render_line(dst, W, H, x, top + (int)(i * lineAdv) + ascPx, L[i].b, L[i].e, st.fg, scale);
     }
 }
 
@@ -386,6 +461,19 @@ bool IpstubeModule::drawTextFit(uint8_t display, const char *str, TextStyle s, i
     s.halign = TextStyle::Center;
     s.valign = TextStyle::Middle;
     return drawText(display, str, s);
+}
+
+bool IpstubeModule::drawTextWrapped(uint8_t display, const char *str, TextStyle s, int pad) {
+    if (!_ready || !s_font_ok || !str) return false;
+    if (display != kAll && display >= kNumDisplays) return false;
+    int boxW = kWidth - 2 * pad, boxH = kHeight - 2 * pad;
+    if (boxW <= 0 || boxH <= 0) return false;
+    if (s.px <= 0) s.px = fit_wrap_px(str, boxW, boxH);   // auto-size to the panel
+    uint16_t *buf = panel_buf();
+    if (!buf) return false;
+    for (int i = 0; i < kWidth * kHeight; ++i) buf[i] = s.bg;
+    blit_wrapped(buf, kWidth, kHeight, pad, pad, boxW, boxH, str, s);
+    return drawBitmap(display, buf);
 }
 
 bool IpstubeModule::drawText(uint8_t d, int ax, int ay, const char *str, const TextStyle &s) {
@@ -464,6 +552,7 @@ void IpstubeModule::usage(Writer &out) {
     out.writeln("ipstube clear <d|all>   fill black");
     out.writeln("ipstube text <d|all> <s>  draw text (needs app-loaded font)");
     out.writeln("ipstube fit <d|all> <s>   draw text sized to fill the panel");
+    out.writeln("ipstube wrap <d|all> <s>  word-wrap, auto-sized to the panel");
     out.writeln("ipstube scroll <s>      one frame of marquee text across all six");
     out.writeln("ipstube test            R G B Y C W bars, one per display");
     out.writeln("ipstube cs <d|all|none> drive chip-selects (wiring probe)");
@@ -549,6 +638,16 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
         if (!s_font_ok)   { out.writeln("ipstube: no font loaded (app must call loadFont)"); return; }
         TextStyle st;
         out.writeln(drawTextFit(d, str, st) ? "ok" : "err");
+        return;
+    }
+    if (tok(args, "wrap")) {
+        const char *p = next(args); uint8_t d;
+        if (!digit(p, &d)) { out.writeln("usage: ipstube wrap <d|all> <string>"); return; }
+        const char *str = next(p);
+        if (*str == '\0') { out.writeln("usage: ipstube wrap <d|all> <string>"); return; }
+        if (!s_font_ok)   { out.writeln("ipstube: no font loaded (app must call loadFont)"); return; }
+        TextStyle st; st.px = 0;     // auto-size to fill the panel
+        out.writeln(drawTextWrapped(d, str, st) ? "ok" : "err");
         return;
     }
     if (tok(args, "scroll")) {
