@@ -10,9 +10,28 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "esp_heap_caps.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+
+// ── stb_truetype: scalable text rasteriser (public domain, vendored) ──────────
+// Compiled only in this TU (the module is itself gated by COMMANDER_ENABLE_IPSTUBE
+// in the runner CMake). Glyph scratch allocations prefer PSRAM, falling back to
+// internal RAM — keeps the (potentially large) bitmaps off the internal heap.
+static void *ips_stb_malloc(size_t n) {
+    void *p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p ? p : malloc(n);     // free() handles either heap on ESP-IDF
+}
+#define STBTT_STATIC                              // keep stbtt_* symbols local to this TU
+#define STBTT_malloc(x, u) ((void)(u), ips_stb_malloc(x))
+#define STBTT_free(x, u)   ((void)(u), free(x))
+#define STB_TRUETYPE_IMPLEMENTATION
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"   // STBTT_STATIC exposes unused API
+#include "third_party/stb/stb_truetype.h"
+#pragma GCC diagnostic pop
 
 // ── IPSTube wiring (classic ESP32). Override any of these with -DIPSTUBE_... ───
 #ifndef IPSTUBE_PIN_MOSI
@@ -242,6 +261,160 @@ void IpstubeModule::init() {
     ESP_LOGI(TAG, "6x ST7789 up (%dx%d), manual CS — try `ipstube test`", kWidth, kHeight);
 }
 
+// ── Text engine (stb_truetype) ────────────────────────────────────────────────
+static stbtt_fontinfo s_font;                 // valid only while s_font_ok
+static bool           s_font_ok  = false;
+static uint16_t      *s_panel_buf = nullptr;  // kWidth*kHeight RGB565 scratch
+static uint16_t      *s_strip_buf = nullptr;  // stripWidth()*kHeight scratch (strip mode)
+
+static uint16_t *panel_buf() {
+    if (!s_panel_buf)
+        s_panel_buf = (uint16_t *)heap_caps_malloc(
+            IpstubeModule::kWidth * IpstubeModule::kHeight * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return s_panel_buf;
+}
+static uint16_t *strip_buf() {
+    if (!s_strip_buf)
+        s_strip_buf = (uint16_t *)heap_caps_malloc(
+            IpstubeModule::stripWidth() * IpstubeModule::kHeight * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return s_strip_buf;
+}
+
+// Alpha-blend fg over bg in RGB565 (a = 0..255 glyph coverage).
+static inline uint16_t blend565(uint16_t bg, uint16_t fg, uint8_t a) {
+    uint32_t ia = 255u - a;
+    uint32_t r = (((fg >> 11) & 0x1F) * a + ((bg >> 11) & 0x1F) * ia) / 255;
+    uint32_t g = (((fg >>  5) & 0x3F) * a + ((bg >>  5) & 0x3F) * ia) / 255;
+    uint32_t b = (( fg        & 0x1F) * a + ( bg        & 0x1F) * ia) / 255;
+    return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+// Sum of glyph advances (with kerning) at `scale`, in pixels — the text width.
+static float measure_px(const char *str, float scale) {
+    float x = 0;
+    for (const char *p = str; *p; ++p) {
+        int aw, lsb;
+        stbtt_GetCodepointHMetrics(&s_font, (unsigned char)*p, &aw, &lsb);
+        x += aw * scale;
+        unsigned char nx = (unsigned char)p[1];
+        if (nx) x += scale * stbtt_GetCodepointKernAdvance(&s_font, (unsigned char)*p, nx);
+    }
+    return x;
+}
+
+// Composite `str` into dst (W*H RGB565, row stride = W) with fg over whatever is
+// already there. The text box is aligned about (ax,ay) per st.halign/valign;
+// pixels outside [0,W)x[0,H) are clipped (so ax may run off-canvas for scrolling).
+static void blit_glyphs(uint16_t *dst, int W, int H, int ax, int ay,
+                        const char *str, const IpstubeModule::TextStyle &st) {
+    float scale = stbtt_ScaleForPixelHeight(&s_font, (float)st.px);
+    int asc, desc, gap;
+    stbtt_GetFontVMetrics(&s_font, &asc, &desc, &gap);
+    int box_w = (int)ceilf(measure_px(str, scale));
+    int box_h = st.px;
+
+    int x0 = (st.halign == IpstubeModule::TextStyle::Center) ? ax - box_w / 2
+           : (st.halign == IpstubeModule::TextStyle::Right)  ? ax - box_w
+                                                             : ax;
+    int y0 = (st.valign == IpstubeModule::TextStyle::Middle) ? ay - box_h / 2
+           : (st.valign == IpstubeModule::TextStyle::Bottom) ? ay - box_h
+                                                             : ay;
+    int baseline = (int)(scale * asc);   // top-of-box → baseline
+
+    float xpos = 0;
+    for (const char *p = str; *p; ++p) {
+        int cp = (unsigned char)*p;
+        int aw, lsb;
+        stbtt_GetCodepointHMetrics(&s_font, cp, &aw, &lsb);
+        float xshift = xpos - floorf(xpos);
+        int gx0, gy0, gx1, gy1;
+        stbtt_GetCodepointBitmapBoxSubpixel(&s_font, cp, scale, scale, xshift, 0, &gx0, &gy0, &gx1, &gy1);
+        int gw = gx1 - gx0, gh = gy1 - gy0;
+        if (gw > 0 && gh > 0) {
+            unsigned char *bm = (unsigned char *)ips_stb_malloc((size_t)gw * gh);
+            if (bm) {
+                stbtt_MakeCodepointBitmapSubpixel(&s_font, bm, gw, gh, gw, scale, scale, xshift, 0, cp);
+                int dx0 = x0 + (int)floorf(xpos) + gx0;
+                int dy0 = y0 + baseline + gy0;
+                for (int gy = 0; gy < gh; ++gy) {
+                    int dy = dy0 + gy;
+                    if (dy < 0 || dy >= H) continue;
+                    for (int gx = 0; gx < gw; ++gx) {
+                        int dx = dx0 + gx;
+                        if (dx < 0 || dx >= W) continue;
+                        uint8_t a = bm[gy * gw + gx];
+                        if (!a) continue;
+                        uint16_t *o = &dst[dy * W + dx];
+                        *o = blend565(*o, st.fg, a);
+                    }
+                }
+                free(bm);
+            }
+        }
+        xpos += aw * scale;
+        unsigned char nx = (unsigned char)p[1];
+        if (nx) xpos += scale * stbtt_GetCodepointKernAdvance(&s_font, cp, nx);
+    }
+}
+
+bool IpstubeModule::loadFont(const uint8_t *ttf, size_t len) {
+    if (!ttf || len == 0) return false;
+    int off = stbtt_GetFontOffsetForIndex(ttf, 0);
+    if (off < 0) return false;
+    s_font_ok = _font_ok = (stbtt_InitFont(&s_font, ttf, off) != 0);
+    return _font_ok;
+}
+
+void IpstubeModule::measureText(const char *str, const TextStyle &s, int *w, int *h) {
+    if (w) *w = (s_font_ok && str) ? (int)ceilf(measure_px(str, stbtt_ScaleForPixelHeight(&s_font, (float)s.px))) : 0;
+    if (h) *h = s.px;
+}
+
+int IpstubeModule::fitPx(const char *str, int boxW, int boxH, int maxPx) const {
+    if (!s_font_ok || !str || !*str || boxW <= 0 || boxH <= 0) return 0;
+    constexpr int kRef = 100;                     // probe size; width is linear in px
+    float w = measure_px(str, stbtt_ScaleForPixelHeight(&s_font, (float)kRef));
+    int px = (w > 0.5f) ? (int)((float)boxW * kRef / w) : maxPx;   // width-limited px
+    if (px > boxH)  px = boxH;                     // height-limited
+    if (px > maxPx) px = maxPx;
+    return px < 1 ? 1 : px;
+}
+
+bool IpstubeModule::drawTextFit(uint8_t display, const char *str, TextStyle s, int pad) {
+    if (!_ready || !s_font_ok || !str) return false;
+    s.px     = fitPx(str, kWidth - 2 * pad, kHeight - 2 * pad);
+    s.halign = TextStyle::Center;
+    s.valign = TextStyle::Middle;
+    return drawText(display, str, s);
+}
+
+bool IpstubeModule::drawText(uint8_t d, int ax, int ay, const char *str, const TextStyle &s) {
+    if (!_ready || !s_font_ok || !str) return false;
+    if (d != kAll && d >= kNumDisplays) return false;
+    uint16_t *buf = panel_buf();
+    if (!buf) return false;
+    for (int i = 0; i < kWidth * kHeight; ++i) buf[i] = s.bg;
+    blit_glyphs(buf, kWidth, kHeight, ax, ay, str, s);
+    return drawBitmap(d, buf);
+}
+
+void IpstubeModule::drawTextStrip(int ax, int ay, const char *str, const TextStyle &s) {
+    if (!_ready || !s_font_ok || !str) return;
+    uint16_t *strip = strip_buf();
+    uint16_t *panel = panel_buf();
+    if (!strip || !panel) return;
+    const int W = stripWidth();
+    for (int i = 0; i < W * kHeight; ++i) strip[i] = s.bg;
+    blit_glyphs(strip, W, kHeight, ax, ay, str, s);
+    // esp_lcd needs packed w*h data, so copy each panel's column window out.
+    for (int d = 0; d < kNumDisplays; ++d) {
+        int col = d * kWidth;
+        for (int y = 0; y < kHeight; ++y)
+            memcpy(&panel[y * kWidth], &strip[y * W + col], kWidth * 2);
+        drawBitmap((uint8_t)d, panel);
+    }
+}
+
 // ── App API ───────────────────────────────────────────────────────────────────
 bool IpstubeModule::drawBitmap(uint8_t d, int x, int y, int w, int h, const uint16_t *data) {
     if (!_ready || !data) return false;
@@ -289,6 +462,9 @@ void IpstubeModule::usage(Writer &out) {
     out.writeln("ipstube dim <0-255>     backlight PWM duty");
     out.writeln("ipstube fill <d|all> <rgb565>   solid colour (hex/dec)");
     out.writeln("ipstube clear <d|all>   fill black");
+    out.writeln("ipstube text <d|all> <s>  draw text (needs app-loaded font)");
+    out.writeln("ipstube fit <d|all> <s>   draw text sized to fill the panel");
+    out.writeln("ipstube scroll <s>      one frame of marquee text across all six");
     out.writeln("ipstube test            R G B Y C W bars, one per display");
     out.writeln("ipstube cs <d|all|none> drive chip-selects (wiring probe)");
     out.writeln("ipstube reinit          re-run ST7789 init on all panels");
@@ -332,6 +508,8 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
         snprintf(b, sizeof(b), "cfg: invert=%d bgr=%d swap=%d mirror=%d,%d gap=%d,%d",
                  s_invert, s_bgr, s_swap, s_mir_x, s_mir_y, s_gap_x, s_gap_y);
         out.writeln(b);
+        snprintf(b, sizeof(b), "font: %s", s_font_ok ? "loaded" : "none (app must loadFont)");
+        out.writeln(b);
         return;
     }
     if (tok(args, "on"))   { backlight(true);  out.writeln("ok"); return; }
@@ -352,6 +530,36 @@ void IpstubeModule::dispatch(const char *args, Writer &out) {
         if (!digit(p, &d)) { out.writeln("usage: ipstube fill <d|all> <rgb565>"); return; }
         long v; if (!num(next(p), &v)) { out.writeln("usage: ipstube fill <d|all> <rgb565>"); return; }
         fill(d, (uint16_t)v); out.writeln("ok"); return;
+    }
+    if (tok(args, "text")) {
+        const char *p = next(args); uint8_t d;
+        if (!digit(p, &d)) { out.writeln("usage: ipstube text <d|all> <string>"); return; }
+        const char *str = next(p);
+        if (*str == '\0') { out.writeln("usage: ipstube text <d|all> <string>"); return; }
+        if (!s_font_ok)   { out.writeln("ipstube: no font loaded (app must call loadFont)"); return; }
+        TextStyle st;     // defaults: 120px white-on-black, centred
+        out.writeln(drawText(d, str, st) ? "ok" : "err");
+        return;
+    }
+    if (tok(args, "fit")) {
+        const char *p = next(args); uint8_t d;
+        if (!digit(p, &d)) { out.writeln("usage: ipstube fit <d|all> <string>"); return; }
+        const char *str = next(p);
+        if (*str == '\0') { out.writeln("usage: ipstube fit <d|all> <string>"); return; }
+        if (!s_font_ok)   { out.writeln("ipstube: no font loaded (app must call loadFont)"); return; }
+        TextStyle st;
+        out.writeln(drawTextFit(d, str, st) ? "ok" : "err");
+        return;
+    }
+    if (tok(args, "scroll")) {
+        const char *str = next(args);
+        if (*str == '\0') { out.writeln("usage: ipstube scroll <string>"); return; }
+        if (!s_font_ok)   { out.writeln("ipstube: no font loaded (app must call loadFont)"); return; }
+        TextStyle st;     // one static frame, left-anchored near the strip start
+        st.halign = TextStyle::Left;
+        drawTextStrip(8, kHeight / 2, str, st);
+        out.writeln("ok (one frame — the app drives the animation)");
+        return;
     }
     if (tok(args, "test")) {
         static const uint16_t bars[kNumDisplays] =

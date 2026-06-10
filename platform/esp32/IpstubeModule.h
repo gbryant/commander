@@ -39,13 +39,63 @@ public:
     // Solid-fill one display, or all of them with display == kAll.
     void fill(uint8_t display, uint16_t rgb565);
     void clear(uint8_t display) { fill(display, 0x0000); }
+
+    // ── Text rendering (stb_truetype) ─────────────────────────────────────────
+    // Scalable, antialiased text drawn through the same RGB565 path as
+    // drawBitmap — purely additive to the bitmap clock. Install a font once
+    // (the app embeds the .ttf and passes it here), then draw with a TextStyle.
+    struct TextStyle {
+        int      px     = 120;             // glyph pixel height
+        uint16_t fg     = 0xFFFF;          // RGB565 foreground
+        uint16_t bg     = 0x0000;          // RGB565 background (target cleared to this)
+        enum HAlign { Left, Center, Right }  halign = Center;
+        enum VAlign { Top, Middle, Bottom }  valign = Middle;
+    };
+
+    // Install the TTF the text API renders with. `ttf` must stay valid for as
+    // long as text is drawn (point it at the EMBED_FILES blob). false = unparseable.
+    bool loadFont(const uint8_t *ttf, size_t len);
+    bool haveFont() const { return _font_ok; }
+
+    // Pixel extent of `str` at style.px. Width spans the glyph advances; height is
+    // style.px (the line box). Either out-pointer may be null.
+    void measureText(const char *str, const TextStyle &s, int *w, int *h);
+
+    // Largest px at which `str` fits a boxW*boxH box on one line (width measured
+    // from glyph advances, height = px). Capped at maxPx. One measurement — px
+    // scales linearly with width. Returns 0 with no font / empty string. The
+    // reusable primitive behind size-to-fit (and, later, wrap/flow).
+    int fitPx(const char *str, int boxW, int boxH, int maxPx = kHeight) const;
+
+    // Size-to-fit convenience: pick the px that fills the panel (inset by `pad`
+    // on every edge) and draw `str` centered. Mutates a copy of `s` (px/align).
+    bool drawTextFit(uint8_t display, const char *str, TextStyle s, int pad = 8);
+
+    // Draw `str` on one display (or all with display==kAll). (ax,ay) is the panel-
+    // local anchor; alignment places the text box around it (Center/Middle =
+    // centered on that point). The panel is cleared to s.bg first. Pixels off the
+    // panel are clipped, so ax may be negative or past kWidth for sliding text.
+    bool drawText(uint8_t display, int ax, int ay, const char *str, const TextStyle &s);
+    // Convenience: centered on the panel.
+    bool drawText(uint8_t display, const char *str, const TextStyle &s) {
+        return drawText(display, kWidth / 2, kHeight / 2, str, s);
+    }
+
+    // Strip mode — treat the six panels as one stripWidth()-wide canvas (panel i
+    // owns virtual x [i*kWidth, (i+1)*kWidth)). Renders `str` at strip anchor
+    // (ax,ay), clears the whole strip to s.bg, and blits all six. ax may be < 0 or
+    // > stripWidth(): sweep it across frames for a marquee. Honors halign/valign
+    // about (ax,ay) just like drawText.
+    void drawTextStrip(int ax, int ay, const char *str, const TextStyle &s);
+    static constexpr int stripWidth() { return kNumDisplays * kWidth; }
     // Backlight (shared across all six): on/off, or 0..255 PWM duty.
     void backlight(bool on);
     void setBrightness(uint8_t duty);
     bool ready() const { return _ready; }
 
 private:
-    bool _ready = false;
+    bool _ready   = false;
+    bool _font_ok = false;
     static void cmd(const char *args, Writer &out, void *ctx);
     void        dispatch(const char *args, Writer &out);
     void        usage(Writer &out);
