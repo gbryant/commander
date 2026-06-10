@@ -267,6 +267,14 @@ static bool           s_font_ok  = false;
 static uint16_t      *s_panel_buf = nullptr;  // kWidth*kHeight RGB565 scratch
 static uint16_t      *s_strip_buf = nullptr;  // stripWidth()*kHeight scratch (strip mode)
 
+// Marquee cache: the message rasterized once (RGB565, bg included) into a band
+// s_mq_w wide × s_mq_h tall, reused frame-to-frame while only the scroll offset
+// changes. Keyed by a (px,fg,bg,text) signature so a new message rebuilds it.
+static uint16_t      *s_mq_buf = nullptr;
+static int            s_mq_w = 0, s_mq_h = 0, s_mq_y0 = 0;
+static char           s_mq_key[192] = {0};
+static int            mq_ensure(const char *str, const IpstubeModule::TextStyle &st);  // defined below
+
 static uint16_t *panel_buf() {
     if (!s_panel_buf)
         s_panel_buf = (uint16_t *)heap_caps_malloc(
@@ -550,6 +558,60 @@ void IpstubeModule::drawTextStrip(int ax, int ay, const char *str, const TextSty
             memcpy(&panel[y * kWidth], &strip[y * W + col], kWidth * 2);
         drawBitmap((uint8_t)d, panel);
     }
+}
+
+void IpstubeModule::drawMarquee(int ax, const char *str, const TextStyle &s) {
+    if (!_ready || !s_font_ok || !str) return;
+    int rebuilt = mq_ensure(str, s);
+    if (rebuilt < 0) return;
+    if (rebuilt) fill(kAll, s.bg);          // new message — black out the full panels once
+    uint16_t *panel = panel_buf();
+    if (!panel) return;
+    // No rasterizing here: for each panel, window the cached message band at the
+    // current scroll offset (bg outside the text), and blit just those band rows.
+    for (int d = 0; d < kNumDisplays; ++d) {
+        int stripX = d * kWidth;            // strip x of this panel's left edge
+        for (int ry = 0; ry < s_mq_h; ++ry) {
+            uint16_t *dst = &panel[ry * kWidth];
+            const uint16_t *src = &s_mq_buf[ry * s_mq_w];
+            for (int lx = 0; lx < kWidth; ++lx) {
+                int sx = stripX + lx - ax;  // source column in the message
+                dst[lx] = (sx >= 0 && sx < s_mq_w) ? src[sx] : s.bg;
+            }
+        }
+        drawBitmap((uint8_t)d, 0, s_mq_y0, kWidth, s_mq_h, panel);
+    }
+}
+
+// Ensure the marquee cache holds `str` at `st`. Returns 1 if it rebuilt (caller
+// should clear the panels to bg first), 0 on a cache hit, -1 on failure. The
+// raster is just the text band (px + headroom), centered vertically — so frames
+// blit ~2/3 the rows of a full panel.
+static int mq_ensure(const char *str, const IpstubeModule::TextStyle &st) {
+    char key[192];
+    snprintf(key, sizeof(key), "%d|%04x|%04x|%s", st.px, st.fg, st.bg, str);
+    if (s_mq_buf && strcmp(key, s_mq_key) == 0) return 0;          // cache hit
+
+    float scale = stbtt_ScaleForPixelHeight(&s_font, (float)st.px);
+    int asc, desc, gap;
+    stbtt_GetFontVMetrics(&s_font, &asc, &desc, &gap);
+    const char *end = str + strlen(str);
+    int w = (int)ceilf(measure_range(str, end, scale));
+    if (w < 1) w = 1;
+    int bandH = st.px + st.px / 6;                                  // ascender/descender headroom
+    if (bandH > IpstubeModule::kHeight) bandH = IpstubeModule::kHeight;
+
+    if (s_mq_buf) { free(s_mq_buf); s_mq_buf = nullptr; }
+    s_mq_buf = (uint16_t *)heap_caps_malloc((size_t)w * bandH * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_mq_buf) { s_mq_w = s_mq_h = 0; s_mq_key[0] = '\0'; return -1; }
+    s_mq_w  = w;
+    s_mq_h  = bandH;
+    s_mq_y0 = (IpstubeModule::kHeight - bandH) / 2;
+    for (int i = 0; i < w * bandH; ++i) s_mq_buf[i] = st.bg;
+    render_line(s_mq_buf, w, bandH, 0, (bandH - st.px) / 2 + (int)(asc * scale), str, end, st.fg, scale);
+    strncpy(s_mq_key, key, sizeof(s_mq_key) - 1);
+    s_mq_key[sizeof(s_mq_key) - 1] = '\0';
+    return 1;
 }
 
 // ── App API ───────────────────────────────────────────────────────────────────

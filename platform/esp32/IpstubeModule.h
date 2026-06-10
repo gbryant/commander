@@ -101,6 +101,13 @@ public:
     // about (ax,ay) just like drawText.
     void drawTextStrip(int ax, int ay, const char *str, const TextStyle &s);
     static constexpr int stripWidth() { return kNumDisplays * kWidth; }
+
+    // Animation-optimized marquee. Same visual as sweeping drawTextStrip's ax, but
+    // the message is rasterized once into a cached band (rebuilt only when the
+    // text/style changes) and each frame just windows + blits that band — no
+    // per-frame glyph rasterizing, and only the text rows are transferred. Call it
+    // in a loop with a decreasing ax (text is vertically centered on the panels).
+    void drawMarquee(int ax, const char *str, const TextStyle &s);
     // Backlight (shared across all six): on/off, or 0..255 PWM duty.
     void backlight(bool on);
     void setBrightness(uint8_t duty);
