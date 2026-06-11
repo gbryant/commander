@@ -321,41 +321,48 @@ static float measure_px(const char *str, float scale) { return measure_range(str
 // Render one line of glyphs [begin,end) into dst (W*H RGB565, stride W): pen
 // starts at penX, sits on baselineY. Composites fg over existing pixels; pixels
 // outside [0,W)x[0,H) clip (so penX/baselineY may run off-canvas for scrolling).
+// Composite one glyph (codepoint cp) at pen integer-x penXi (+ subpixel xshift),
+// baseline baselineY. fg over existing pixels; clipped to [0,W)x[0,H).
+static void composite_glyph(uint16_t *dst, int W, int H, int penXi, float xshift,
+                            int baselineY, int cp, uint16_t fg, float scale) {
+    int gx0, gy0, gx1, gy1;
+    stbtt_GetCodepointBitmapBoxSubpixel(&s_font, cp, scale, scale, xshift, 0, &gx0, &gy0, &gx1, &gy1);
+    int gw = gx1 - gx0, gh = gy1 - gy0;
+    if (gw <= 0 || gh <= 0) return;
+    unsigned char *bm = (unsigned char *)ips_stb_malloc((size_t)gw * gh);
+    if (!bm) return;
+    stbtt_MakeCodepointBitmapSubpixel(&s_font, bm, gw, gh, gw, scale, scale, xshift, 0, cp);
+    int dx0 = penXi + gx0;
+    int dy0 = baselineY + gy0;
+    for (int gy = 0; gy < gh; ++gy) {
+        int dy = dy0 + gy;
+        if (dy < 0 || dy >= H) continue;
+        for (int gx = 0; gx < gw; ++gx) {
+            int dx = dx0 + gx;
+            if (dx < 0 || dx >= W) continue;
+            uint8_t a = bm[gy * gw + gx];
+            if (!a) continue;
+            uint16_t *o = &dst[dy * W + dx];
+            *o = blend565(*o, fg, a);
+        }
+    }
+    free(bm);
+}
+
 static void render_line(uint16_t *dst, int W, int H, int penX, int baselineY,
-                        const char *begin, const char *end, uint16_t fg, float scale) {
+                        const char *begin, const char *end, uint16_t fg, float scale,
+                        bool hyphen = false) {
     float xpos = 0;
     for (const char *p = begin; p < end; ++p) {
         int cp = (unsigned char)*p;
         int aw, lsb;
         stbtt_GetCodepointHMetrics(&s_font, cp, &aw, &lsb);
-        float xshift = xpos - floorf(xpos);
-        int gx0, gy0, gx1, gy1;
-        stbtt_GetCodepointBitmapBoxSubpixel(&s_font, cp, scale, scale, xshift, 0, &gx0, &gy0, &gx1, &gy1);
-        int gw = gx1 - gx0, gh = gy1 - gy0;
-        if (gw > 0 && gh > 0) {
-            unsigned char *bm = (unsigned char *)ips_stb_malloc((size_t)gw * gh);
-            if (bm) {
-                stbtt_MakeCodepointBitmapSubpixel(&s_font, bm, gw, gh, gw, scale, scale, xshift, 0, cp);
-                int dx0 = penX + (int)floorf(xpos) + gx0;
-                int dy0 = baselineY + gy0;
-                for (int gy = 0; gy < gh; ++gy) {
-                    int dy = dy0 + gy;
-                    if (dy < 0 || dy >= H) continue;
-                    for (int gx = 0; gx < gw; ++gx) {
-                        int dx = dx0 + gx;
-                        if (dx < 0 || dx >= W) continue;
-                        uint8_t a = bm[gy * gw + gx];
-                        if (!a) continue;
-                        uint16_t *o = &dst[dy * W + dx];
-                        *o = blend565(*o, fg, a);
-                    }
-                }
-                free(bm);
-            }
-        }
+        composite_glyph(dst, W, H, penX + (int)floorf(xpos), xpos - floorf(xpos), baselineY, cp, fg, scale);
         xpos += aw * scale;
         if (p + 1 < end) xpos += scale * stbtt_GetCodepointKernAdvance(&s_font, cp, (unsigned char)p[1]);
     }
+    if (hyphen)   // a word broken across lines gets a trailing '-'
+        composite_glyph(dst, W, H, penX + (int)floorf(xpos), xpos - floorf(xpos), baselineY, '-', fg, scale);
 }
 
 // One line, aligned about (ax,ay) per st.halign/valign — the single-line path.
@@ -378,27 +385,53 @@ static void blit_glyphs(uint16_t *dst, int W, int H, int ax, int ay,
 // scroll. A single word wider than boxW is force-placed on its own line (it will
 // overflow; the height-fit search shrinks px until even that fits). Returns the
 // line count (capped at maxLines).
-struct WrapLine { const char *b; const char *e; };
-static int wrap_lines(const char *str, float scale, int boxW, WrapLine *out, int maxLines) {
+struct WrapLine { const char *b; const char *e; bool hyphen; };
+
+static float char_adv(int cp, float scale) {
+    int aw, lsb;
+    stbtt_GetCodepointHMetrics(&s_font, cp, &aw, &lsb);
+    return aw * scale;
+}
+// Rendered width of a wrapped line — the span plus a trailing '-' if hyphenated.
+static float line_width(const WrapLine &L, float scale) {
+    return measure_range(L.b, L.e, scale) + (L.hyphen ? char_adv('-', scale) : 0);
+}
+
+// Greedy word-wrap of `str` to width boxW at `scale`. Lines are [begin,end) spans
+// into the original string (no copies). When `hyphenate`, a single word wider than
+// boxW is split across lines with a trailing '-' (out.hyphen); otherwise it's
+// force-placed whole (may clip) — flow uses whole-word, wrap/scroll hyphenate.
+static int wrap_lines(const char *str, float scale, int boxW, WrapLine *out, int maxLines,
+                      bool hyphenate) {
+    float hyphenW = hyphenate ? char_adv('-', scale) : 0;
     int n = 0;
     const char *p = str;
     while (*p == ' ') ++p;
     while (*p && n < maxLines) {
         const char *lineB = p, *lineE = p;
+        bool hy = false;
         for (;;) {
             const char *ws = lineE; while (*ws == ' ') ++ws;     // next word start
             if (!*ws) { p = ws; break; }                          // no more words
             const char *we = ws; while (*we && *we != ' ') ++we;  // next word end
-            if (measure_range(lineB, we, scale) <= boxW || lineE == lineB) {
-                lineE = we;                                       // accept word (force first)
+            if (measure_range(lineB, we, scale) <= boxW) {
+                lineE = we;                                       // word fits
+                if (!*we) { p = we; break; }
+            } else if (lineE == lineB && hyphenate) {             // lone over-long word → hyphenate
+                const char *cut = ws + 1;                          // keep ≥ 1 char
+                while (cut < we && measure_range(ws, cut + 1, scale) + hyphenW <= boxW) ++cut;
+                lineE = cut; hy = true; p = cut;                  // rest continues next line
+                break;
+            } else if (lineE == lineB) {
+                lineE = we;                                       // can't hyphenate → force whole
                 if (!*we) { p = we; break; }
             } else {
                 p = ws; break;                                    // word starts next line
             }
         }
-        out[n].b = lineB; out[n].e = lineE; ++n;
+        out[n].b = lineB; out[n].e = lineE; out[n].hyphen = hy; ++n;
         while (*p == ' ') ++p;
-        if (p == lineB) break;                                    // no progress safety
+        if (p == lineB && !hy) break;                             // no progress safety
     }
     return n;
 }
@@ -415,7 +448,9 @@ static int fit_wrap_px(const char *str, int boxW, int boxH) {
         int mid = (lo + hi) / 2;
         float scale = stbtt_ScaleForPixelHeight(&s_font, (float)mid);
         WrapLine L[kMaxLines];
-        int n = wrap_lines(str, scale, boxW, L, kMaxLines);
+        // Size for WHOLE words (no hyphenation) so a short token like "65°F" isn't
+        // broken to justify a bigger font — the render still hyphenates as a fallback.
+        int n = wrap_lines(str, scale, boxW, L, kMaxLines, false);
         float lineAdv = (asc - desc + gap) * scale;
         bool fits = (n < kMaxLines) && (n * lineAdv <= (float)boxH);
         for (int i = 0; fits && i < n; ++i)
@@ -435,7 +470,7 @@ static int fit_flow_px(const char *str, int boxW, int boxH, int maxPanels) {
         int mid = (lo + hi) / 2;
         float scale = stbtt_ScaleForPixelHeight(&s_font, (float)mid);
         WrapLine L[kMaxLines];
-        int n = wrap_lines(str, scale, boxW, L, kMaxLines);
+        int n = wrap_lines(str, scale, boxW, L, kMaxLines, false);   // flow = whole words
         bool fits = (n <= maxPanels);
         for (int i = 0; fits && i < n; ++i)
             if (measure_range(L[i].b, L[i].e, scale) > boxW + 0.5f) fits = false;
@@ -455,15 +490,15 @@ static void blit_wrapped(uint16_t *dst, int W, int H, int boxX, int boxY, int bo
     int ascPx = (int)(asc * scale);
     constexpr int kMaxLines = 24;
     WrapLine L[kMaxLines];
-    int n = wrap_lines(str, scale, boxW, L, kMaxLines);
+    int n = wrap_lines(str, scale, boxW, L, kMaxLines, true);
     float totalH = n * lineAdv;
     int top = boxY + (st.valign == IpstubeModule::TextStyle::Middle ? (int)((boxH - totalH) / 2)
                     : st.valign == IpstubeModule::TextStyle::Bottom ? (int)(boxH - totalH) : 0);
     for (int i = 0; i < n; ++i) {
-        int lw = (int)ceilf(measure_range(L[i].b, L[i].e, scale));
+        int lw = (int)ceilf(line_width(L[i], scale));
         int x = boxX + (st.halign == IpstubeModule::TextStyle::Center ? (boxW - lw) / 2
                       : st.halign == IpstubeModule::TextStyle::Right  ? (boxW - lw) : 0);
-        render_line(dst, W, H, x, top + (int)(i * lineAdv) + ascPx, L[i].b, L[i].e, st.fg, scale);
+        render_line(dst, W, H, x, top + (int)(i * lineAdv) + ascPx, L[i].b, L[i].e, st.fg, scale, L[i].hyphen);
     }
 }
 
@@ -521,7 +556,7 @@ int IpstubeModule::drawTextFlow(const char *str, TextStyle s, int pad) {
     stbtt_GetFontVMetrics(&s_font, &asc, &desc, &gap);
     int ascPx = (int)(asc * scale);
     WrapLine L[kNumDisplays];
-    int n = wrap_lines(str, scale, boxW, L, kNumDisplays);   // one line per panel
+    int n = wrap_lines(str, scale, boxW, L, kNumDisplays, false);   // one whole-word line per panel
     uint16_t *buf = panel_buf();
     if (!buf) return 0;
     // Each panel: clear to bg, then (if it has a line) render it, vertically
@@ -687,7 +722,7 @@ static int vs_ensure(const char *str, const IpstubeModule::TextStyle &st) {
     if (boxW < 1) boxW = IpstubeModule::kWidth;
     constexpr int kMaxLines = 64;
     WrapLine L[kMaxLines];
-    int n = wrap_lines(str, scale, boxW, L, kMaxLines);
+    int n = wrap_lines(str, scale, boxW, L, kMaxLines, true);   // hyphenate long words
     int H = (int)ceilf(n * lineAdv) + (int)ceilf(lineAdv * 0.3f);  // small tail past the last line
     if (H < 1) H = 1;
 
@@ -698,10 +733,10 @@ static int vs_ensure(const char *str, const IpstubeModule::TextStyle &st) {
     for (int i = 0; i < IpstubeModule::kWidth * H; ++i) s_vs_buf[i] = st.bg;
     int ascPx = (int)(asc * scale);
     for (int i = 0; i < n; ++i) {
-        int lw = (int)ceilf(measure_range(L[i].b, L[i].e, scale));
+        int lw = (int)ceilf(line_width(L[i], scale));
         int x = pad + (st.halign == IpstubeModule::TextStyle::Center ? (boxW - lw) / 2
                      : st.halign == IpstubeModule::TextStyle::Right  ? (boxW - lw) : 0);
-        render_line(s_vs_buf, IpstubeModule::kWidth, H, x, (int)(i * lineAdv) + ascPx, L[i].b, L[i].e, st.fg, scale);
+        render_line(s_vs_buf, IpstubeModule::kWidth, H, x, (int)(i * lineAdv) + ascPx, L[i].b, L[i].e, st.fg, scale, L[i].hyphen);
     }
     strncpy(s_vs_key, key, sizeof(s_vs_key) - 1);
     s_vs_key[sizeof(s_vs_key) - 1] = '\0';
