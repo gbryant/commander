@@ -21,6 +21,10 @@ public:
     static constexpr int     kWidth       = 135;
     static constexpr int     kHeight      = 240;
     static constexpr uint8_t kAll         = 0xFF;   // address all displays at once
+    // In wrapped/scrolled text, '\n' forces a line break; a line that *starts*
+    // with kNoWrap is rendered whole and never split (its spaces don't wrap) —
+    // e.g. "65\xb0F\n\x1e" "49\xb0 / 71\xb0" keeps the low/high on one line.
+    static constexpr char    kNoWrap      = '\x1e';
 
     const char *name() const override { return "ipstube"; }
     void        init() override;       // SPI bus + 6 ST7789 panels + backlight

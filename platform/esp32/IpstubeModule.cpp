@@ -398,25 +398,34 @@ static float line_width(const WrapLine &L, float scale) {
 }
 
 // Greedy word-wrap of `str` to width boxW at `scale`. Lines are [begin,end) spans
-// into the original string (no copies). When `hyphenate`, a single word wider than
-// boxW is split across lines with a trailing '-' (out.hyphen); otherwise it's
-// force-placed whole (may clip) — flow uses whole-word, wrap/scroll hyphenate.
+// into the original string (no copies). A '\n' forces a line break (explicit
+// layout). When `hyphenate`, a single word wider than boxW is split across lines
+// with a trailing '-' (out.hyphen); otherwise it's force-placed whole (may clip)
+// — flow uses whole-word, wrap/scroll hyphenate.
 static int wrap_lines(const char *str, float scale, int boxW, WrapLine *out, int maxLines,
                       bool hyphenate) {
     float hyphenW = hyphenate ? char_adv('-', scale) : 0;
     int n = 0;
     const char *p = str;
-    while (*p == ' ') ++p;
     while (*p && n < maxLines) {
+        while (*p == ' ') ++p;                                    // trim leading spaces (not \n)
+        if (*p == IpstubeModule::kNoWrap) {                       // no-wrap line: emit whole segment
+            const char *lb = p + 1, *le = p + 1;
+            while (*le && *le != '\n') ++le;
+            out[n].b = lb; out[n].e = le; out[n].hyphen = false; ++n;
+            p = (*le == '\n') ? le + 1 : le;
+            continue;
+        }
         const char *lineB = p, *lineE = p;
         bool hy = false;
         for (;;) {
-            const char *ws = lineE; while (*ws == ' ') ++ws;     // next word start
+            const char *ws = lineE; while (*ws == ' ') ++ws;     // spaces before next word
+            if (*ws == '\n') { p = ws + 1; break; }               // hard break → resume after \n
             if (!*ws) { p = ws; break; }                          // no more words
-            const char *we = ws; while (*we && *we != ' ') ++we;  // next word end
+            const char *we = ws; while (*we && *we != ' ' && *we != '\n') ++we;
             if (measure_range(lineB, we, scale) <= boxW) {
                 lineE = we;                                       // word fits
-                if (!*we) { p = we; break; }
+                if (!*we || *we == '\n') { p = (*we == '\n') ? we + 1 : we; break; }
             } else if (lineE == lineB && hyphenate) {             // lone over-long word → hyphenate
                 const char *cut = ws + 1;                          // keep ≥ 1 char
                 while (cut < we && measure_range(ws, cut + 1, scale) + hyphenW <= boxW) ++cut;
@@ -424,14 +433,13 @@ static int wrap_lines(const char *str, float scale, int boxW, WrapLine *out, int
                 break;
             } else if (lineE == lineB) {
                 lineE = we;                                       // can't hyphenate → force whole
-                if (!*we) { p = we; break; }
+                if (!*we || *we == '\n') { p = (*we == '\n') ? we + 1 : we; break; }
             } else {
                 p = ws; break;                                    // word starts next line
             }
         }
         out[n].b = lineB; out[n].e = lineE; out[n].hyphen = hy; ++n;
-        while (*p == ' ') ++p;
-        if (p == lineB && !hy) break;                             // no progress safety
+        if (p <= lineB && !hy) break;                             // no forward progress safety
     }
     return n;
 }
