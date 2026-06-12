@@ -21,10 +21,22 @@ Key distinction: **adb/ssh reach Debian (the SBC); the USB serial reaches the MC
 Problem: by default `arduino-router` owns `ttyHS1` (its MsgPack RPC) and reclaims it on
 every boot, blocking commander's raw bridge. Fix = two systemd changes on the board:
 
-1. **Disable the Arduino router** (frees `ttyHS1`; App Lab isn't used here anyway):
+1. **Mask the Arduino router stack** (frees `ttyHS1`; App Lab isn't used here anyway).
+   `disable` is NOT enough — the router gets pulled back in three ways: the
+   `arduino-router-serial.path` trigger (re-)starts `arduino-router-serial.service`, which
+   `Requires=arduino-router.service`, and `arduino-app-cli.service` `Wants` it too. Only
+   **masking** blocks all of those. The units are real files in `/etc/systemd/system`, so
+   `systemctl mask` won't symlink over them — move the file aside first:
    ```
-   sudo systemctl disable --now arduino-router.service arduino-router-serial.service
+   for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do
+     sudo mv /etc/systemd/system/$u /etc/systemd/system/$u.commander-bak   # free the path
+     sudo ln -sf /dev/null /etc/systemd/system/$u                          # mask
+   done
+   sudo systemctl daemon-reload
+   sudo systemctl stop arduino-router.service arduino-router-serial.service  # kill live instances
    ```
+   (`app-cli` only `Wants` the router, so it skips the masked unit cleanly; `ttyGS0` is
+   created by adbd independently, untouched.)
 2. **Install a persistent bridge** that pipes the MCU UART to the *existing* USB CDC ACM
    (`ttyGS0`, part of the default adb+acm gadget — so adb is untouched, no gadget edit):
 
@@ -69,8 +81,17 @@ The Mac console (`cu.usbmodem`) shows the new firmware live — no need to detac
 ### Revert to stock Arduino
 ```
 sudo systemctl disable --now commander-bridge.service
-sudo systemctl enable --now arduino-router.service arduino-router-serial.service
+for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do
+  sudo rm -f /etc/systemd/system/$u                                       # remove the /dev/null mask
+  sudo mv /etc/systemd/system/$u.commander-bak /etc/systemd/system/$u      # restore the real unit
+done
+sudo systemctl daemon-reload
+sudo systemctl enable --now arduino-router.service arduino-router-serial.service arduino-router-serial.path
 ```
+
+> **needrestart note:** after `apt upgrade`, the "Daemons using outdated libraries" screen
+> (`needrestart`) only *restarts running* services to pick up new libs — it does NOT change
+> enable/disable/mask state. The mask above survives upgrades and reboots.
 
 ## Phase 2 — IP / multi-consumer (planned, requirements TBD)
 Add a USB-ethernet gadget function (`usb_f_ncm`/`ecm` — modules present on this kernel) →
