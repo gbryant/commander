@@ -75,6 +75,15 @@ bool hal_i2c_read(uint8_t addr, uint8_t reg, uint8_t *data, size_t len) {
     return ret == ESP_OK;
 }
 
+bool hal_i2c_read_raw(uint8_t addr, uint8_t *data, size_t len) {
+    i2c_master_dev_handle_t dev = open_device(addr);
+    esp_err_t ret = i2c_master_receive(dev, data, len, 50);
+    if (ret != ESP_OK)
+        ESP_LOGW(TAG, "read_raw 0x%02X: %s", addr, esp_err_to_name(ret));
+    i2c_master_bus_rm_device(dev);
+    return ret == ESP_OK;
+}
+
 // gpio_set_direction (not gpio_config) so repeated direction flips — e.g. a
 // bit-banged 3-wire bus like the DS1302, which switches its IO line in/out many
 // times per read — don't re-run gpio_config's pin reservation and spam IDF's

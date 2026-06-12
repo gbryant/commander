@@ -44,6 +44,11 @@ bool hal_i2c_read(uint8_t addr, uint8_t reg, uint8_t *data, size_t len) {
                                    make_timeout_time_ms(10)) == (int)len;
 }
 
+bool hal_i2c_read_raw(uint8_t addr, uint8_t *data, size_t len) {
+    return i2c_read_blocking_until(_i2c_bus, addr, data, len, false,
+                                   make_timeout_time_ms(10)) == (int)len;
+}
+
 void hal_gpio_set_output(uint8_t pin) { gpio_init(pin); gpio_set_dir(pin, GPIO_OUT); }
 void hal_gpio_set_input (uint8_t pin) { gpio_init(pin); gpio_set_dir(pin, GPIO_IN);  }
 void hal_gpio_write(uint8_t pin, bool high) { gpio_put(pin, high); }

@@ -187,3 +187,4 @@ void hal_i2c_init(uint8_t, uint8_t, uint32_t) { /* TODO Phase 4: I2C1 or bit-ban
 bool hal_i2c_probe(uint8_t)                                   { return false; }
 bool hal_i2c_write(uint8_t, uint8_t, const uint8_t *, size_t) { return false; }
 bool hal_i2c_read (uint8_t, uint8_t,       uint8_t *, size_t) { return false; }
+bool hal_i2c_read_raw(uint8_t,             uint8_t *, size_t) { return false; }

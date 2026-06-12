@@ -228,6 +228,12 @@ Goal: migrate Roomba robot to this framework.
    main + target detection) and add an RMT-based IR impl.
 5. **Bluepill I2C** — implement `hal_i2c_*` for the STM32 (I2C1 peripheral or
    bit-bang) to bring up `compass`; currently stubbed in `hal/stm32/hal.cpp`.
+6. **Grove Vision AI V2 (`aicam`)** — esp32 module landed: SSCMA AT protocol over a
+   UART/I2C transport seam (`modules/aicam/` + `platform/esp32/AiCamUartTransport`),
+   host = XIAO ESP32-S3, consumer = `cmdr-ai-cam`. Added `hal_i2c_read_raw` to the
+   HAL. **HW-confirmed (2026-06-11): full pipeline** — `aicam info`/`sensors` plus live
+   `aicam stream` inference (rock-paper-scissors model) over the UART link. Still to
+   exercise on HW: `snap` (640x480 image may exceed AICAM_RX_MAX) and the I2C transport.
 
 ## Board pin reference
 

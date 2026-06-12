@@ -284,8 +284,26 @@ onboard RGB LED is just this with `count=1`; multiple chains would follow the in
 `channels` pattern. Enable injects `COMMANDER_ENABLE_WS2812` (gates the `.cpp` in the
 runner); `esp_driver_rmt` is an unconditional runner REQUIRE. The IPSTube enables both
 `ipstube` (displays) and `ws2812` (GPIO5 ambient) — separate peripherals, separate modules.
+`aicam` (esp32 only — Grove Vision AI Module V2 / WiseEye2 + OV5647 camera; host =
+XIAO ESP32-S3). Talks the **SSCMA AT protocol** (`AT+<CMD>=<args>\r\n` → `\r{json}\n`
+events with integer `boxes`/`classes`/`points`/`perf` arrays + optional base64
+`image`) over a **pluggable transport seam** (`modules/aicam/Sscma.h`
+`ISscmaTransport` + `SscmaClient` — clean-room port of Seeed_Arduino_SSCMA's framing,
+no Arduino/Wire/ArduinoJson). Two backends: **I2C** (`modules/aicam/I2cTransport.h`,
+portable header-only over `hal_i2c_*` incl. the new `hal_i2c_read_raw`, addr `0x62`,
+SDA5/SCL6) and **UART** (`platform/esp32/AiCamUartTransport.{h,cpp}`, esp32-specific
+`esp_driver_uart` on UART1 TX43/RX44 @ 921600, gated `COMMANDER_ENABLE_AICAM`). The
+`transport` question (default `uart`) picks one at `cmdr module enable aicam`; uart is
+best for image throughput, i2c frees both USB-C ports. One namespaced `aicam` command
+(`info`/`model`/`models`/`sensor`/`score`/`iou`/`invoke`/`stream on|off`/`snap`/`at
+<raw>`/`reset`; `at` is a raw AT passthrough for probing, e.g. SD card). Streaming
+(`AT+INVOKE=-1`) is pumped by the UART task (the module emits an `addTicker`) and
+prints to the console via `hal_uart_puts`. The app wires results via the weak
+`commander_on_aicam_ready(AiCamModule&)` hook + the C++ API (`invoke`/`startStream`/
+`onResult`). Model *flashing* stays a SenseCraft/BOOTSEL job over the Vision AI's own
+USB-C; commander only selects flashed models (`AT+MODEL=<id>`) and runs inference.
 Cross-platform modules use the same emitter on every target; `ir`, `roomba`,
-`locomotion`/`loco-bridge`, `controller`, `ipstube`, and `ws2812` are platform-gated, and a module may declare per-target question defaults (e.g.
+`locomotion`/`loco-bridge`, `controller`, `ipstube`, `ws2812`, and `aicam` are platform-gated, and a module may declare per-target question defaults (e.g.
 IR pin 22 on Pico, 5 on Uno) and `pio_lib_deps` (PlatformIO libs to add on
 enable). Uno is in the module system via a no-WiFi hook main.
 

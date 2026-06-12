@@ -29,6 +29,13 @@ bool hal_i2c_read(uint8_t addr, uint8_t reg, uint8_t *data, size_t len) {
     return true;
 }
 
+bool hal_i2c_read_raw(uint8_t addr, uint8_t *data, size_t len) {
+    Wire.requestFrom(addr, (uint8_t)len);
+    if ((size_t)Wire.available() < len) return false;
+    for (size_t i = 0; i < len; i++) data[i] = Wire.read();
+    return true;
+}
+
 void hal_gpio_set_output(uint8_t pin) { pinMode(pin, OUTPUT); }
 void hal_gpio_set_input (uint8_t pin) { pinMode(pin, INPUT);  }
 void hal_gpio_write(uint8_t pin, bool high) { digitalWrite(pin, high ? HIGH : LOW); }

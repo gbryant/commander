@@ -652,6 +652,14 @@ MODULE_SPECS = {
         ("count", "number of LEDs in the chain", "6"),
         ("order", "colour order (GRB/RGB/BRG/RBG/GBR/BGR)", "GRB"),
     ]},
+    # Grove Vision AI Module V2 (WiseEye2 + camera) host module — SSCMA AT protocol.
+    # Default UART transport (esp32-specific backend, gated COMMANDER_ENABLE_AICAM);
+    # I2C transport is portable/header-only (no gate). The app wires inference results
+    # via commander_on_aicam_ready. Wiring is fixed by the XIAO socket — TX43/RX44 for
+    # uart, SDA5/SCL6 @ 0x62 for i2c (override in cmdr.toml / -DAICAM_* if needed).
+    "aicam": {"always": False, "platforms": ["esp32"], "questions": [
+        ("transport", "Vision AI link transport (uart/i2c)", "uart"),
+    ]},
     # DS1302 RTC — Maxim 3-wire, bit-banged over hal_gpio_* (portable, all
     # platforms). Command `rtc`; the app reads/writes time via
     # commander_on_ds1302_ready. Pins default to the IPSTube wiring.
@@ -726,6 +734,40 @@ def _emit_module(name: str, opts: dict, target: str):
                  "void commander_on_ws2812_ready(Ws2812Module &);"],
                 ["reg.registerModule(_m_ws2812);",
                  "commander_on_ws2812_ready(_m_ws2812);"], [])
+    if name == "aicam":
+        if target != "esp32":
+            die(f"aicam module is not supported on target '{target}'")
+        # Streaming results are pumped by the UART task, so add a ticker. The hook
+        # is a weak *declaration* in AiCamModule.h (header-only), so null-check it.
+        transport = str(opts.get("transport", "uart")).strip().lower()
+        if transport == "i2c":
+            # Portable I2C backend (Grove Vision AI V2 @ 0x62). Brings up the HAL
+            # I2C bus (deduped against compass/i2c if the pins match).
+            sda  = opts.get("sda", 5)
+            scl  = opts.get("scl", 6)
+            addr = opts.get("addr", 0x62)
+            addr_lit = f"0x{addr:02X}" if isinstance(addr, int) else addr
+            return (['#include "hal/hal.h"',
+                     '#include "modules/aicam/I2cTransport.h"',
+                     '#include "modules/aicam/AiCamModule.h"'],
+                    [f"static AiCamI2cTransport _t_aicam({addr_lit});",
+                     "static AiCamModule _m_aicam(_t_aicam);"],
+                    [f"hal_i2c_init({sda}, {scl}, 400000);",
+                     "reg.registerModule(_m_aicam);",
+                     "if (commander_on_aicam_ready) commander_on_aicam_ready(_m_aicam);"],
+                    ["uart.addTicker(_m_aicam);"])
+        if transport != "uart":
+            die(f"aicam 'transport' must be 'uart' or 'i2c' (got '{transport}')")
+        # esp32 UART backend (compiled in the runner under COMMANDER_ENABLE_AICAM).
+        tx = opts.get("tx", 43)
+        rx = opts.get("rx", 44)
+        return (['#include "platform/esp32/AiCamUartTransport.h"',
+                 '#include "modules/aicam/AiCamModule.h"'],
+                [f"static AiCamUartTransport _t_aicam({tx}, {rx});",
+                 "static AiCamModule _m_aicam(_t_aicam);"],
+                ["reg.registerModule(_m_aicam);",
+                 "if (commander_on_aicam_ready) commander_on_aicam_ready(_m_aicam);"],
+                ["uart.addTicker(_m_aicam);"])
     if name == "ds1302":
         sclk = opts.get("sclk", 22)
         io   = opts.get("io", 19)
@@ -1113,6 +1155,8 @@ _MODULE_COMMANDS = {
     "ws2812": 1,
     # ds1302: one `rtc` command.
     "ds1302": 1,
+    # aicam: one namespaced `aicam` command.
+    "aicam": 1,
 }
 # Headroom for runner-registered commands (bootsel on pico, ota when enabled) plus
 # a few app-registered ones. Conservative, since under-sizing silently drops commands.
@@ -1250,6 +1294,36 @@ def _ws2812_cmake_disable() -> None:
     print("  • CMakeLists.txt: removed COMMANDER_ENABLE_WS2812 (wipe build dir to reconfigure)")
 
 
+# ESP32 CMake injection for the aicam module's UART backend — same mechanism as
+# ipstube/ws2812. Only needed for the uart transport (the i2c backend is portable
+# header-only); COMMANDER_ENABLE_AICAM gates AiCamUartTransport.cpp in the runner.
+_AICAM_OPT = 'set(COMMANDER_ENABLE_AICAM ON CACHE BOOL "" FORCE)  # commander aicam (Vision AI UART)'
+
+
+def _aicam_cmake_enable() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        print("  ! no CMakeLists.txt — set COMMANDER_ENABLE_AICAM ON before the IDF include manually")
+        return
+    text = cmake.read_text()
+    if "COMMANDER_ENABLE_AICAM" not in text and _IPSTUBE_ANCHOR in text:
+        text = text.replace(_IPSTUBE_ANCHOR, _AICAM_OPT + "\n" + _IPSTUBE_ANCHOR, 1)
+        cmake.write_text(text)
+        print("  • CMakeLists.txt: COMMANDER_ENABLE_AICAM=ON (runner builds the Vision AI UART backend)")
+    print("  • Grove Vision AI V2 on UART1 (TX43/RX44); drive it via commander_on_aicam_ready()")
+    print("  • wipe the build dir (build-esp32/) to reconfigure")
+
+
+def _aicam_cmake_disable() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        return
+    text = cmake.read_text()
+    text = text.replace(_AICAM_OPT + "\n", "")
+    cmake.write_text(text)
+    print("  • CMakeLists.txt: removed COMMANDER_ENABLE_AICAM (wipe build dir to reconfigure)")
+
+
 def cmd_module(args: argparse.Namespace) -> None:
     manifest = Path("cmdr.toml")
 
@@ -1322,6 +1396,8 @@ def cmd_module(args: argparse.Namespace) -> None:
             _ipstube_cmake_enable()
         if name == "ws2812":
             _ws2812_cmake_enable()
+        if name == "aicam" and modules[name].get("transport", "uart") != "i2c":
+            _aicam_cmake_enable()
         print(f"enabled module: {name}")
     elif args.action == "disable":
         if name not in modules:
@@ -1340,6 +1416,8 @@ def cmd_module(args: argparse.Namespace) -> None:
             _ipstube_cmake_disable()
         if name == "ws2812":
             _ws2812_cmake_disable()
+        if name == "aicam":
+            _aicam_cmake_disable()
         print(f"disabled module: {name}")
 
 

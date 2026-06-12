@@ -53,6 +53,12 @@ endif()
 if(COMMANDER_ENABLE_WS2812)
     list(APPEND CMDR_SRCS "${COMMANDER_ROOT}/platform/esp32/Ws2812Module.cpp")
 endif()
+# aicam UART backend (Grove Vision AI V2 over UART). The I2C transport is portable
+# header-only and needs no source here; only the UART backend is esp32-specific.
+# esp_driver_uart is already in CMDR_REQUIRES above, so no REQUIRES change.
+if(COMMANDER_ENABLE_AICAM)
+    list(APPEND CMDR_SRCS "${COMMANDER_ROOT}/platform/esp32/AiCamUartTransport.cpp")
+endif()
 
 idf_component_register(
     SRCS ${CMDR_SRCS}
