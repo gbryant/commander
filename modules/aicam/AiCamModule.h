@@ -186,14 +186,22 @@ inline void AiCamModule::dispatch(const char *args, Writer &out) {
         const char *a = nextTok(p);
         int n = (*a == '\0') ? 1 : atoi(a);
         if (n < 1) n = 1;
+        // One AT+INVOKE=n,0,1 makes the device run n times and emit n events; drain
+        // and print each (the first has a longer wait for model warm-up).
         char body[24];
         snprintf(body, sizeof(body), "INVOKE=%d,0,1", n);
-        AiResult res;
-        if (_client.invokeEvent(body, res, 4000)) {
+        _client.flush();
+        _client.writeAt(body);
+        int got = 0;
+        for (int i = 0; i < n; i++) {
+            AiResult res;
+            if (!_client.nextEvent(res, got == 0 ? 4000 : 1500)) break;
             char line[256];
             format(res, line, sizeof(line));
             out.writeln(line);
-        } else out.writeln("timeout (no model loaded?)");
+            got++;
+        }
+        if (got == 0) out.writeln("timeout (no model loaded?)");
         return;
     }
     if (tokIs(p, "stream")) {

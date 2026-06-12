@@ -110,16 +110,22 @@ public:
     bool invokeEvent(const char *body, AiResult &res, uint32_t timeout_ms) {
         flush();
         writeAt(body);
+        return nextEvent(res, timeout_ms);
+    }
+
+    // Read the next inference event (type 1) into `res`, skipping ack/log frames.
+    // No write — pairs with a single writeAt("INVOKE=n,...") to drain all n events.
+    bool nextEvent(AiResult &res, uint32_t timeout_ms) {
         char frame[AICAM_FRAME_MAX];
         uint64_t t0 = hal_time_us();
-        while (elapsed_ms(t0) < timeout_ms) {
+        do {
             pump(5);
             int len;
             while ((len = extractFrame(frame, sizeof(frame))) > 0) {
                 if (frameInt(frame, "type") == 1) { parseResult(frame, res); return true; }
             }
             hal_delay_ms(2);
-        }
+        } while (elapsed_ms(t0) < timeout_ms);
         return false;
     }
 
