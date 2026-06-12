@@ -126,6 +126,28 @@ Default = **UART** (`ttyHS1`/lpuart1). Pick the wire by workload, not now:
 
 ### First development slice (UART)
 Frame codec (COBS-delimited `[channel][payload]`, host-testable) → a channel-mux transport on
-the MCU (ch0 = existing console behavior + publish on other channels) → a `publish` API → a
-thin SBC broker. Prove with the scenario in miniature: IR/heartbeat publish MCU→SBC while the
-console still works on ch0, plus an SBC→MCU command. Optional/gated so the AVR tier pays nothing.
+the MCU (ch0 = console + publish on other channels) → a `publish` API → a thin SBC broker.
+Prove with the scenario in miniature: IR/heartbeat publish MCU→SBC while the console still
+works on ch0, plus an SBC→MCU command. Optional/gated so the AVR tier pays nothing.
+
+### Build status (resume here)
+- [x] **`transport/channels/ChannelCodec.h`** — COBS frame codec (`channel_encode` +
+      streaming `ChannelReader`). Host-tested.
+- [x] **`transport/channels/ChannelTransport.h`** — channel-mux: `ch0` = console (payload is
+      a full command line → `CommandRegistry::dispatch` → output framed back on ch0); other
+      channels via `publish()` / `subscribe()`. Byte I/O injected (`WriteFn` out + `feedByte`
+      in) → link-agnostic + host-testable. Host-tested.
+- [x] Host tests: `transport/channels/tests/run.sh` (12 checks, all pass — pure C++, no HW).
+- [ ] **Module publish API + a `commander_on_channels_ready(ChannelTransport&)` hook** (so a
+      module can grab the transport to publish/subscribe; e.g. IR publishes on an `ir` channel).
+- [ ] **Runner wiring** — feed `hal_uart_getchar` → `feedByte`; `WriteFn` = a byte writer
+      (loop `hal_uart_putchar`, NOT `hal_uart_puts` — frames contain 0x00). This is the
+      `ch0`-only-vs-bus decision in the runner; keep it optional/gated. Replaces/augments
+      UartTransport on bus builds. Decide channel id assignments (ch0 console; ch1+ = ir,
+      sensor, command, ...).
+- [ ] **Thin Python SBC broker** on Debian (gandalf): owns the framed link
+      (`/dev/ttyHS1` via the commander-bridge socat, or take over that role), demuxes channels
+      → a console pty (so `screen` still works for ch0) + per-channel unix sockets/TCP for
+      pub/sub. See `docs/unoq-access.md` for the link.
+- [ ] **HW proof on the Uno Q**: IR/heartbeat publish MCU→SBC while ch0 console works + an
+      SBC→MCU command. (Flash recipe + access in `docs/zephyr-hal-spike.md` / `docs/unoq-access.md`.)
