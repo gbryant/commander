@@ -6,8 +6,9 @@ RAM/CPU on the 2 GB board. This is the system-tuning companion to `docs/unoq-acc
 (which covers the access map + the commander console bridge). All commands assume the
 `arduino` user (in `sudo`); apply over `adb shell` or `ssh`.
 
-**Verified on:** Debian 13 (trixie), board `gandalf`. **Result:** RAM used 432 → 284 MB
-(~150 MB freed); leaner still after a reboot (Xorg never starts).
+**Verified on:** Debian 13 (trixie), board `gandalf`. **Result (after reboot):** RAM used
+432 → 222 MB (~210 MB freed), ~1.5 GB available — GUI + ModemManager/bluetooth + the App
+Lab/Docker stack all gone.
 
 ## 1. Turn off the GUI (biggest win)
 Boots to console instead of the graphical login; stops X/lightdm now.
@@ -21,11 +22,23 @@ sudo systemctl disable --now lightdm.service
 ```
 sudo systemctl disable --now ModemManager.service   # no cellular modem on this board
 sudo systemctl disable --now bluetooth.service       # MCU/commander doesn't use host BT
-# docker = Arduino App Lab's container runtime. App Lab is masked (see unoq-access.md),
-# so disable it IF you run no containers:
-sudo systemctl disable --now docker.service docker.socket
 ```
-(Each is reversible with `enable --now`. Check containers first: `sudo docker ps`.)
+(Reversible with `enable --now`.)
+
+**The Arduino App Lab + Docker stack must be MASKED, not disabled** — `disable` doesn't hold
+because `arduino-app-cli.service` `Wants` docker (and the router) and `docker.socket`
+socket-activates it, so they come back on reboot (same trap as the router). Check for
+containers first (`sudo docker ps`), then:
+```
+sudo systemctl mask --now docker.service docker.socket containerd.service
+# arduino-app-cli is a real file in /etc, so mask needs move-aside (like the router):
+sudo systemctl stop arduino-app-cli.service
+sudo mv /etc/systemd/system/arduino-app-cli.service /etc/systemd/system/arduino-app-cli.service.commander-bak
+sudo ln -sf /dev/null /etc/systemd/system/arduino-app-cli.service
+sudo systemctl daemon-reload
+```
+(Frees ~55 MB more. Revert: `unmask` the vendor units; for app-cli, `rm` the /dev/null
+symlink and `mv` the `.commander-bak` file back, then `daemon-reload`.)
 
 ## 3. KEEP these — disabling them breaks access
 | Service | Why keep |
