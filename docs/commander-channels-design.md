@@ -67,5 +67,65 @@ near-zero work; C = speak Arduino RPC. This note is the principled evolution bey
 ## Sequencing
 1. **B first** — raw single stream over the bridge UART; validate the whole
    flash→shell→drive stack end-to-end on the Uno Q. Feel the actual need.
+   ✅ DONE 2026-06-12: commander runs on the Uno Q; reboot-proof access via
+   `commander-bridge.service` (see `docs/unoq-access.md`).
 2. **Then** design the channel layer deliberately (above). Prototype on the Uno Q.
 Do NOT bolt mux on reflexively before B proves the stack.
+
+---
+
+## Phase 2 — refined design (2026-06-12) — IN DEVELOPMENT
+
+Driven by a concrete scenario: IR receiver on the MCU pushes an event to the SBC; the SBC
+later sends a command to the MCU; meanwhile a sensor streams MCU→SBC *while* the SBC streams
+MCU. This breaks two commander assumptions and pins the design:
+
+**It's PEER pub/sub, not master/slave.** Both ends initiate, unprompted (the MCU pushes IR
+events; the SBC pushes commands). And it's multi-stream + bidirectional + concurrent, so a
+single undifferentiated console can't work — output must be channel-tagged at the source.
+
+### The model
+- **Framed channel bus** between the two brains. Frame = `[channel][payload]`; both
+  directions multiplexed independently (UART is full-duplex — MCU→SBC and SBC→MCU don't
+  contend, they're separate wires).
+- **Channels** (ids; static for v1): `ch0 = console` (KEEP IT — the human shell / "just
+  another commander app" for debugging), `ch1.. = ir / sensor / command / ...`.
+- **Peer pub/sub:** a module can **publish** unsolicited to a channel (the new capability —
+  IR module does `channel("ir").publish(...)` instead of `hal_uart_puts`), and **subscribe**
+  to an input channel. Command dispatch is unchanged; its output just routes back tagged to
+  the requesting channel.
+- **SBC broker** owns the link, demuxes channels out to SBC processes (subscriber gets `ir`;
+  a publisher writes `command`).
+- This GENERALIZES what commander already half-does: IR events, `aicam stream`, the Pico→R4
+  `bridge <cmd>` remote console, and telnet/UART consoles are all "a channel" (= addressable
+  writer + optional input source). Unify once.
+
+### Transport: UART now, SPI only if forced — and why
+**Transport-agnostic by construction** (same channel/pub-sub API; swappable physical layer).
+Default = **UART** (`ttyHS1`/lpuart1). Pick the wire by workload, not now:
+- **Bandwidth tiers** (115200 ≈ ~10 KB/s usable per direction): events + control + PING-class
+  sensors (~2 B/reading) are *trivial*; modest 10–100 Hz streams fit; raw 16 kHz×16-bit audio
+  (~32 KB/s) is ~3× over → the only thing UART can't carry.
+- **Reduce at the source** (edge-AI principle): don't stream raw fat data — the MCU/DSP does
+  VAD/keyword/feature extraction and publishes an *event* (handful of bytes). So even "mic"
+  usually collapses to the events tier. Raw streaming is the last resort.
+- **Why UART over the "more capable" SPI:** "more capable" is true only on bandwidth — the
+  wrong axis here. SPI is **master/slave**: a slave can't push unsolicited, so the MCU's IR
+  event couldn't reach the SBC without a bolted-on GPIO data-ready line + request/grant
+  protocol — i.e. hand-building what UART gives natively. Plus Linux-as-SPI-slave is awkward
+  (kernel prefers master), and SPI = new wiring/drivers/framing vs UART already working. So
+  UART is the *right-fit* tool for a peer messaging bus; SPI is right for master-driven bulk
+  transfer. Transport-agnostic means defaulting to UART costs nothing — drop SPI under one
+  fat channel later if raw audio ever truly demands it.
+
+### Scope split
+- **2a — the MCU↔SBC bus** (this scenario): framed channel bus + publish/subscribe API + thin
+  SBC broker, over UART. **← starting here.**
+- **2b — external reach** (Mac over USB-ethernet/TCP): additive, later. WiFi/SSH already
+  covers Debian access today.
+
+### First development slice (UART)
+Frame codec (COBS-delimited `[channel][payload]`, host-testable) → a channel-mux transport on
+the MCU (ch0 = existing console behavior + publish on other channels) → a `publish` API → a
+thin SBC broker. Prove with the scenario in miniature: IR/heartbeat publish MCU→SBC while the
+console still works on ch0, plus an SBC→MCU command. Optional/gated so the AVR tier pays nothing.
