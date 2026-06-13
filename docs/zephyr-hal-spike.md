@@ -18,12 +18,16 @@ creation already lives in the runner, so modules don't notice.
 - [x] **STEP 2 COMPLETE (2026-06-12): commander runs on Zephyr, `help`/`version` over
       `/dev/ttyHS1`.** Core/transport/SystemModule UNMODIFIED; only new code = `hal/zephyr/
       hal.cpp`. The HAL seam thesis is proven on hardware.
-- [ ] **NEXT: promote into commander** — `hal/zephyr/hal.cpp` is in-repo already; add a
-      `runners/zephyr/` + a `cmdr` Zephyr target.
-- [ ] **Channel mux ([[project_commander_channels]]) is now wired + host-tested** — the bus
-      runner (`transport/channels/ChannelBusRunner`) + SBC broker are built. HW proof on the
-      Uno Q is the open item: **recipe in `docs/commander-channels-bringup.md`** (swap the
-      scratch app's `UartTransport` → `ChannelBusRunner` + a ch1 heartbeat, run the broker).
+- [x] **BOOT-FROM-FLASH FIX (2026-06-13): the M33 must be told to boot flash via option bytes**
+      — by default it powers into the STM32 ROM bootloader, so commander never runs. One-time
+      openocd option-byte write makes it boot our firmware on every power-up. **See the new
+      "Make the M33 boot from flash" section below — this is REQUIRED for any commander build.**
+- [x] **Channel mux ([[project_commander_channels]]) HW-CONFIRMED on the Uno Q (2026-06-13):**
+      `ChannelBusRunner` + SBC broker + a from-scratch IR receiver (NEC **and** Sony). A Sony
+      remote press on D5 decoded on the M33 and streamed to Debian on ch1 (`0x795 p4`) while the
+      ch0 console stayed live. Full recipe: `docs/commander-channels-bringup.md`.
+- [ ] **NEXT: promote into commander** — `hal/zephyr/hal.cpp` + `runners/zephyr/` are in-repo;
+      add a `cmdr` Zephyr target. Fold the option-byte step into the flash tooling.
 
 ### Step-2 artifacts + the key lesson
 - Scratch app: `~/zephyrproject/cmdr-unoq-spike/` (CMakeLists pulls commander core + the new
@@ -72,6 +76,62 @@ $GDB ~/zephyrproject/build/x/zephyr/zephyr.elf -batch \
   -ex "monitor reset halt" -ex load -ex "monitor reset run" -ex detach -ex quit
 ```
 Confirmed live: openocd sees `SWD DPIDR 0x0be12477`, "Cortex-M33 r0p4", gdb load 18500 B OK.
+
+## Make the M33 boot from flash (option bytes) — REQUIRED, hard-won 2026-06-13
+
+**Symptom:** you flash commander, `monitor reset run`, but the MCU is silent — no console, no
+response. Even a known-good plain-console build is silent. It looks like a UART/link problem;
+it is not.
+
+**Root cause:** by default the Uno Q's STM32U585 powers into its **ROM/DFU bootloader**, not
+your flashed app. The Uno Q's native model is **MPU-controlled** — the Arduino Linux stack
+(`arduino-app-cli`) loads sketches (as LLExt, into RAM or flash) and manages MCU execution; the
+chip isn't expected to boot its own flash standalone. So a bare commander firmware never runs.
+
+**Diagnosis (how to confirm):** read the vector table offset register over SWD —
+```
+$GDB -batch -ex "target extended-remote localhost:3333" -ex "monitor reset run" \
+  -ex "shell sleep 1" -ex "monitor halt" \
+  -ex 'printf "VTOR=0x%08x\n", *(unsigned int*)0xE000ED08'
+```
+`VTOR=0x0bf90000` → running the **ROM bootloader**. `VTOR=0x08000000` → running **our app**.
+(With the bootloader running, halts land at PC `0x0bf9xxxx`, often reading as `0x0`/secure —
+that's just the ROM, not a TrustZone fault. `TZEN=0` on this part: TrustZone is off.)
+
+**What does NOT fix it:** masking/un-masking the `arduino-router` stack (tested — restoring the
+router + reboot left VTOR at the bootloader). The router isn't what controls MCU boot.
+
+**The fix — force boot-from-flash in the STM32 option bytes (one-time, persistent):**
+`nSWBOOT0=0` makes the chip ignore the physical BOOT0 pin and take BOOT0 from the `nBOOT0`
+option bit; `nBOOT0=1` then selects main flash. (Polarity is ST-"intentionally undocumented";
+determined empirically here: `nBOOT0=0` → bootloader, `nBOOT0=1` → flash.) On this board the
+default OPTR is `0x1feff8aa` (nSWBOOT0=1 → BOOT0 from pin, pin floats high → bootloader); the
+target is `0x1beff8aa`.
+```
+# openocd offset 0x40 == FLASH_OPTR (0x40022040); verify it reads 0x1feff8aa first.
+$GDB -batch -ex "target extended-remote localhost:3333" -ex "monitor halt" \
+  -ex "monitor stm32l4x unlock 0" \
+  -ex "monitor stm32l4x option_write 0 0x40 0x1beff8aa 0x0c000000" \
+  -ex "monitor stm32l4x option_load 0" -ex quit
+# option_load resets the chip; "option load failed / Protocol error" at the end is just gdb
+# losing the target during that reset — it DID apply. Re-read VTOR to confirm 0x08000000.
+```
+The masked write (`mask 0x0c000000`) touches ONLY bits 26/27 — **never the RDP byte (0xAA)**.
+Safety net: **SWD works in any boot mode**, so a wrong option write is always recoverable by
+reconnecting and rewriting; the only true brick is RDP level 2, which we never touch.
+
+After this the M33 boots commander from flash on every power-up, decoupled from the Arduino
+orchestration — exactly what we want (commander is a bare firmware). Trade-off: this disables
+the BOOT0-pin DFU entry the stock Arduino sketch-flash uses; we flash via SWD, so it's moot,
+and it's reversible (`option_write` back to `0x1feff8aa`).
+
+### openocd gotchas (cost us hours)
+- **Run ONE `arduino-debug` at a time.** Multiple openocd instances collide on the SWD; a
+  stuck **root-owned** openocd holds the SWD and can leave the CPU **halted** (looks identical
+  to "firmware dead"). `adb shell` is user `arduino` — kill a root openocd with
+  `echo <pw> | sudo -S pkill -9 -f openocd` before starting fresh.
+- `west flash` for `arduino_uno_q` is **not working** upstream yet — the gdb-load recipe above
+  is the method (openocd is the *debug* runner; stm32cubeprogrammer the nominal flash one).
 
 ### CONSOLE READ — the open problem (decides step 2)
 adb shell runs as user **arduino (uid 1000), NO passwordless sudo**. `/dev/ttyHS1` (the

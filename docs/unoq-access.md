@@ -16,6 +16,12 @@ STM32U585 running commander), in a way that survives reboots. Companion to
 Key distinction: **adb/ssh reach Debian (the SBC); the USB serial reaches the MCU
 (commander).** They are different targets — don't conflate them.
 
+> **Before any of this matters, the M33 has to actually *run* commander.** Out of the box it
+> boots the STM32 ROM bootloader, not your flashed firmware, so the link is silent no matter
+> how the bridge is set up. That's a **one-time STM32 option-byte write** (`nSWBOOT0=0`/
+> `nBOOT0=1`), independent of the router masking below — masking the Arduino stack does NOT
+> control MCU boot (verified). See **"Make the M33 boot from flash" in `zephyr-hal-spike.md`.**
+
 ## Phase 1 — durable commander access (DONE)
 
 Problem: by default `arduino-router` owns `ttyHS1` (its MsgPack RPC) and reclaims it on

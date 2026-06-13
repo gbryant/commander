@@ -155,9 +155,13 @@ works on ch0, plus an SBC→MCU command. Optional/gated so the AVR tier pays not
       (`tests/test_runner.cpp`, with a HAL stub). Channel ids for v1: ch0 console; ch1+ =
       ir/sensor/command (firm up as real modules are wired; the proof uses ch1 = heartbeat).
 - [x] **Thin Python SBC broker** — `transport/channels/broker/commander_broker.py`: owns the
-      framed link (`/dev/ttyHS1`; stop `commander-bridge.service` to take it), COBS-deframes,
-      bridges ch0 ↔ a PTY (`screen` still works) + fans each chN out to `<rundir>/chN.sock` unix
-      stream sockets. pyserial-only. Codec cross-checked byte-for-byte vs `ChannelCodec.h`.
-- [ ] **HW proof on the Uno Q**: heartbeat publish MCU→SBC (ch1) while ch0 console works + an
-      SBC→MCU command. **Recipe: `docs/commander-channels-bringup.md`** (MCU app snippet +
-      broker run + observe). Flash/access in `docs/zephyr-hal-spike.md` / `docs/unoq-access.md`.
+      framed link (`/dev/ttyHS1`; stop `commander-bridge.service` + the `arduino-router` stack to
+      take it), COBS-deframes, bridges ch0 ↔ a PTY or `--console /dev/ttyGS0` (Mac console kept)
+      + fans each chN out to `<rundir>/chN.sock`. No pyserial (termios). Codec cross-checked vs
+      `ChannelCodec.h`; broker plumbing host-tested against a PTY fake-MCU.
+- [x] **HW proof on the Uno Q ✅ (2026-06-13):** a Sony remote press on D5 decoded on the M33 and
+      streamed to Debian on ch1 (`0x795 p4`) while the ch0 console ran concurrently — peer
+      pub/sub MCU↔SBC proven. Required: a from-scratch NEC **and** Sony decoder on Zephyr, and a
+      one-time STM32 option-byte write so the M33 boots flash (it ships booting the ROM
+      bootloader). **Recipe: `docs/commander-channels-bringup.md`**; boot fix:
+      `docs/zephyr-hal-spike.md`.

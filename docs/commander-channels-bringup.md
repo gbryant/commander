@@ -1,9 +1,13 @@
 # Channel bus — bring-up & HW proof (Arduino Uno Q)
 
+**HW-CONFIRMED 2026-06-13.** A Sony remote press on the M33's D5 pin decoded on-chip and
+streamed to Debian on `ch1` (`0x795 p4`) while the `ch0` console stayed live — the full Phase 2a
+scenario on real hardware.
+
 Run the Phase 2a channel bus end-to-end: commander on the STM32U585 (M33, via the Zephyr HAL)
 publishing tagged streams over `lpuart1`/`ttyHS1`, and the Python broker on the QRB2210 Debian
 side demuxing them. Design: `commander-channels-design.md`. Link/access: `unoq-access.md`.
-HAL: `zephyr-hal-spike.md`.
+HAL + **the mandatory boot-from-flash option-byte step**: `zephyr-hal-spike.md`.
 
 **The proof:** press an IR remote button at the M33 and watch it arrive on the SBC as a
 tagged `ch1` event — an unsolicited MCU→SBC stream — while the `ch0` shell still works. That's
@@ -38,7 +42,7 @@ extern "C" void commander_setup(CommandRegistry &reg) {
 // Runner calls this after setup, before the bus thread starts.
 extern "C" void commander_on_channel_bus_ready(ChannelBusRunner &bus) {
     _irPub = bus.channels().publisher(1);             // ch1 = ir events
-    _ir.setOutput(&_irPub);                           // each NEC press frames onto ch1
+    _ir.setOutput(&_irPub);                           // each NEC/Sony press frames onto ch1
     bus.addTicker(_ir);                               // ISR decodes; tick() publishes
 }
 ```
@@ -63,27 +67,47 @@ target_sources(app PRIVATE
 / {
     chosen { zephyr,console = &lpuart1; zephyr,shell-uart = &lpuart1; };
     zephyr,user {
-        ir-gpios = <&arduino_header 11 GPIO_ACTIVE_HIGH>;   // D5 — verify the index in the board dts
+        ir-gpios = <&arduino_header 11 GPIO_ACTIVE_HIGH>;   // D5 (verified: index 11 = &gpioa 11)
     };
 };
 ```
 
-**Wire** the TSOP/Grove IR receiver: VCC→3V3, GND→GND, OUT→**D5**. Then `west build` + flash as
-in `zephyr-hal-spike.md`.
+**Wire** the TSOP/Grove IR receiver: VCC→3V3, GND→GND, OUT→**D5**.
+
+### Build + flash (and the one-time boot fix)
+`west flash` for `arduino_uno_q` isn't working upstream yet — use the openocd-over-adb gdb-load
+recipe from `zephyr-hal-spike.md` (it also has the toolchain env: `gnuarmemb` at
+`/Applications/ArmGNUToolchain/...`). In short:
+```bash
+export ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb GNUARMEMB_TOOLCHAIN_PATH=/Applications/ArmGNUToolchain/14.2.rel1/arm-none-eabi
+west build -b arduino_uno_q
+adb forward tcp:3333 tcp:3333 && adb shell arduino-debug &   # one instance only
+arm-none-eabi-gdb build/zephyr/zephyr.elf -batch -ex "target extended-remote localhost:3333" \
+  -ex "monitor reset halt" -ex load -ex "monitor reset run" -ex detach -ex quit
+```
+**⚠ One-time per board:** the M33 boots its ROM bootloader, not flash, until you set the
+option bytes (`nSWBOOT0=0`/`nBOOT0=1`). **Do the "Make the M33 boot from flash" step in
+`zephyr-hal-spike.md` first** — without it commander never runs and everything below is silent.
+Confirm with `VTOR=0x08000000` over SWD.
 
 ## 2. SBC side — run the broker (keeps the Mac console)
 
 The broker becomes the sole owner of the link, *replacing* the USB-CDC bridge — but it keeps
-your Mac console alive by bridging ch0 to the same gadget the bridge used (`/dev/ttyGS0`). So
-stop the bridge (that frees both `ttyHS1` and `ttyGS0`) and hand `ttyGS0` to the broker with
-`--console`. On the board (`adb shell` or `ssh arduino@gandalf`):
+your Mac console alive by bridging ch0 to the same gadget the bridge used (`/dev/ttyGS0`). It
+needs `ttyHS1` (and `ttyGS0` if using `--console`) free. Several things may hold `ttyHS1`: the
+**`commander-bridge.service`** socat *and* the **Arduino router stack** (`arduino-router*`), which
+can come back via its `.path` trigger or after a reboot. Free them all. On the board (`adb shell`
+or `ssh arduino@gandalf`):
 ```bash
 # put the script somewhere persistent (NOT /tmp — that's cleared on reboot):
 scp transport/channels/broker/commander_broker.py arduino@gandalf:~/    # or adb push ... /home/arduino/
-sudo systemctl stop commander-bridge.service                    # frees ttyHS1 + ttyGS0
-pip install pyserial                                            # once
+sudo systemctl stop commander-bridge.service \
+     arduino-router-serial.path arduino-router-serial.service arduino-router.service
+sudo fuser -k /dev/ttyHS1 2>/dev/null     # belt-and-suspenders: kill any lingering holder
 python3 ~/commander_broker.py --port /dev/ttyHS1 --console /dev/ttyGS0 --channels 1 --log
 ```
+(No `pip install` — the broker opens the serial port with `termios` directly, no pyserial, since
+a stripped Debian has neither pip nor pyserial.)
 (`--rundir` defaults to `/tmp/commander` for the console PTY + `chN.sock` — that *is* ephemeral
 runtime state, so `/tmp` is fine for it; only the script wants a durable home. Once the proof
 sticks, the natural next step is a `commander-broker.service` that replaces `commander-bridge`
@@ -102,32 +126,45 @@ In the Mac console (`/dev/cu.usbmodem*`), turn IR receive on, then press remote 
 ```
 ir recv
 ```
-Each press shows on ch1. Watch it on Debian via the broker `--log`:
+The receiver decodes **NEC and Sony in parallel** (whichever the remote speaks). Each press
+shows on ch1; watch it on Debian via the broker `--log` (confirmed with a Sony controller):
 ```
-[ch1] b'0x20DF10EF p3'        # each press, tagged on ch1
-[ch1] b'0x20DF40BF p3'
+[ch1] b'0x000007CC p4'        # a button  (p4 = Sony SIRC; p3 = NEC)
+[ch1] b'0x00000795 p4'        # another — repeats while held (Sony auto-repeats ~every 45 ms)
 ```
 or consume it from your own process:
 ```bash
 socat - UNIX-CONNECT:/tmp/commander/ch1.sock     # one line per press
 ```
 **Pass = presses stream on `ch1` while the Mac `ch0` shell stays fully usable** — source-tagged,
-demuxed, concurrent MCU→SBC. (`p3` = NEC. Same wire format as the Arduino IRModule via
-`modules/ir/IrEvent.h`, so host-side `irlookup` works regardless of board.)
+demuxed, concurrent MCU→SBC. ✅ Same `0xHHHHHHHH pN` wire format as the Arduino IRModule (via
+`modules/ir/IrEvent.h`), so host-side `irlookup` works regardless of board.
+
+**Gotcha:** `ir recv` *toggles*. If a press shows nothing, you may have toggled it back off —
+re-send `ir recv` (look for `listening...` vs `stopped.` on ch0). And the decoder is NEC/Sony
+only; an RC5/RC6/other remote won't decode (extend with another `modules/ir/*Decoder.h`).
 
 (No USB gadget / prefer a local Debian console? Drop `--console`; the broker exposes ch0 as a
 PTY at `/tmp/commander/console` instead — `screen $(readlink /tmp/commander/console)`.)
 
-## If something's off
+## If something's off (in the order the bring-up actually failed)
 The decoder + transport + broker are all host-tested (`transport/channels/tests/run.sh`,
 `modules/ir/tests/run.sh`), so failures localize:
-- **Nothing on ch1, but `listening...` showed on ch0** → framing/transport are fine; it's the
-  IR capture. Check the two HW assumptions: the `arduino_header` index = D5, and that
-  `k_cycle_get_32` runs at CPU-clock (µs) resolution on the U585.
-- **Garbled codes** → timing/decoder tuning, not protocol (the decoder is verified) — usually
-  the cycle-counter resolution.
-- **Nothing at all on ch0 either** → the link/broker: confirm `commander-bridge.service` is
-  stopped and the broker says `up on /dev/ttyHS1`.
+- **Nothing at all — no ch0 response either, even `help` is silent.** Most likely the M33 is
+  running its ROM bootloader, not commander. Check `VTOR` over SWD (see `zephyr-hal-spike.md`):
+  `0x0bf90000` = bootloader → do the option-byte boot fix. `0x08000000` = our app. *This was the
+  single biggest time sink — rule it out first.* Otherwise confirm the link: nothing holds
+  `ttyHS1` (router/bridge stopped), broker says `up on /dev/ttyHS1`, and only ONE openocd is
+  running (a stuck root openocd can hold the CPU halted = looks identical to dead firmware).
+- **ch0 works, but nothing on ch1.** Framing/transport are fine; it's IR capture/decode. Read
+  the live module state over SWD: `print _ir` — `active=1 started=1 out=0x…` means it's wired
+  and listening, and `_last_cyc` changing on a press proves the edge ISR fires. If edges fire
+  but no codes, it's the **protocol**: the decoder is NEC/Sony only — an RC5/RC6/other remote
+  won't decode (this bit us: the test remote was Sony, not NEC). `arduino_header` index 11 = D5
+  = `gpioa 11` (verified), and `SYS_CLOCK_HW_CYCLES_PER_SEC=160000000` gives good µs timing.
+- **Console echoes its own output in a loop** (each reply re-dispatched as `unknown: …`) →
+  the broker's ch0 PTY slave must be raw or its line discipline echoes our writes back as input.
+  Fixed in `commander_broker.py`; if you see it, your broker is stale — re-copy it.
 
 ## Heartbeat variant (no IR hardware)
 For a pure-software smoke, register a tiny ticker module instead of IR that publishes
