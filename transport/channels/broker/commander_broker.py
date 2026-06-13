@@ -99,6 +99,7 @@ class Broker:
         self.sel = selectors.DefaultSelector()
         self.deframer = Deframer()
         self.console_master = None       # PTY master fd for ch0
+        self.console_line = bytearray()  # ch0 input buffered until newline -> one command/frame
         self.servers = {}                # channel -> listening socket
         self.clients = {}                # channel -> set(connected sockets)
 
@@ -167,12 +168,21 @@ class Broker:
                 self._fanout(ch, payload)
 
     def _on_console(self):
+        # ch0 is line-oriented: commander dispatches a whole command line per frame, so we
+        # buffer console input until CR/LF and frame one command per line (stripped). This
+        # works whether the terminal sends a line at once (echo "cmd" > console) or a key at
+        # a time (an interactive screen/picocom in raw mode) — never one frame per keystroke.
         try:
             data = os.read(self.console_master, 4096)
         except OSError:
             return
-        if data:
-            self.link.write(frame(0, data))
+        for b in data:
+            if b in (0x0D, 0x0A):
+                if self.console_line:
+                    self.link.write(frame(0, bytes(self.console_line)))
+                    self.console_line.clear()
+            else:
+                self.console_line.append(b)
 
     def _on_accept(self, ch):
         conn, _ = self.servers[ch].accept()

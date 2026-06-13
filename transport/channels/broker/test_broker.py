@@ -73,12 +73,20 @@ def main():
     ok = any(ch == 1 and pay == b"hello-mcu" for ch, pay in got); fails += not ok
     print(f"{'PASS' if ok else 'FAIL'} socket client write (SBC->MCU) framed on ch1: {got}")
 
-    # 3) typing into the console PTY -> framed to the MCU on ch0
+    # 3) typing a line into the console PTY -> one stripped command frame to the MCU on ch0
     cfd = os.open(os.readlink(os.path.join(rundir, "console")), os.O_RDWR | os.O_NONBLOCK)
-    os.write(cfd, b"help")
+    os.write(cfd, b"ir recv\r\n")               # CR/LF terminates the command
     got = read_frames(m)
-    ok = any(ch == 0 and pay == b"help" for ch, pay in got); fails += not ok
-    print(f"{'PASS' if ok else 'FAIL'} console PTY input framed to MCU on ch0: {got}")
+    ok = any(ch == 0 and pay == b"ir recv" for ch, pay in got); fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} console line framed as one ch0 command (newline stripped): {got}")
+
+    # 3b) per-keystroke input still yields one frame per line, not per key
+    for ch_byte in b"version\n":
+        os.write(cfd, bytes([ch_byte]))
+        time.sleep(0.01)
+    got = read_frames(m)
+    ok = any(ch == 0 and pay == b"version" for ch, pay in got) and len(got) == 1; fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} char-by-char input coalesced into one ch0 command: {got}")
 
     # 4) MCU frames ch0 output -> shows up on the console PTY
     os.write(m, B.frame(0, b"commander v1\r\n"))
