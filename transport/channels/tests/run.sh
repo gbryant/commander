@@ -25,4 +25,8 @@ $CXX -std=c++17 -Wall -Wextra -DMAX_COMMANDS=16 -I"$ROOT" -I"$ROOT/include" \
     "$ROOT/core/CommandRegistry.cpp" -o "$TMP/test_runner"
 "$TMP/test_runner"
 
+echo
+echo "== broker (Python PTY loopback) =="
+TMPDIR="$TMP" python3 "$ROOT/transport/channels/broker/test_broker.py"
+
 rm -rf "$TMP"

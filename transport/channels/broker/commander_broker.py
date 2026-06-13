@@ -26,12 +26,6 @@ import argparse
 import os
 import selectors
 import socket
-import sys
-
-try:
-    import serial  # pyserial
-except ImportError:
-    sys.exit("commander_broker: needs pyserial — `pip install pyserial`")
 
 DELIM = 0x00
 
@@ -220,6 +214,11 @@ def main():
     ap.add_argument("-c", "--channels", default="1,2", help="non-console channels to expose, comma list")
     ap.add_argument("--log", action="store_true", help="print every inbound frame to stdout")
     args = ap.parse_args()
+
+    try:
+        import serial  # pyserial — only the live CLI needs it (tests inject a fake link)
+    except ImportError:
+        raise SystemExit("commander_broker: needs pyserial — `pip install pyserial`")
 
     link = serial.Serial(args.port, args.baud, timeout=0)
     Broker(link, args.rundir, parse_channels(args.channels), args.log).run()
