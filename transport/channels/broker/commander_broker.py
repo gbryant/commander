@@ -17,7 +17,8 @@ consumers — the half that can ONLY live off-MCU once output is tagged at the s
         perception, teleop, logger, autonomy — each get their own tagged stream over the
         one wire. e.g.  socat - UNIX-CONNECT:<rundir>/ch1.sock   (subscribe to ir events)
 
-Only dependency: pyserial (`pip install pyserial`) — the same dep the ir/* host tools use.
+No third-party dependencies — opens the serial link with termios directly (a stripped
+Debian like the Uno Q has no pip/pyserial).
 
 Note: this process must be the SOLE owner of the link. On the Uno Q, stop the USB-CDC
 bridge first (it also holds ttyHS1):  sudo systemctl stop commander-bridge.service
@@ -91,6 +92,37 @@ class Deframer:
                         yield dec[0], dec[1:]
             else:
                 self._raw.append(b)
+
+
+# ── MCU serial link ────────────────────────────────────────────────────────────────
+class SerialLink:
+    """Raw tty link to the MCU over termios — no pyserial dependency (a stripped Debian,
+    e.g. the Uno Q, has no pip/pyserial). Exposes just what the Broker uses."""
+    _BAUDS = {b: getattr(termios, f"B{b}", None)
+              for b in (9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600)}
+
+    def __init__(self, port, baud):
+        self.port = port
+        self.baudrate = baud
+        self.fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        tty.setraw(self.fd)                          # 8N1, no echo/translation — binary-clean
+        speed = self._BAUDS.get(baud)
+        if speed is not None:
+            a = termios.tcgetattr(self.fd)
+            a[4] = a[5] = speed                      # ispeed, ospeed
+            termios.tcsetattr(self.fd, termios.TCSANOW, a)
+
+    def fileno(self):
+        return self.fd
+
+    def read(self, n):
+        try:
+            return os.read(self.fd, n)
+        except BlockingIOError:
+            return b""
+
+    def write(self, b):
+        return os.write(self.fd, b)
 
 
 # ── ch0 console endpoint ───────────────────────────────────────────────────────────
@@ -194,14 +226,21 @@ class Broker:
             return
         master, slave = os.openpty()
         os.set_blocking(master, False)
+        # Raw the slave so its line discipline doesn't ECHO what we write to the master back
+        # as input — otherwise every ch0 reply we display loops straight back to the MCU as a
+        # bogus command. Keep the slave fd open so the raw setting persists for later openers
+        # (screen/echo). We supply our own echo/editing, so a raw slave loses nothing.
+        tty.setraw(slave)
+        self._console_slave = slave
         path = os.path.join(self.rundir, "console")
         try:
             os.remove(path)
         except FileNotFoundError:
             pass
         os.symlink(os.ttyname(slave), path)
-        self.console = Console(self.link, master, echo=False)
+        self.console = Console(self.link, master, echo=True)
         self.sel.register(master, selectors.EVENT_READ, ("console", None))
+        self.console.start()                         # initial prompt
         print(f"[broker] ch0 console -> {path} (screen $(readlink {path}))", flush=True)
 
     # chN unix socket server ---------------------------------------------------------
@@ -293,12 +332,7 @@ def main():
     ap.add_argument("--log", action="store_true", help="print every inbound frame to stdout")
     args = ap.parse_args()
 
-    try:
-        import serial  # pyserial — only the live CLI needs it (tests inject a fake link)
-    except ImportError:
-        raise SystemExit("commander_broker: needs pyserial — `pip install pyserial`")
-
-    link = serial.Serial(args.port, args.baud, timeout=0)
+    link = SerialLink(args.port, args.baud)
     Broker(link, args.rundir, parse_channels(args.channels), args.log,
            console_dev=args.console).run()
 
