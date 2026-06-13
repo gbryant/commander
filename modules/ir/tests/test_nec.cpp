@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include "modules/ir/NecDecoder.h"
+#include "modules/ir/SonyDecoder.h"
 #include "modules/ir/IrEvent.h"
 #include <cstring>
 
@@ -71,6 +72,33 @@ int main() {
         ir_format_event(buf, 0x20DF10EF, 3);
         bool ok = (strcmp(buf, "0x20DF10EF p3") == 0);
         printf("%s ir_format_event -> '%s'\n", ok ? "PASS" : "FAIL", buf); fails += !ok;
+    }
+    {   // Sony SIRC: 12-bit code, emitted at the next frame's leading mark
+        auto sendSony = [](SonyDecoder &d, uint32_t code, int nbits, int pct) {
+            SonyDecoder::Result r = d.feed(jit(2400, pct), true);  // leading mark emits prior frame
+            d.feed(jit(600, pct), false);                  // header space
+            for (int i = 0; i < nbits; i++) {
+                uint32_t bit = (code >> i) & 1;            // LSB first
+                d.feed(jit(bit ? 1200 : 600, pct), true);
+                d.feed(jit(600, pct), false);
+            }
+            return r;
+        };
+        SonyDecoder d;
+        sendSony(d, 0x4B2, 12, 0);                          // frame 1 (no emit yet)
+        auto r = sendSony(d, 0x4B2, 12, 0);                // frame 2's lead emits frame 1
+        bool ok = (r == SonyDecoder::CODE && d.code() == 0x4B2 && d.bits() == 12);
+        printf("%s Sony SIRC 12-bit 0x4B2 -> 0x%X (%d bits)\n", ok ? "PASS" : "FAIL", d.code(), d.bits()); fails += !ok;
+
+        // under jitter + the NEC decoder must NOT false-trigger on Sony frames
+        SonyDecoder ds; NecDecoder nd;
+        bool necQuiet = true;
+        auto feedBoth = [&](uint32_t us, bool mark) { if (nd.feed(us, mark) == NecDecoder::CODE) necQuiet = false; ds.feed(us, mark); };
+        for (int f = 0; f < 3; f++) {
+            feedBoth(2400, true); feedBoth(600, false);
+            for (int i = 0; i < 15; i++) { uint32_t b=(0x1234>>i)&1; feedBoth(b?1200:600,true); feedBoth(600,false); }
+        }
+        printf("%s NEC decoder stays quiet on Sony frames\n", necQuiet ? "PASS" : "FAIL"); fails += !necQuiet;
     }
 
     printf(fails ? "\n%d FAILED\n" : "\nALL PASS\n", fails);

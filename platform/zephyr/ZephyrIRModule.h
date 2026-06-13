@@ -1,6 +1,7 @@
 #pragma once
 #include "modules/ir/IIRModule.h"
 #include "modules/ir/NecDecoder.h"
+#include "modules/ir/SonyDecoder.h"
 #include "core/CommandRegistry.h"
 #include "core/Writer.h"
 #include <zephyr/drivers/gpio.h>
@@ -37,16 +38,20 @@ public:
 
 private:
     bool start();                           // configure the pin + edge interrupt (once)
+    void push(uint32_t code, uint8_t proto);  // latch a decoded code into the SPSC ring
 
-    static constexpr uint8_t kProtocolNec = 3;
+    static constexpr uint8_t kProtocolNec  = 3;
+    static constexpr uint8_t kProtocolSony = 4;
     static constexpr uint8_t RING = 8;      // power-friendly small SPSC ring of codes
 
-    NecDecoder _dec;
+    NecDecoder  _dec;                       // NEC + Sony run in parallel on the same edges;
+    SonyDecoder _son;                       // whichever recognizes the frame publishes.
     Writer    *_out      = nullptr;
     bool       _started  = false;
     uint32_t   _last_cyc = 0;
 
     volatile uint32_t _ring[RING] = {};
+    volatile uint8_t  _ring_proto[RING] = {};  // protocol tag per decoded code
     volatile uint8_t  _head = 0;            // ISR writes _head
     volatile uint8_t  _tail = 0;            // tick() writes _tail
     uint32_t   _last       = 0;

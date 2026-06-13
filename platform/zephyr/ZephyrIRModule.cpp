@@ -21,10 +21,13 @@ void ZephyrIRModule::onEdge() {
 
     uint32_t us  = k_cyc_to_us_floor32(dcyc);
     bool endedMark = (gpio_pin_get_dt(&ir_pin) == 1);  // now HIGH => a LOW mark just ended
-    if (_dec.feed(us, endedMark) == NecDecoder::CODE) {
-        uint8_t n = (uint8_t)((_head + 1) % RING);
-        if (n != _tail) { _ring[_head] = _dec.code(); _head = n; }  // drop if full
-    }
+    if (_dec.feed(us, endedMark) == NecDecoder::CODE)  push(_dec.code(), kProtocolNec);
+    if (_son.feed(us, endedMark) == SonyDecoder::CODE) push(_son.code(), kProtocolSony);
+}
+
+void ZephyrIRModule::push(uint32_t code, uint8_t proto) {
+    uint8_t n = (uint8_t)((_head + 1) % RING);
+    if (n != _tail) { _ring[_head] = code; _ring_proto[_head] = proto; _head = n; }  // drop if full
 }
 
 bool ZephyrIRModule::start() {
@@ -42,20 +45,21 @@ bool ZephyrIRModule::start() {
 
 void ZephyrIRModule::tick() {
     while (_tail != _head) {
-        uint32_t code = _ring[_tail];
+        uint32_t code  = _ring[_tail];
+        uint8_t  proto = _ring_proto[_tail];
         _tail = (uint8_t)((_tail + 1) % RING);
         _last = code;
         _code_valid = true;
         if (_out) {
             char line[20];
-            ir_format_event(line, code, kProtocolNec);
+            ir_format_event(line, code, proto);
             _out->writeln(line);                     // one frame on the ir channel
         }
     }
 }
 
 void ZephyrIRModule::registerCommands(CommandRegistry &reg) {
-    reg.registerCommand(CMD("ir recv", "toggle IR receive (NEC) on the ir-gpios pin", CMD_IR_RECV,
+    reg.registerCommand(CMD("ir recv", "toggle IR receive (NEC/Sony) on the ir-gpios pin", CMD_IR_RECV,
         [](const char *, Writer &out, void *ctx) {
             auto *self = static_cast<ZephyrIRModule *>(ctx);
             if (!self->_active) {
