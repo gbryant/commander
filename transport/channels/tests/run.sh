@@ -17,4 +17,12 @@ $CXX -std=c++17 -Wall -Wextra -DMAX_COMMANDS=16 -I"$ROOT" -I"$ROOT/include" \
     "$ROOT/core/CommandRegistry.cpp" -o "$TMP/test_transport"
 "$TMP/test_transport"
 
+echo
+echo "== ChannelBusRunner =="
+$CXX -std=c++17 -Wall -Wextra -DMAX_COMMANDS=16 -I"$ROOT" -I"$ROOT/include" \
+    "$ROOT/transport/channels/tests/test_runner.cpp" \
+    "$ROOT/transport/channels/ChannelBusRunner.cpp" \
+    "$ROOT/core/CommandRegistry.cpp" -o "$TMP/test_runner"
+"$TMP/test_runner"
+
 rm -rf "$TMP"

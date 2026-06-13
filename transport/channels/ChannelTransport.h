@@ -26,8 +26,15 @@ public:
     typedef void (*WriteFn)(const uint8_t *data, size_t len, void *ctx);
     typedef void (*Handler)(uint8_t ch, const uint8_t *data, size_t len, void *ctx);
 
+    ChannelTransport() = default;
     ChannelTransport(CommandRegistry &reg, WriteFn wr, void *wrCtx)
         : _reg(&reg), _wr(wr), _wrCtx(wrCtx) {}
+
+    // Late init for the default-constructed-then-begin() idiom (so a runner can hold one
+    // as a member and wire it once the registry + byte writer exist).
+    void begin(CommandRegistry &reg, WriteFn wr, void *wrCtx) {
+        _reg = &reg; _wr = wr; _wrCtx = wrCtx;
+    }
 
     // Drive from the read loop, one inbound byte at a time.
     void feedByte(uint8_t b) {
@@ -36,6 +43,7 @@ public:
 
     // Publish an unsolicited message on a channel (the new peer capability).
     void publish(uint8_t ch, const uint8_t *data, size_t len) {
+        if (!_wr) return;                                              // not begun → no link
         uint8_t enc[CMDR_CH_FRAME_MAX + CMDR_CH_FRAME_MAX / 254 + 4];
         if (len > CMDR_CH_FRAME_MAX - 1) len = CMDR_CH_FRAME_MAX - 1;   // bound to one frame
         size_t n = channel_encode(ch, data, len, enc);
@@ -49,6 +57,38 @@ public:
         _sub[_nsub++] = {ch, h, ctx};
         return true;
     }
+
+    // A per-channel publish handle a module/app holds to emit UNSOLICITED frames — the
+    // module publish API (the doc's `channel("ir").publish(...)`). IS-A Writer so an
+    // async module that already emits via Writer& (IR recv, a sensor stream) frames each
+    // line onto its OWN channel instead of the single console: line-oriented, so each
+    // writeln() flushes one frame = one event. Raw publish() carries binary payloads.
+    // Default-constructed (valid()==false) it no-ops, so a module can hold one unwired
+    // until the app fills it in from commander_on_channels_ready().
+    class ChannelPublisher : public Writer {
+    public:
+        ChannelPublisher() : _t(nullptr), _ch(0) {}
+        ChannelPublisher(ChannelTransport &t, uint8_t ch) : _t(&t), _ch(ch) {}
+        bool    valid()   const { return _t != nullptr; }
+        uint8_t channel() const { return _ch; }
+        void publish(const uint8_t *data, size_t len) { if (_t) _t->publish(_ch, data, len); }
+        void publishStr(const char *s)                { publish((const uint8_t *)s, strlen(s)); }
+        void write(const char *s)        override { append(s); }
+        void writeln(const char *s = "") override { append(s); flush(); }  // one line = one frame
+        void flush() { if (_t && _n) { _t->publish(_ch, _buf, _n); _n = 0; } }
+    private:
+        void append(const char *s) {
+            while (*s) { if (_n >= sizeof(_buf)) flush(); _buf[_n++] = (uint8_t)*s++; }
+        }
+        ChannelTransport *_t;
+        uint8_t           _ch;
+        uint8_t           _buf[CMDR_CH_FRAME_MAX - 8];
+        size_t            _n = 0;
+    };
+
+    // Hand out a publisher bound to a channel (e.g. ct.publisher(CH_IR) wired to the IR
+    // module in commander_on_channels_ready). Cheap value type — copy/store freely.
+    ChannelPublisher publisher(uint8_t ch) { return ChannelPublisher(*this, ch); }
 
     // A Writer that frames command output back onto a channel (buffered, flushed per
     // command — or sooner if a single response overflows one frame).
@@ -90,10 +130,16 @@ private:
         out.flush();
     }
 
-    CommandRegistry *_reg;
-    WriteFn          _wr;
-    void            *_wrCtx;
+    CommandRegistry *_reg   = nullptr;
+    WriteFn          _wr    = nullptr;
+    void            *_wrCtx = nullptr;
     ChannelReader    _reader;
     Sub              _sub[kMaxSub];
     uint8_t          _nsub = 0;
 };
+
+// Weak app hook — the runner calls this (if defined) right after constructing the
+// ChannelTransport on a bus build, handing the app/module the transport so it can
+// publisher()/subscribe() (e.g. wire the IR module to publish on an `ir` channel).
+// Unset → resolves to null and the runner skips the call; a strong app definition wins.
+extern "C" __attribute__((weak)) void commander_on_channels_ready(ChannelTransport &);

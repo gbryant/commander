@@ -137,17 +137,27 @@ works on ch0, plus an SBC→MCU command. Optional/gated so the AVR tier pays not
       a full command line → `CommandRegistry::dispatch` → output framed back on ch0); other
       channels via `publish()` / `subscribe()`. Byte I/O injected (`WriteFn` out + `feedByte`
       in) → link-agnostic + host-testable. Host-tested.
-- [x] Host tests: `transport/channels/tests/run.sh` (12 checks, all pass — pure C++, no HW).
-- [ ] **Module publish API + a `commander_on_channels_ready(ChannelTransport&)` hook** (so a
-      module can grab the transport to publish/subscribe; e.g. IR publishes on an `ir` channel).
-- [ ] **Runner wiring** — feed `hal_uart_getchar` → `feedByte`; `WriteFn` = a byte writer
-      (loop `hal_uart_putchar`, NOT `hal_uart_puts` — frames contain 0x00). This is the
-      `ch0`-only-vs-bus decision in the runner; keep it optional/gated. Replaces/augments
-      UartTransport on bus builds. Decide channel id assignments (ch0 console; ch1+ = ir,
-      sensor, command, ...).
-- [ ] **Thin Python SBC broker** on Debian (gandalf): owns the framed link
-      (`/dev/ttyHS1` via the commander-bridge socat, or take over that role), demuxes channels
-      → a console pty (so `screen` still works for ch0) + per-channel unix sockets/TCP for
-      pub/sub. See `docs/unoq-access.md` for the link.
-- [ ] **HW proof on the Uno Q**: IR/heartbeat publish MCU→SBC while ch0 console works + an
-      SBC→MCU command. (Flash recipe + access in `docs/zephyr-hal-spike.md` / `docs/unoq-access.md`.)
+- [x] Host tests: `transport/channels/tests/run.sh` (all pass — pure C++, no HW).
+- [x] **Module publish API + a `commander_on_channels_ready(ChannelTransport&)` hook.**
+      `ChannelTransport::ChannelPublisher` (via `ct.publisher(ch)`) is a per-channel publish
+      handle that IS-A `Writer`, so an async module already emitting via `Writer&` (IR recv,
+      a sensor stream) frames each line onto its OWN channel instead of the single console —
+      **one `writeln()` = one frame = one event** (no `\r\n`: the frame boundary IS the event
+      delimiter, unlike the console `ChannelWriter`). Raw `publish()` carries binary. Default-
+      constructed it's inert (`valid()==false`), so a module holds one unwired until the app
+      fills it from the weak `commander_on_channels_ready(ChannelTransport&)` hook (the runner
+      calls it after constructing the transport on a bus build). Host-tested.
+- [x] **Runner wiring** — `transport/channels/ChannelBusRunner.{h,cpp}`, the bus-build
+      counterpart to `UartTransport` (`begin`/`addTicker`/`taskBody`): `feedByte`←`hal_uart_getchar`;
+      `WriteFn` = `busWrite` loops `hal_uart_putchar` (NOT `hal_uart_puts` — frames contain 0x00);
+      calls the weak `commander_on_channels_ready()` hook in `begin()`. Optional/gated — only bus
+      builds compile it; the AVR/console tier keeps `UartTransport`. Host-tested
+      (`tests/test_runner.cpp`, with a HAL stub). Channel ids for v1: ch0 console; ch1+ =
+      ir/sensor/command (firm up as real modules are wired; the proof uses ch1 = heartbeat).
+- [x] **Thin Python SBC broker** — `transport/channels/broker/commander_broker.py`: owns the
+      framed link (`/dev/ttyHS1`; stop `commander-bridge.service` to take it), COBS-deframes,
+      bridges ch0 ↔ a PTY (`screen` still works) + fans each chN out to `<rundir>/chN.sock` unix
+      stream sockets. pyserial-only. Codec cross-checked byte-for-byte vs `ChannelCodec.h`.
+- [ ] **HW proof on the Uno Q**: heartbeat publish MCU→SBC (ch1) while ch0 console works + an
+      SBC→MCU command. **Recipe: `docs/commander-channels-bringup.md`** (MCU app snippet +
+      broker run + observe). Flash/access in `docs/zephyr-hal-spike.md` / `docs/unoq-access.md`.

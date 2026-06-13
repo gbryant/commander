@@ -44,6 +44,31 @@ int main() {
     bool ok3 = deframe(g_tx,pch,pp) && pch==2 && pp=="sensor=42";
     printf("%s publish ch2 -> framed '%s'\n", ok3?"PASS":"FAIL", pp.c_str()); fails+=!ok3;
 
+    // ChannelPublisher (the module publish API): a Writer bound to a channel, one line = one frame
+    g_tx.clear();
+    ChannelTransport::ChannelPublisher pub = ct.publisher(7);
+    bool ok_valid = pub.valid() && pub.channel()==7;
+    printf("%s publisher(7) is valid, bound to ch7\n", ok_valid?"PASS":"FAIL"); fails+=!ok_valid;
+
+    pub.writeln("ir:0xA90");                 // one event -> one frame (no \r\n: the frame IS the delim)
+    uint8_t wch=255; std::string wp;
+    bool ok5 = deframe(g_tx,wch,wp) && wch==7 && wp=="ir:0xA90";
+    printf("%s publisher writeln -> one framed event on ch7 ('%s')\n", ok5?"PASS":"FAIL", wp.c_str()); fails+=!ok5;
+
+    // buffered write() accumulates, writeln() flushes the whole line as a single frame
+    g_tx.clear(); pub.write("a="); pub.write("1"); pub.writeln();
+    ChannelReader pr; int pn=0; std::string plast;
+    for (auto b: g_tx) if (pr.feed(b)) { pn++; plast.assign((const char*)pr.payload(), pr.len()); }
+    bool ok6 = (pn==1 && plast=="a=1");
+    printf("%s publisher write()x2 + writeln() -> single frame '%s'\n", ok6?"PASS":"FAIL", plast.c_str()); fails+=!ok6;
+
+    // default-constructed publisher is inert (valid()==false, no output)
+    g_tx.clear();
+    ChannelTransport::ChannelPublisher none;
+    none.publishStr("dropped"); none.writeln("dropped");
+    bool ok7 = (!none.valid() && g_tx.empty());
+    printf("%s default publisher is inert (no frames)\n", ok7?"PASS":"FAIL"); fails+=!ok7;
+
     // console + publish don't cross-talk: a ch0 command, then a ch1 publish, both decode distinctly
     g_tx.clear(); feedFrame(ct,0,"version"); ct.publishStr(1,"ir:0xA5");
     ChannelReader r; int n=0; uint8_t chs[8]={0};

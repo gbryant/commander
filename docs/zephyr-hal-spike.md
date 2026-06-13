@@ -19,7 +19,11 @@ creation already lives in the runner, so modules don't notice.
       `/dev/ttyHS1`.** Core/transport/SystemModule UNMODIFIED; only new code = `hal/zephyr/
       hal.cpp`. The HAL seam thesis is proven on hardware.
 - [ ] **NEXT: promote into commander** — `hal/zephyr/hal.cpp` is in-repo already; add a
-      `runners/zephyr/` + a `cmdr` Zephyr target. Then the [[project_commander_channels]] mux.
+      `runners/zephyr/` + a `cmdr` Zephyr target.
+- [ ] **Channel mux ([[project_commander_channels]]) is now wired + host-tested** — the bus
+      runner (`transport/channels/ChannelBusRunner`) + SBC broker are built. HW proof on the
+      Uno Q is the open item: **recipe in `docs/commander-channels-bringup.md`** (swap the
+      scratch app's `UartTransport` → `ChannelBusRunner` + a ch1 heartbeat, run the broker).
 
 ### Step-2 artifacts + the key lesson
 - Scratch app: `~/zephyrproject/cmdr-unoq-spike/` (CMakeLists pulls commander core + the new
