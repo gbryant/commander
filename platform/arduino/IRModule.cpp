@@ -3,6 +3,7 @@
 #include <IRremote.hpp>
 #include "IRModule.h"
 #include "core/Writer.h"
+#include "modules/ir/IrEvent.h"
 #include <Arduino_FreeRTOS.h>
 
 // ---------------------------------------------------------------------------
@@ -46,7 +47,8 @@ void IRModule::tick() {
         int16_t b = decodeRoomba(IrReceiver.irparams.rawbuf,
                                   IrReceiver.decodedIRData.rawlen);
         if (b >= 0) {
-            Serial.print(F("\r\n[Roomba] Virtual Wall (0xA5)"));
+            if (_out) _out->writeln("wall 0xA5");
+            else      Serial.print(F("\r\n[Roomba] Virtual Wall (0xA5)"));
         }
         IrReceiver.resume();
         return;
@@ -55,8 +57,14 @@ void IRModule::tick() {
     _code      = IrReceiver.decodedIRData.decodedRawData;
     _protocol  = (uint8_t)IrReceiver.decodedIRData.protocol;
     _available = true;
-    Serial.print(F("\r\n"));
-    IrReceiver.printIRResultShort(&Serial);
+    if (_out) {
+        char line[20];
+        ir_format_event(line, _code, _protocol);
+        _out->writeln(line);                 // one frame on the ir channel, unsolicited
+    } else {
+        Serial.print(F("\r\n"));
+        IrReceiver.printIRResultShort(&Serial);
+    }
     IrReceiver.resume();
 }
 

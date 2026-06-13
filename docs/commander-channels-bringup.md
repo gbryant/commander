@@ -109,10 +109,61 @@ Three terminals on the board (or split with `tmux`):
 round-trips.** Two independent streams, tagged at the source, demuxed by the broker, over one
 UART — Phase 2a proven.
 
+## Real module on a channel — IR receive (NEC) on the Uno Q
+
+The heartbeat proves the path; a real async source is the IR receiver. The Uno Q runs
+commander on the M33 via Zephyr, which has no IRremote — so IR is a from-scratch NEC receiver:
+`platform/zephyr/ZephyrIRModule.{h,cpp}` (GPIO edge ISR → cycle-counter µs timing → the
+portable `modules/ir/NecDecoder.h`), publishing each press on ch1 via the same `setOutput`
+seam the Arduino IRModule uses. The decoder is host-tested (`modules/ir/tests/run.sh`); the
+GPIO/timing path is hardware-verified here.
+
+**Wiring:** TSOP/Grove IR receiver → VCC 3V3, GND, OUT → **D5** on the Uno Q Arduino header.
+
+**Overlay** (`app.overlay`) — map the IR pin + enable GPIO:
+```dts
+/ {
+    zephyr,user {
+        ir-gpios = <&arduino_header 11 GPIO_ACTIVE_HIGH>;   // 11 = D5 (verify in the board dts)
+    };
+};
+```
+`prj.conf`: `CONFIG_GPIO=y`. App `CMakeLists.txt`: add `platform/zephyr/ZephyrIRModule.cpp`.
+(Needs a µs-resolution `k_cycle_get_32` — Cortex-M systick at the CPU clock on the U585.)
+
+**Runner main** — register the IR module, hand it a ch1 publisher in the ready hook, pump it
+on the bus thread. (Building on the heartbeat `main` above; drop `Heartbeat` or keep both.)
+```cpp
+#include "platform/zephyr/ZephyrIRModule.h"
+
+static ZephyrIRModule ir;
+
+extern "C" void commander_on_channels_ready(ChannelTransport &ct) {
+    static ChannelTransport::ChannelPublisher irPub = ct.publisher(1);  // ch1 = ir
+    ir.setOutput(&irPub);                  // each NEC press frames onto ch1
+}
+
+// in main(), after bus.begin(reg, 115200):
+//   reg.registerModule(ir);
+//   bus.addTicker(ir);                    // ISR decodes; tick() publishes (thread context)
+```
+The publisher is `static` so it outlives the hook — the module holds a `Writer*` to it.
+
+**Run + observe:** start the broker with ch1, `screen` the console, then on the shell type
+`ir recv` (toggles listening). Press remote buttons:
+```bash
+python3 commander_broker.py --port /dev/ttyHS1 --channels 1 --log
+socat - UNIX-CONNECT:/tmp/commander/ch1.sock      # -> "0x20DF10EF p3" per press
+```
+**Pass = button presses appear on ch1 as `0xHHHHHHHH p3` while the ch0 shell stays live** —
+an unsolicited MCU→SBC event stream, tagged at the source, concurrent with the console.
+(`p3` = NEC. The wire format matches the Arduino IRModule via the shared `modules/ir/IrEvent.h`,
+so the same host-side parser/`irlookup` works regardless of board.)
+
 ## Notes
 - More consumers: add channels with `--channels 1,2,3`; each gets `/tmp/commander/chN.sock`
-  with fan-out to every connected client. A real module (IR) would publish on its own channel
-  exactly like `Heartbeat` does.
+  with fan-out to every connected client. The IR module publishes on its own channel exactly
+  like `Heartbeat` does — both via the `ChannelPublisher` seam.
 - Mac access during a broker session: the broker owns `ttyHS1`, so the USB-CDC path is down
   while it runs. Re-`start commander-bridge.service` to get the Mac console back (or, later,
   teach the broker to also re-expose ch0 over USB-CDC — out of scope for the proof).
