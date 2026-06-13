@@ -78,11 +78,16 @@ your Mac console alive by bridging ch0 to the same gadget the bridge used (`/dev
 stop the bridge (that frees both `ttyHS1` and `ttyGS0`) and hand `ttyGS0` to the broker with
 `--console`. On the board (`adb shell` or `ssh arduino@gandalf`):
 ```bash
-adb push transport/channels/broker/commander_broker.py /tmp/    # or scp; from the repo
+# put the script somewhere persistent (NOT /tmp — that's cleared on reboot):
+scp transport/channels/broker/commander_broker.py arduino@gandalf:~/    # or adb push ... /home/arduino/
 sudo systemctl stop commander-bridge.service                    # frees ttyHS1 + ttyGS0
 pip install pyserial                                            # once
-python3 /tmp/commander_broker.py --port /dev/ttyHS1 --console /dev/ttyGS0 --channels 1 --log
+python3 ~/commander_broker.py --port /dev/ttyHS1 --console /dev/ttyGS0 --channels 1 --log
 ```
+(`--rundir` defaults to `/tmp/commander` for the console PTY + `chN.sock` — that *is* ephemeral
+runtime state, so `/tmp` is fine for it; only the script wants a durable home. Once the proof
+sticks, the natural next step is a `commander-broker.service` that replaces `commander-bridge`
+— same idea as that unit, see `docs/unoq-access.md`.)
 With `--console /dev/ttyGS0`, your **Mac serial path is unchanged**: open `/dev/cu.usbmodem*`
 as always and you get the commander shell (the broker supplies echo + line editing, since the
 bus MCU no longer echoes per-key). `--log` prints every inbound frame as `[chN] b'...'`.

@@ -27,6 +27,7 @@ import os
 import selectors
 import socket
 import termios
+import time
 import tty
 
 DELIM = 0x00
@@ -99,12 +100,26 @@ class Console:
     endpoint the broker supplies echo + minimal editing. That's what lets the Uno Q's
     USB-CDC gadget (/dev/ttyGS0) still feel like the old serial console to a Mac `screen`,
     so the bus and the Mac console coexist. A PTY endpoint leaves echo off and lets the
-    local terminal's cooked mode handle it."""
-    def __init__(self, link, fd, echo):
+    local terminal's cooked mode handle it.
+
+    On an interactive (echo) endpoint it also prints a `> ` prompt: once at start, then after
+    each command's reply settles. "Settles" = a brief quiet gap, since one command can produce
+    several ch0 frames (a long `help` flushes more than one) — a per-frame prompt would wedge
+    `> ` mid-output, so we wait for the output to go idle before re-prompting."""
+    PROMPT_IDLE = 0.05                            # seconds of ch0 quiet before re-prompting
+
+    def __init__(self, link, fd, echo, prompt=b"> "):
         self.link = link
         self.fd = fd
         self.echo = echo
+        self.prompt = prompt if echo else b""     # only an interactive endpoint gets a prompt
         self.line = bytearray()
+        self.pending = False                      # a prompt is owed once output settles
+        self.last = 0.0                           # time of the last console write
+
+    def start(self):
+        if self.prompt:
+            os.write(self.fd, self.prompt)
 
     def on_input(self):
         try:
@@ -119,6 +134,7 @@ class Console:
                 if self.line:
                     self.link.write(frame(0, bytes(self.line)))
                     self.line.clear()
+                    self.pending = bool(self.prompt)   # owe a prompt after the reply
             elif b in (0x7F, 0x08):               # backspace / DEL
                 if self.line:
                     self.line.pop()
@@ -130,9 +146,19 @@ class Console:
                     out.append(b)
         if out:
             os.write(self.fd, bytes(out))
+            self.last = time.time()
 
     def write(self, payload):                     # MCU ch0 output -> the console
         os.write(self.fd, payload)
+        self.last = time.time()                   # defer any owed prompt until output settles
+
+    def prompt_timeout(self):                     # wake the select loop to re-prompt
+        return self.PROMPT_IDLE if self.pending else None
+
+    def maybe_prompt(self):
+        if self.pending and time.time() - self.last >= self.PROMPT_IDLE:
+            os.write(self.fd, self.prompt)
+            self.pending = False
 
 
 # ── Broker ───────────────────────────────────────────────────────────────────────
@@ -163,6 +189,7 @@ class Broker:
                 pass                     # not a tty (e.g. a plain fd under test) — fine
             self.console = Console(self.link, fd, echo=True)
             self.sel.register(fd, selectors.EVENT_READ, ("console", None))
+            self.console.start()                 # initial prompt
             print(f"[broker] ch0 console -> {dev} (interactive, echo on)", flush=True)
             return
         master, slave = os.openpty()
@@ -197,7 +224,7 @@ class Broker:
     def run(self):
         print(f"[broker] up on {self.link.port} @ {self.link.baudrate}", flush=True)
         while True:
-            for key, _ in self.sel.select():
+            for key, _ in self.sel.select(self.console.prompt_timeout()):
                 kind, ch = key.data
                 if kind == "link":
                     self._on_link()
@@ -207,6 +234,7 @@ class Broker:
                     self._on_accept(ch)
                 elif kind == "client":
                     self._on_client(key.fileobj, ch)
+            self.console.maybe_prompt()
 
     def _on_link(self):
         data = self.link.read(4096)

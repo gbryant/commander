@@ -126,16 +126,27 @@ def device_console():
     threading.Thread(target=broker.run, daemon=True).start()
     time.sleep(0.2)
 
-    # type "help\r" a key at a time -> broker echoes it back AND frames "help" on ch0
+    # an interactive endpoint gets a "> " prompt at startup
+    init = b""
+    end = time.time() + 1.0
+    while time.time() < end and b"> " not in init:
+        try: init += os.read(cm, 200)
+        except BlockingIOError: time.sleep(0.01)
+    ok = init == b"> "; fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} device console prints an initial prompt: {init!r}")
+
+    # type "help\r" a key at a time -> broker echoes it, frames "help" on ch0, re-prompts
     for ch_byte in b"help\r":
         os.write(cm, bytes([ch_byte])); time.sleep(0.01)
     echo = b""
     end = time.time() + 1.0
-    while time.time() < end and b"help" not in echo:
+    while time.time() < end and echo.count(b"> ") < 1:
         try: echo += os.read(cm, 200)
-        except BlockingIOError: time.sleep(0.01)
+        except BlockingIOError: time.sleep(0.02)
     ok = b"help" in echo; fails += not ok
     print(f"{'PASS' if ok else 'FAIL'} device console echoes typed input back to the Mac: {echo!r}")
+    ok = b"> " in echo; fails += not ok       # the next prompt after the command settles
+    print(f"{'PASS' if ok else 'FAIL'} device console re-prompts after the command: {echo!r}")
 
     got = read_frames(lm)
     ok = any(ch == 0 and pay == b"help" for ch, pay in got); fails += not ok
