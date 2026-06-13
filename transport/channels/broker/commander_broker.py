@@ -26,6 +26,8 @@ import argparse
 import os
 import selectors
 import socket
+import termios
+import tty
 
 DELIM = 0x00
 
@@ -90,36 +92,88 @@ class Deframer:
                 self._raw.append(b)
 
 
+# ── ch0 console endpoint ───────────────────────────────────────────────────────────
+class Console:
+    """The ch0 console as a line editor over one fd. The MCU no longer echoes (the bus is
+    line-oriented — it dispatches a whole command line per frame), so for an INTERACTIVE
+    endpoint the broker supplies echo + minimal editing. That's what lets the Uno Q's
+    USB-CDC gadget (/dev/ttyGS0) still feel like the old serial console to a Mac `screen`,
+    so the bus and the Mac console coexist. A PTY endpoint leaves echo off and lets the
+    local terminal's cooked mode handle it."""
+    def __init__(self, link, fd, echo):
+        self.link = link
+        self.fd = fd
+        self.echo = echo
+        self.line = bytearray()
+
+    def on_input(self):
+        try:
+            data = os.read(self.fd, 4096)
+        except OSError:
+            return
+        out = bytearray()
+        for b in data:
+            if b in (0x0D, 0x0A):                 # CR/LF -> dispatch one command
+                if self.echo:
+                    out += b"\r\n"
+                if self.line:
+                    self.link.write(frame(0, bytes(self.line)))
+                    self.line.clear()
+            elif b in (0x7F, 0x08):               # backspace / DEL
+                if self.line:
+                    self.line.pop()
+                    if self.echo:
+                        out += b"\b \b"
+            elif b >= 0x20:
+                self.line.append(b)
+                if self.echo:
+                    out.append(b)
+        if out:
+            os.write(self.fd, bytes(out))
+
+    def write(self, payload):                     # MCU ch0 output -> the console
+        os.write(self.fd, payload)
+
+
 # ── Broker ───────────────────────────────────────────────────────────────────────
 class Broker:
-    def __init__(self, link, rundir, channels, log):
+    def __init__(self, link, rundir, channels, log, console_dev=None):
         self.link = link
         self.rundir = rundir
         self.log = log
         self.sel = selectors.DefaultSelector()
         self.deframer = Deframer()
-        self.console_master = None       # PTY master fd for ch0
-        self.console_line = bytearray()  # ch0 input buffered until newline -> one command/frame
+        self.console = None              # ch0 line editor (over a PTY or a device fd)
         self.servers = {}                # channel -> listening socket
         self.clients = {}                # channel -> set(connected sockets)
 
         os.makedirs(rundir, exist_ok=True)
         self.sel.register(link, selectors.EVENT_READ, ("link", None))
-        self._open_console()
+        self._open_console(console_dev)
         for ch in channels:
             self._open_channel(ch)
 
-    # ch0 console PTY ----------------------------------------------------------------
-    def _open_console(self):
+    # ch0 console: a device (e.g. /dev/ttyGS0 -> the Mac) or, by default, a local PTY -------
+    def _open_console(self, dev):
+        if dev:
+            fd = os.open(dev, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+            try:
+                tty.setraw(fd)           # raw: broker owns echo/editing + binary-clean frames
+            except termios.error:
+                pass                     # not a tty (e.g. a plain fd under test) — fine
+            self.console = Console(self.link, fd, echo=True)
+            self.sel.register(fd, selectors.EVENT_READ, ("console", None))
+            print(f"[broker] ch0 console -> {dev} (interactive, echo on)", flush=True)
+            return
         master, slave = os.openpty()
         os.set_blocking(master, False)
-        self.console_master = master
         path = os.path.join(self.rundir, "console")
         try:
             os.remove(path)
         except FileNotFoundError:
             pass
         os.symlink(os.ttyname(slave), path)
+        self.console = Console(self.link, master, echo=False)
         self.sel.register(master, selectors.EVENT_READ, ("console", None))
         print(f"[broker] ch0 console -> {path} (screen $(readlink {path}))", flush=True)
 
@@ -148,7 +202,7 @@ class Broker:
                 if kind == "link":
                     self._on_link()
                 elif kind == "console":
-                    self._on_console()
+                    self.console.on_input()
                 elif kind == "accept":
                     self._on_accept(ch)
                 elif kind == "client":
@@ -162,27 +216,9 @@ class Broker:
             if self.log:
                 print(f"[ch{ch}] {payload!r}", flush=True)
             if ch == 0:
-                if self.console_master is not None:
-                    os.write(self.console_master, payload)
+                self.console.write(payload)
             else:
                 self._fanout(ch, payload)
-
-    def _on_console(self):
-        # ch0 is line-oriented: commander dispatches a whole command line per frame, so we
-        # buffer console input until CR/LF and frame one command per line (stripped). This
-        # works whether the terminal sends a line at once (echo "cmd" > console) or a key at
-        # a time (an interactive screen/picocom in raw mode) — never one frame per keystroke.
-        try:
-            data = os.read(self.console_master, 4096)
-        except OSError:
-            return
-        for b in data:
-            if b in (0x0D, 0x0A):
-                if self.console_line:
-                    self.link.write(frame(0, bytes(self.console_line)))
-                    self.console_line.clear()
-            else:
-                self.console_line.append(b)
 
     def _on_accept(self, ch):
         conn, _ = self.servers[ch].accept()
@@ -222,6 +258,10 @@ def main():
     ap.add_argument("-b", "--baud", type=int, default=115200)
     ap.add_argument("-r", "--rundir", default="/tmp/commander", help="dir for console PTY + chN.sock")
     ap.add_argument("-c", "--channels", default="1,2", help="non-console channels to expose, comma list")
+    ap.add_argument("-C", "--console", default=None,
+                    help="bridge ch0 to this device instead of a local PTY — e.g. /dev/ttyGS0 "
+                         "(the Uno Q USB-CDC gadget), so the Mac serial console keeps working "
+                         "alongside the channels. Broker supplies echo + line editing.")
     ap.add_argument("--log", action="store_true", help="print every inbound frame to stdout")
     args = ap.parse_args()
 
@@ -231,7 +271,8 @@ def main():
         raise SystemExit("commander_broker: needs pyserial — `pip install pyserial`")
 
     link = serial.Serial(args.port, args.baud, timeout=0)
-    Broker(link, args.rundir, parse_channels(args.channels), args.log).run()
+    Broker(link, args.rundir, parse_channels(args.channels), args.log,
+           console_dev=args.console).run()
 
 
 if __name__ == "__main__":

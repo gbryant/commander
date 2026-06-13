@@ -71,41 +71,47 @@ target_sources(app PRIVATE
 **Wire** the TSOP/Grove IR receiver: VCC→3V3, GND→GND, OUT→**D5**. Then `west build` + flash as
 in `zephyr-hal-spike.md`.
 
-## 2. SBC side — run the broker
+## 2. SBC side — run the broker (keeps the Mac console)
 
-The broker must be the sole owner of `ttyHS1`, so stop the USB-CDC bridge first. On the board
-(`adb shell` or `ssh arduino@gandalf`):
+The broker becomes the sole owner of the link, *replacing* the USB-CDC bridge — but it keeps
+your Mac console alive by bridging ch0 to the same gadget the bridge used (`/dev/ttyGS0`). So
+stop the bridge (that frees both `ttyHS1` and `ttyGS0`) and hand `ttyGS0` to the broker with
+`--console`. On the board (`adb shell` or `ssh arduino@gandalf`):
 ```bash
 adb push transport/channels/broker/commander_broker.py /tmp/    # or scp; from the repo
-sudo systemctl stop commander-bridge.service                    # frees /dev/ttyHS1
+sudo systemctl stop commander-bridge.service                    # frees ttyHS1 + ttyGS0
 pip install pyserial                                            # once
-python3 /tmp/commander_broker.py --port /dev/ttyHS1 --channels 1 --log
+python3 /tmp/commander_broker.py --port /dev/ttyHS1 --console /dev/ttyGS0 --channels 1 --log
 ```
-`--log` prints every inbound frame as `[chN] b'...'` — that alone is enough to see the proof.
+With `--console /dev/ttyGS0`, your **Mac serial path is unchanged**: open `/dev/cu.usbmodem*`
+as always and you get the commander shell (the broker supplies echo + line editing, since the
+bus MCU no longer echoes per-key). `--log` prints every inbound frame as `[chN] b'...'`.
 
-## 3. The proof — two commands
+So you keep your two familiar terminals: **Mac `screen /dev/cu.usbmodem*`** = the commander
+console (ch0), and **`ssh`/`adb` to Debian** = the Linux shell — now with the channel sockets
+available there too.
 
-IR receive is off until you turn it on (one command on ch0), then press buttons:
-```bash
-# in a second shell on the board:
-echo "ir recv" > $(readlink /tmp/commander/console)
+## 3. The proof
+
+In the Mac console (`/dev/cu.usbmodem*`), turn IR receive on, then press remote buttons:
 ```
-Now press remote buttons. The broker `--log` shows:
+ir recv
 ```
-[ch0] b'listening... (ir recv to stop)'      # the command reply, framed back on ch0
-[ch1] b'0x20DF10EF p3'                         # each press, tagged on ch1
+Each press shows on ch1. Watch it on Debian via the broker `--log`:
+```
+[ch1] b'0x20DF10EF p3'        # each press, tagged on ch1
 [ch1] b'0x20DF40BF p3'
 ```
-**Pass = presses appear on `ch1` as `0xHHHHHHHH p3` while ch0 still carries the shell** —
-source-tagged, demuxed, concurrent MCU→SBC. (`p3` = NEC. Same wire format as the Arduino
-IRModule via `modules/ir/IrEvent.h`, so host-side `irlookup` works regardless of board.)
-
-To consume ch1 from your own process instead of eyeballing `--log`:
+or consume it from your own process:
 ```bash
 socat - UNIX-CONNECT:/tmp/commander/ch1.sock     # one line per press
 ```
-And the ch0 shell interactively (optional): `screen $(readlink /tmp/commander/console)` then
-type commands (no local echo — commander is message-oriented; the broker frames whole lines).
+**Pass = presses stream on `ch1` while the Mac `ch0` shell stays fully usable** — source-tagged,
+demuxed, concurrent MCU→SBC. (`p3` = NEC. Same wire format as the Arduino IRModule via
+`modules/ir/IrEvent.h`, so host-side `irlookup` works regardless of board.)
+
+(No USB gadget / prefer a local Debian console? Drop `--console`; the broker exposes ch0 as a
+PTY at `/tmp/commander/console` instead — `screen $(readlink /tmp/commander/console)`.)
 
 ## If something's off
 The decoder + transport + broker are all host-tested (`transport/channels/tests/run.sh`,
@@ -126,5 +132,6 @@ watch it tick on ch1 while you use the ch0 shell. Same path, no remote needed.
 ## Notes
 - More consumers: `--channels 1,2,3` → a `/tmp/commander/chN.sock` each, fan-out to every
   connected client. Any module publishes on its own channel via the `ChannelPublisher` seam.
-- The broker owns `ttyHS1`, so the Mac USB-CDC path is down while it runs;
-  `start commander-bridge.service` to restore it.
+- With `--console /dev/ttyGS0` the broker drives the USB-CDC gadget itself, so the Mac console
+  coexists with the channels — no need to flip back to `commander-bridge.service`. (Restart that
+  service only if you stop the broker and want the plain passthrough bridge back.)

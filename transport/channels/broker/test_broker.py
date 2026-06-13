@@ -98,7 +98,55 @@ def main():
     ok = b"commander v1" in out; fails += not ok
     print(f"{'PASS' if ok else 'FAIL'} ch0 frame from MCU appears on console PTY: {out!r}")
 
+    fails += device_console()
     print("\nALL PASS" if not fails else f"\n{fails} FAILED")
+    return fails
+
+
+def device_console():
+    """--console <dev> path: an interactive endpoint (stand-in for /dev/ttyGS0 -> the Mac).
+    The broker must echo + line-edit and frame whole commands on ch0."""
+    fails = 0
+    lm, ls = os.openpty()                       # MCU link
+    cm, cs = os.openpty()                        # the "Mac" console; broker opens the slave
+    cdev = os.ttyname(cs); os.close(cs)          # hand the broker the device path, keep master
+    for fd in (lm, ls, cm):
+        tty.setraw(fd); os.set_blocking(fd, False)
+
+    class FakeLink:
+        port, baudrate = "pty", 115200
+        def fileno(self): return ls
+        def read(self, n):
+            try: return os.read(ls, n)
+            except BlockingIOError: return b""
+        def write(self, b): return os.write(ls, b)
+
+    rundir = os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmdr-brk-test-dev")
+    broker = B.Broker(FakeLink(), rundir, [1], log=False, console_dev=cdev)
+    threading.Thread(target=broker.run, daemon=True).start()
+    time.sleep(0.2)
+
+    # type "help\r" a key at a time -> broker echoes it back AND frames "help" on ch0
+    for ch_byte in b"help\r":
+        os.write(cm, bytes([ch_byte])); time.sleep(0.01)
+    echo = b""
+    end = time.time() + 1.0
+    while time.time() < end and b"help" not in echo:
+        try: echo += os.read(cm, 200)
+        except BlockingIOError: time.sleep(0.01)
+    ok = b"help" in echo; fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} device console echoes typed input back to the Mac: {echo!r}")
+
+    got = read_frames(lm)
+    ok = any(ch == 0 and pay == b"help" for ch, pay in got); fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} device console frames the command on ch0: {got}")
+
+    # backspace editing: "worl" <bs> "d\r" -> "word"
+    for ch_byte in b"worl\x7fd\r":
+        os.write(cm, bytes([ch_byte])); time.sleep(0.01)
+    got = read_frames(lm)
+    ok = any(ch == 0 and pay == b"word" for ch, pay in got); fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} device console backspace edits the line: {got}")
     return fails
 
 
