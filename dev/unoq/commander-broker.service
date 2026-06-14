@@ -1,6 +1,6 @@
 [Unit]
 Description=Commander channel-bus broker (ttyHS1 demux -> ch0 console on ttyGS0 + channel sockets)
-Documentation=https://github.com/gbryant/commander docs/commander-channels-bringup.md
+Documentation=https://github.com/gbryant/commander/blob/main/docs/commander-channels-bringup.md
 # Replaces commander-bridge.service. Like the bridge it carries the ch0 console to the USB-CDC
 # gadget (ttyGS0 -> the Mac's /dev/cu.usbmodem*), but it ALSO demuxes the channel bus: chN ->
 # /tmp/commander/chN.sock for local Debian consumers (e.g. ch1 = IR events).

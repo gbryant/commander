@@ -1,6 +1,6 @@
 [Unit]
 Description=Commander MCU bridge (ttyHS1/lpuart1 <-> USB CDC ttyGS0)
-Documentation=https://github.com/gbryant/commander docs/unoq-access.md
+Documentation=https://github.com/gbryant/commander/blob/main/docs/unoq-access.md
 After=adbd.service
 
 [Service]
