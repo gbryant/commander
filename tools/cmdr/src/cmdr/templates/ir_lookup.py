@@ -66,6 +66,10 @@ def show(protocol, address, command, bits, matches):
 
 
 def main():
+    try:
+        sys.stdout.reconfigure(line_buffering=True)   # stream even when piped (adb shell 'cmd')
+    except Exception:
+        pass
     p = argparse.ArgumentParser(description="Identify IR presses against saved maps over the channel bus")
     p.add_argument('--maps', '-m', default=DEFAULT_MAPS, metavar='DIR', help='map files directory')
     p.add_argument('--rundir', default='/tmp/commander', help='broker rundir (ch0.sock/ch1.sock)')

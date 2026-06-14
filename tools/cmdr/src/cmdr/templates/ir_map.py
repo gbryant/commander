@@ -55,6 +55,10 @@ def prompt_select(selects, suggested=None):
 
 
 def main():
+    try:
+        sys.stdout.reconfigure(line_buffering=True)   # stream even when piped (adb shell 'cmd')
+    except Exception:
+        pass
     p = argparse.ArgumentParser(description="Map IR remote buttons over the commander channel bus")
     p.add_argument('--output', '-o', default=DEFAULT_OUT, help='output JSON file')
     p.add_argument('--selects', nargs='*', metavar='NAME', help='select-switch position names, left to right')
