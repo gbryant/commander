@@ -700,20 +700,29 @@ UNOQ_INSTALL_BROKER_SCRIPT = """\
 # Board-modifying: make commander-broker.service own the MCU link (ch0 console -> the Mac's
 # USB serial, chN -> /tmp/commander/chN.sock). Masks the Arduino router (frees ttyHS1) and
 # replaces commander-bridge. Reversible with ./restore-arduino. Needs the board sudo password.
+# The broker + unit ship with the commander source that ./build fetched — push from there, so
+# the board needs no GitHub auth (works for a private repo; the curl-from-raw approach didn't).
 set -e
-RAW="https://raw.githubusercontent.com/gbryant/commander/main"
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+BROKER=$(find build-unoq -name commander_broker.py 2>/dev/null | head -1)
+SERVICE=$(find build-unoq -name commander-broker.service 2>/dev/null | head -1)
+if [ -z "$BROKER" ] || [ -z "$SERVICE" ]; then
+  echo "couldn't find the broker in the fetched commander source — run ./build first."; exit 1
+fi
+
 read -s -p "Board (arduino@gandalf) sudo password: " PW; echo
 run() { adb shell "echo '$PW' | sudo -S bash -c '$1'"; }
 
-echo "==> fetching broker + service unit onto the board"
-adb shell "curl -fsSL $RAW/transport/channels/broker/commander_broker.py -o /home/arduino/commander_broker.py"
-adb shell "curl -fsSL $RAW/dev/unoq/commander-broker.service -o /home/arduino/commander-broker.service"
+echo "==> pushing broker + service unit to the board"
+adb push "$BROKER"  /home/arduino/commander_broker.py     >/dev/null
+adb push "$SERVICE" /home/arduino/commander-broker.service >/dev/null
 
 echo "==> masking the Arduino router stack (frees ttyHS1)"
 run 'cd /etc/systemd/system && for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do [ -f $u ] && [ ! -L $u ] && mv $u $u.commander-bak && ln -sf /dev/null $u; done; systemctl daemon-reload || true'
 
-echo "==> installing + starting commander-broker.service"
-run 'cp /home/arduino/commander-broker.service /etc/systemd/system/ && systemctl daemon-reload && systemctl disable --now commander-bridge.service 2>/dev/null; systemctl enable --now commander-broker.service'
+echo "==> installing + (re)starting commander-broker.service"
+run 'cp /home/arduino/commander-broker.service /etc/systemd/system/ && systemctl daemon-reload && systemctl disable --now commander-bridge.service 2>/dev/null; systemctl enable commander-broker.service; systemctl restart commander-broker.service'
 adb shell "systemctl is-active commander-broker.service"
 echo "done. open the Mac console with ./monitor"
 """
