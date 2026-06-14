@@ -31,7 +31,8 @@ PICO_TARGETS = {
 }
 ARDUINO_TARGETS = {"uno": "uno", "r4": "r4"}
 STM32_TARGETS = {"bluepill": "bluepill_f103c8"}   # PlatformIO + native CMSIS (not Arduino)
-TARGETS = {**PICO_TARGETS, "esp32": "esp32", **ARDUINO_TARGETS, **STM32_TARGETS}
+ZEPHYR_TARGETS = {"unoq": "arduino_uno_q"}        # Zephyr/west; dual-brain (MCU + paired Linux)
+TARGETS = {**PICO_TARGETS, "esp32": "esp32", **ARDUINO_TARGETS, **STM32_TARGETS, **ZEPHYR_TARGETS}
 
 VALID_FLASH_MB  = {2, 4, 8, 16, 32}
 VALID_PSRAM_MB  = {0, 2, 4, 8}
@@ -530,6 +531,221 @@ def make_sdkconfig(chip: str, flash_mb: int, psram_mb: int) -> str:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# ── Arduino Uno Q templates (Zephyr/west; dual-brain MCU + paired Linux) ──────
+# The Uno Q is its own board type, not a generic Zephyr target (that generalization is
+# deferred until a second such board). cmdr generates software only; the board-mutating
+# steps (boot mode, masking the router, installing the broker service) are SCRIPTS the
+# user runs explicitly — each with a revert. See the scaffolded README.
+
+UNOQ_CMAKE_TEMPLATE = """\
+cmake_minimum_required(VERSION 3.20.0)
+
+# Pull commander before Zephyr initializes (Populate downloads only — doesn't process
+# commander's own CMakeLists). Pin GIT_TAG to a release/sha to freeze the framework.
+include(FetchContent)
+FetchContent_Declare(commander GIT_REPOSITORY """ + REPO_URL + """ GIT_TAG main)
+FetchContent_Populate(commander)
+set(COMMANDER ${commander_SOURCE_DIR})
+
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(__NAME__)
+
+# The Uno Q's two brains talk over the multiplexed channel bus (ch0 console + pub/sub),
+# not a plain UART console. The runner switches transport on this flag.
+add_compile_definitions(COMMANDER_ENABLE_CHANNELS)
+
+target_include_directories(app PRIVATE ${COMMANDER} ${COMMANDER}/include)
+target_sources(app PRIVATE
+    src/main.cpp
+    ${COMMANDER}/runners/zephyr/runner.cpp
+    ${COMMANDER}/core/CommandRegistry.cpp
+    ${COMMANDER}/transport/channels/ChannelBusRunner.cpp
+    ${COMMANDER}/platform/zephyr/ZephyrIRModule.cpp   # dead-stripped unless `ir` is enabled
+    ${COMMANDER}/hal/zephyr/hal.cpp
+)
+"""
+
+UNOQ_PRJCONF_TEMPLATE = """\
+# commander on Zephyr — Uno Q (STM32U585 / M33)
+CONFIG_CPP=y
+CONFIG_STD_CPP17=y
+CONFIG_CPP_EXCEPTIONS=n
+
+CONFIG_SERIAL=y
+CONFIG_CONSOLE=y
+CONFIG_UART_CONSOLE=y
+CONFIG_UART_INTERRUPT_DRIVEN=y     # RX must be ISR-driven (poll overruns at 115200)
+CONFIG_GPIO=y                      # IR edge capture
+
+CONFIG_NEWLIB_LIBC=y               # commander uses snprintf etc.
+CONFIG_MAIN_STACK_SIZE=2048
+"""
+
+UNOQ_OVERLAY_TEMPLATE = """\
+/* Route commander's console to lpuart1 = the QRB bridge UART (-> /dev/ttyHS1).
+ * The board default (usart1) is the Arduino header Serial1 (D0/D1), not the Linux side. */
+/ {
+    chosen {
+        zephyr,console = &lpuart1;
+        zephyr,shell-uart = &lpuart1;
+    };
+
+    /* IR receiver OUT pin — used only when the `ir` module is enabled. Default D5
+     * (arduino_header index 11 = &gpioa 11). Edit to move the pin. */
+    zephyr,user {
+        ir-gpios = <&arduino_header 11 GPIO_ACTIVE_HIGH>;
+    };
+};
+"""
+
+# Dev loop runs on the Mac; build is west, flash is openocd-over-adb (west flash for this
+# board isn't working upstream). Toolchain env is overridable — defaults to the Arm GNU
+# Toolchain because the Zephyr SDK has no Intel-Mac build.
+UNOQ_ENV_PREAMBLE = """\
+# Zephyr build env (override any of these for your install):
+source "${ZEPHYR_VENV:-$HOME/zephyrproject/.venv}/bin/activate" 2>/dev/null || true
+export ZEPHYR_BASE="${ZEPHYR_BASE:-$HOME/zephyrproject/zephyr}"
+export ZEPHYR_TOOLCHAIN_VARIANT="${ZEPHYR_TOOLCHAIN_VARIANT:-gnuarmemb}"
+export GNUARMEMB_TOOLCHAIN_PATH="${GNUARMEMB_TOOLCHAIN_PATH:-/Applications/ArmGNUToolchain/14.2.rel1/arm-none-eabi}"
+GDB="${GDB:-$GNUARMEMB_TOOLCHAIN_PATH/bin/arm-none-eabi-gdb}"
+"""
+
+UNOQ_BUILD_SCRIPT = """\
+#!/bin/bash
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
+""" + UNOQ_ENV_PREAMBLE + """\
+west build -b arduino_uno_q "$@"
+"""
+
+UNOQ_FLASH_SCRIPT = """\
+#!/bin/bash
+# Flash the M33 over the QRB's on-board SWD (openocd via adb). One arduino-debug at a time.
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
+""" + UNOQ_ENV_PREAMBLE + """\
+adb shell "pkill -f openocd" 2>/dev/null || true
+adb forward tcp:3333 tcp:3333 >/dev/null
+( adb shell arduino-debug >/tmp/cmdr-unoq-debug.log 2>&1 & )
+sleep 6
+"$GDB" build/zephyr/zephyr.elf -batch \\
+  -ex "target extended-remote localhost:3333" \\
+  -ex "monitor reset halt" -ex load -ex "monitor reset run" -ex detach -ex quit
+adb shell "pkill -f openocd" 2>/dev/null || true
+adb forward --remove tcp:3333 2>/dev/null || true
+echo "flashed. (if the M33 boots the ROM bootloader instead of the app, run ./enable-flash-boot once)"
+"""
+
+UNOQ_MONITOR_SCRIPT = """\
+#!/bin/bash
+# The Mac's console is ch0 of the channel bus, carried over the USB-CDC gadget by the
+# broker service. Needs ./install-broker to have been run on the board.
+set -e
+PORT="${1:-$(ls /dev/cu.usbmodem* 2>/dev/null | head -1)}"
+[ -n "$PORT" ] || { echo "no /dev/cu.usbmodem* found — is the board plugged in?"; exit 1; }
+echo "Connecting to $PORT  (Ctrl-T q to quit). Type 'help'."
+tio --baudrate 115200 "$PORT"
+"""
+
+UNOQ_BUM_SCRIPT = """\
+#!/bin/bash
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$DIR/build"
+"$DIR/flash"
+"$DIR/monitor"
+"""
+
+# ── Board-mutating scripts (the user runs these; each is reversible) ──────────
+
+UNOQ_ENABLE_FLASH_BOOT_SCRIPT = """\
+#!/bin/bash
+# ONE-TIME, board-modifying: set STM32U585 option bytes so the M33 boots from FLASH
+# (nSWBOOT0=0, nBOOT0=1) instead of its ROM bootloader. Without this, commander never
+# runs. Recoverable: SWD works in any boot mode; revert with ./restore-arduino. Never
+# touches the RDP byte. See docs/zephyr-hal-spike.md.
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
+""" + UNOQ_ENV_PREAMBLE + """\
+adb shell "pkill -f openocd" 2>/dev/null || true
+adb forward tcp:3333 tcp:3333 >/dev/null
+( adb shell arduino-debug >/tmp/cmdr-unoq-debug.log 2>&1 & )
+sleep 6
+CUR=$("$GDB" -batch -ex "target extended-remote localhost:3333" -ex "monitor halt" \\
+  -ex 'monitor stm32l4x option_read 0 0x40' 2>/dev/null | grep -oiE '0x[0-9a-f]{8}' | tail -1)
+echo "current FLASH_OPTR = ${CUR:-?}"
+if [ "$CUR" = "0x1beff8aa" ]; then
+  echo "already set to boot from flash — nothing to do."
+else
+  read -p "Write option bytes to boot from flash (0x1beff8aa)? [y/N] " ok
+  if [ "$ok" = "y" ] || [ "$ok" = "Y" ]; then
+    "$GDB" -batch -ex "target extended-remote localhost:3333" -ex "monitor halt" \\
+      -ex "monitor stm32l4x unlock 0" \\
+      -ex "monitor stm32l4x option_write 0 0x40 0x1beff8aa 0x0c000000" \\
+      -ex "monitor stm32l4x option_load 0" -ex quit 2>&1 | grep -iE "written|option" || true
+    sleep 1
+    VTOR=$("$GDB" -batch -ex "target extended-remote localhost:3333" -ex "monitor reset run" \\
+      -ex "shell sleep 1" -ex "monitor halt" \\
+      -ex 'printf "0x%08x\\n", *(unsigned int*)0xE000ED08' 2>/dev/null | grep -oiE '0x08000000|0x0bf90000' | tail -1)
+    echo "VTOR=$VTOR  ($([ "$VTOR" = "0x08000000" ] && echo 'boots commander from flash ✓' || echo 'still bootloader — retry'))"
+  fi
+fi
+adb shell "pkill -f openocd" 2>/dev/null || true
+adb forward --remove tcp:3333 2>/dev/null || true
+"""
+
+UNOQ_INSTALL_BROKER_SCRIPT = """\
+#!/bin/bash
+# Board-modifying: make commander-broker.service own the MCU link (ch0 console -> the Mac's
+# USB serial, chN -> /tmp/commander/chN.sock). Masks the Arduino router (frees ttyHS1) and
+# replaces commander-bridge. Reversible with ./restore-arduino. Needs the board sudo password.
+set -e
+RAW="https://raw.githubusercontent.com/gbryant/commander/main"
+read -s -p "Board (arduino@gandalf) sudo password: " PW; echo
+run() { adb shell "echo '$PW' | sudo -S bash -c '$1'"; }
+
+echo "==> fetching broker + service unit onto the board"
+adb shell "curl -fsSL $RAW/transport/channels/broker/commander_broker.py -o /home/arduino/commander_broker.py"
+adb shell "curl -fsSL $RAW/dev/unoq/commander-broker.service -o /home/arduino/commander-broker.service"
+
+echo "==> masking the Arduino router stack (frees ttyHS1)"
+run 'cd /etc/systemd/system && for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do [ -f $u ] && [ ! -L $u ] && mv $u $u.commander-bak && ln -sf /dev/null $u; done; systemctl daemon-reload || true'
+
+echo "==> installing + starting commander-broker.service"
+run 'cp /home/arduino/commander-broker.service /etc/systemd/system/ && systemctl daemon-reload && systemctl disable --now commander-bridge.service 2>/dev/null; systemctl enable --now commander-broker.service'
+adb shell "systemctl is-active commander-broker.service"
+echo "done. open the Mac console with ./monitor"
+"""
+
+UNOQ_RESTORE_ARDUINO_SCRIPT = """\
+#!/bin/bash
+# Revert the board to the stock Arduino App Lab flow: stop/disable the broker, restore the
+# plain bridge + the Arduino router stack, and (optionally) put the M33 boot bytes back so
+# the standard DFU sketch-flash works. The inverse of install-broker + enable-flash-boot.
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
+read -s -p "Board sudo password: " PW; echo
+run() { adb shell "echo '$PW' | sudo -S bash -c '$1'"; }
+
+echo "==> disabling the broker, restoring the bridge + router"
+run 'systemctl disable --now commander-broker.service 2>/dev/null; systemctl enable --now commander-bridge.service 2>/dev/null || true'
+run 'cd /etc/systemd/system && for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do [ -L $u ] && rm -f $u; [ -f $u.commander-bak ] && mv $u.commander-bak $u; done; systemctl daemon-reload'
+
+read -p "Also revert the M33 boot bytes to factory (BOOT0-pin)? [y/N] " ok
+if [ "$ok" = "y" ] || [ "$ok" = "Y" ]; then
+""" + UNOQ_ENV_PREAMBLE + """\
+  adb shell "pkill -f openocd" 2>/dev/null || true
+  adb forward tcp:3333 tcp:3333 >/dev/null; ( adb shell arduino-debug >/tmp/cmdr-unoq-debug.log 2>&1 & ); sleep 6
+  "$GDB" -batch -ex "target extended-remote localhost:3333" -ex "monitor halt" \\
+    -ex "monitor stm32l4x unlock 0" \\
+    -ex "monitor stm32l4x option_write 0 0x40 0x1feff8aa 0x0c000000" \\
+    -ex "monitor stm32l4x option_load 0" -ex quit 2>&1 | grep -iE "written|option" || true
+  adb shell "pkill -f openocd" 2>/dev/null || true; adb forward --remove tcp:3333 2>/dev/null || true
+fi
+echo "restored. (re-running App Lab may need a reboot so the router takes ttyHS1 back)"
+"""
+
+
 def render(template: str, **kwargs) -> str:
     result = template
     for key, val in kwargs.items():
@@ -608,8 +824,9 @@ MODULE_SPECS = {
     # WiFi status/control (wifi status|off|on). Runner implements the hooks, so
     # only WiFi platforms whose runner provides them.
     "wifi":    {"always": False, "platforms": ["pico", "pico2", "r4", "esp32"], "questions": []},
-    "ir":      {"always": False, "platforms": ["pico", "pico2", "uno", "r4"], "questions": [
-        ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5", "r4": "5"}),
+    "ir":      {"always": False, "platforms": ["pico", "pico2", "uno", "r4", "unoq"], "questions": [
+        # unoq sets the pin in app.overlay (ir-gpios), so its value here is informational.
+        ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5", "r4": "5", "unoq": "5"}),
     ], "features": [
         ("wall", "Roomba virtual-wall detection?", False, "COMMANDER_IR_WALL"),
     ], "tools": ["irmap.py", "irlookup.py"], "seed_dirs": [("maps", "ir_maps")],
@@ -669,6 +886,19 @@ MODULE_SPECS = {
         ("ce",   "DS1302 CE (enable/reset) pin", "21"),
     ]},
 }
+
+
+# The Uno Q's Zephyr HAL backs only UART (console/channel bus) + devicetree IR so far;
+# GPIO/I2C are stubbed, so the I2C/GPIO sensor modules would enable but not work. Keep the
+# menu honest — only these are offered on unoq until the HAL grows (no broken promises).
+UNOQ_MODULES = {"system", "ir"}
+
+
+def _module_supported(name: str, target: str) -> bool:
+    if target == "unoq":
+        return name in UNOQ_MODULES
+    plats = MODULE_SPECS[name]["platforms"]
+    return plats is None or target in plats
 
 
 def _emit_module(name: str, opts: dict, target: str):
@@ -816,6 +1046,19 @@ def _emit_module(name: str, opts: dict, target: str):
                     [f"static IRModule _m_ir({pin});"],
                     ["reg.registerModule(_m_ir);"],
                     ["uart.addTicker(_m_ir);"])
+        if target == "unoq":
+            # Zephyr GPIO-ISR NEC/Sony receiver (pin from app.overlay's ir-gpios). On the
+            # channel-bus build it publishes each press on ch1 and is pumped by the bus
+            # thread — so its wiring (publisher + ticker) goes into the channel-bus-ready
+            # hook, where `bus` is in scope (see generate_modules_file).
+            return (['#include "platform/zephyr/ZephyrIRModule.h"',
+                     '#include "transport/channels/ChannelBusRunner.h"'],
+                    ["static ZephyrIRModule _m_ir;",
+                     "static ChannelTransport::ChannelPublisher _pub_ir;"],
+                    ["reg.registerModule(_m_ir);"],
+                    ["_pub_ir = bus.channels().publisher(1);",
+                     "_m_ir.setOutput(&_pub_ir);",
+                     "bus.addTicker(_m_ir);"])
         die(f"ir module is not yet supported on target '{target}'")
     if name == "roomba":
         baud = opts.get("baud", 115200)
@@ -893,11 +1136,16 @@ def generate_modules_file(target: str, modules: dict, out_path: Path) -> None:
                 registers.append(r)
         tickers += tick
 
-    # Modules that need tick() pumped (e.g. IR recv) get a strong, non-inline
-    # commander_on_uart_ready() that overrides the runner's weak default and
-    # registers them as UART tickers. Needs UartTransport's full definition.
+    # Modules that need tick() pumped (e.g. IR recv) get a strong, non-inline ticker hook
+    # that overrides the runner's weak default. The hook + transport type differ by build:
+    # the channel-bus runner (unoq) uses commander_on_channel_bus_ready(ChannelBusRunner&),
+    # everyone else commander_on_uart_ready(UartTransport&).
+    bus_build = (target == "unoq")
     if tickers:
-        includes.append('#include "transport/uart/UartTransport.h"')
+        hdr = ('#include "transport/channels/ChannelBusRunner.h"' if bus_build
+               else '#include "transport/uart/UartTransport.h"')
+        if hdr not in includes:
+            includes.append(hdr)
 
     lines = [
         "// AUTO-GENERATED by cmdr — do not edit.",
@@ -913,12 +1161,10 @@ def generate_modules_file(target: str, modules: dict, out_path: Path) -> None:
         "}",
     ]
     if tickers:
-        lines += [
-            "",
-            "extern \"C\" void commander_on_uart_ready(UartTransport &uart) {",
-            *["    " + t for t in tickers],
-            "}",
-        ]
+        hook = ('extern "C" void commander_on_channel_bus_ready(ChannelBusRunner &bus) {'
+                if bus_build else
+                'extern "C" void commander_on_uart_ready(UartTransport &uart) {')
+        lines += ["", hook, *["    " + t for t in tickers], "}"]
     out_path.write_text("\n".join(lines) + "\n")
 
 
@@ -1336,8 +1582,9 @@ def cmd_module(args: argparse.Namespace) -> None:
             elif name in modules:
                 opts = "  ".join(f"{k}={v}" for k, v in modules[name].items())
                 state = f"ON   {opts}".rstrip()
-            elif spec["platforms"] is not None and target not in spec["platforms"]:
-                state = f"n/a (needs {'/'.join(spec['platforms'])})"
+            elif not _module_supported(name, target):
+                state = ("n/a (Uno Q HAL: console + IR only)" if target == "unoq"
+                         else f"n/a (needs {'/'.join(spec['platforms'])})")
             else:
                 state = "off"
             print(f"  {name:10s} {state}")
@@ -1358,7 +1605,10 @@ def cmd_module(args: argparse.Namespace) -> None:
         modules = {}
     if not target:
         die("could not determine target — run from a commander project root (no cmdr.toml or platformio.ini)")
-    if spec["platforms"] is not None and target not in spec["platforms"]:
+    if not _module_supported(name, target):
+        if target == "unoq":
+            die(f"module '{name}' isn't available on the Uno Q yet — its Zephyr HAL backs only "
+                f"the console/channel bus + IR so far (GPIO/I2C are stubbed).")
         die(f"module '{name}' is not supported on target '{target}' (supports: {', '.join(spec['platforms'])})")
 
     # roomba and loco-bridge both own Serial1 (loco-bridge provides `oi` itself),
@@ -1386,7 +1636,11 @@ def cmd_module(args: argparse.Namespace) -> None:
         modules[name] = opts
         write_manifest(manifest, target, modules)
         _regenerate(target, modules)
-        _install_tools(spec)
+        # The serial IR host tools (irmap/irlookup) + maps assume a direct serial console;
+        # on the Uno Q, IR arrives over the channel bus (ch1) — consume it from the broker
+        # socket instead (see the README / broker/examples/ir_consumer.py).
+        if target != "unoq":
+            _install_tools(spec)
         _add_pio_lib_deps(spec.get("pio_lib_deps", []))
         _sync_feature_flags(_feature_flags_on(modules))
         _sync_max_commands(modules)
@@ -1406,7 +1660,8 @@ def cmd_module(args: argparse.Namespace) -> None:
         del modules[name]
         write_manifest(manifest, target, modules)
         _regenerate(target, modules)
-        _remove_tools(spec)
+        if target != "unoq":
+            _remove_tools(spec)
         _remove_pio_lib_deps(spec.get("pio_lib_deps", []))
         _sync_feature_flags(_feature_flags_on(modules))
         _sync_max_commands(modules)
@@ -1494,6 +1749,83 @@ def scaffold_arduino(target: str, name: str, out_dir: Path) -> None:
         else:
             print("WiFi credentials pre-filled from ~/.cmdr/config")
     print(f"\nDone.\n  cd {out_dir}\n  ./bum")
+
+
+UNOQ_README_TEMPLATE = """\
+# __NAME__ — commander on the Arduino Uno Q
+
+Two brains, tightly coupled: commander runs on the **STM32U585 (M33) via Zephyr**, and a
+**Python broker on the QRB2210 Debian side** multiplexes the link. Your firmware is `src/main.cpp`
+(`commander_config` + `commander_setup`); add stock features with `cmdr module enable <x>`.
+
+`cmdr` only generates software — the steps that change the board are **scripts you run**, each
+with a revert. Run them in this order on a fresh board:
+
+## 1. One-time board setup (reversible)
+```
+./enable-flash-boot     # M33 boots your firmware from flash (sets STM32 option bytes).
+                        #   Without it the chip boots its ROM bootloader and stays silent.
+./install-broker        # broker service owns /dev/ttyHS1, bridges ch0 -> the Mac's USB
+                        #   serial + fans chN -> /tmp/commander/chN.sock. (needs board sudo)
+```
+
+## 2. Dev loop (on the Mac)
+```
+./build      # west build (sets the gnuarmemb toolchain env — the Zephyr SDK has no Intel-Mac build)
+./flash      # openocd-over-adb gdb load (west flash isn't working for this board upstream)
+./monitor    # open the ch0 console over the USB-CDC gadget (tio); type `help`
+./bum        # build + flash + monitor
+```
+Prereqs: a Zephyr/`west` checkout (`~/zephyrproject`), the Arm GNU Toolchain, and `adb`. Override
+`ZEPHYR_BASE` / `GNUARMEMB_TOOLCHAIN_PATH` / `GDB` if yours live elsewhere.
+
+## 3. Modules
+```
+cmdr module enable ir    # NEC/Sony IR receive on D5 -> published on channel 1
+cmdr module list
+```
+The Uno Q's menu is intentionally small — its Zephyr HAL backs the console/channel bus + IR so
+far (GPIO/I2C sensor modules aren't offered until the HAL grows). IR events arrive on **ch1**:
+watch them with `socat - UNIX-CONNECT:/tmp/commander/ch1.sock`, or see the parser at
+`transport/channels/broker/examples/ir_consumer.py` in the commander repo.
+
+## Revert to stock Arduino
+```
+./restore-arduino    # disable the broker, restore the bridge + router, optionally revert boot bytes
+```
+
+Background: `docs/zephyr-hal-spike.md` (boot fix + flash), `docs/commander-channels-bringup.md`
+(the bus), `docs/unoq-access.md` (access map), `dev/unoq/` (the service units) — in the
+commander repo.
+"""
+
+
+def scaffold_unoq(name: str, out_dir: Path) -> None:
+    (out_dir / "CMakeLists.txt").write_text(render(UNOQ_CMAKE_TEMPLATE, name=name))
+    (out_dir / "prj.conf").write_text(UNOQ_PRJCONF_TEMPLATE)
+    (out_dir / "app.overlay").write_text(UNOQ_OVERLAY_TEMPLATE)
+    (out_dir / "README.md").write_text(render(UNOQ_README_TEMPLATE, name=name))
+
+    src_dir = out_dir / "src"
+    src_dir.mkdir()
+    (src_dir / "main.cpp").write_text(render(UNO_MAIN_CPP_TEMPLATE, name=name))  # hook main, no WiFi
+    write_manifest(out_dir / "cmdr.toml", "unoq", {})
+    generate_modules_file("unoq", {}, src_dir / "commander_modules.h")
+    _sync_max_commands({}, out_dir)
+
+    write_script(out_dir / "build",   UNOQ_BUILD_SCRIPT)
+    write_script(out_dir / "flash",   UNOQ_FLASH_SCRIPT)
+    write_script(out_dir / "monitor", UNOQ_MONITOR_SCRIPT)
+    write_script(out_dir / "bum",     UNOQ_BUM_SCRIPT)
+    write_script(out_dir / "enable-flash-boot", UNOQ_ENABLE_FLASH_BOOT_SCRIPT)
+    write_script(out_dir / "install-broker",    UNOQ_INSTALL_BROKER_SCRIPT)
+    write_script(out_dir / "restore-arduino",   UNOQ_RESTORE_ARDUINO_SCRIPT)
+
+    print(f"Created {out_dir}/ for Arduino Uno Q (Zephyr M33 + channel bus + Linux broker)")
+    print("One-time board setup (reversible — see README.md):")
+    print("  ./enable-flash-boot   # M33 boots from flash (STM32 option bytes)")
+    print("  ./install-broker      # broker service owns the link (needs board sudo)")
+    print(f"\nThen:\n  cd {out_dir}\n  ./bum")
 
 
 def scaffold_bluepill(name: str, out_dir: Path) -> None:
@@ -1941,6 +2273,8 @@ def cmd_init(args: argparse.Namespace) -> None:
         scaffold_arduino(args.target, args.name, out_dir)
     elif args.target in STM32_TARGETS:
         scaffold_bluepill(args.name, out_dir)
+    elif args.target in ZEPHYR_TARGETS:
+        scaffold_unoq(args.name, out_dir)
     else:
         scaffold_pico(args.target, args.name, out_dir)
 
