@@ -615,7 +615,8 @@ UNOQ_BUILD_SCRIPT = """\
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
 """ + UNOQ_ENV_PREAMBLE + """\
-west build -b arduino_uno_q "$@"
+# -d build-unoq: west's default build dir is ./build, which collides with this `build` script.
+west build -b arduino_uno_q -d build-unoq "$@"
 """
 
 UNOQ_FLASH_SCRIPT = """\
@@ -628,7 +629,7 @@ adb shell "pkill -f openocd" 2>/dev/null || true
 adb forward tcp:3333 tcp:3333 >/dev/null
 ( adb shell arduino-debug >/tmp/cmdr-unoq-debug.log 2>&1 & )
 sleep 6
-"$GDB" build/zephyr/zephyr.elf -batch \\
+"$GDB" build-unoq/zephyr/zephyr.elf -batch \\
   -ex "target extended-remote localhost:3333" \\
   -ex "monitor reset halt" -ex load -ex "monitor reset run" -ex detach -ex quit
 adb shell "pkill -f openocd" 2>/dev/null || true
