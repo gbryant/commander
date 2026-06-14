@@ -67,11 +67,16 @@ int main() {
         }
         printf("%s invalid bit widths rejected (no spurious CODE)\n", !spurious ? "PASS" : "FAIL"); fails += spurious;
     }
-    {   // event formatter
-        char buf[20];
-        ir_format_event(buf, 0x20DF10EF, 3);
-        bool ok = (strcmp(buf, "0x20DF10EF p3") == 0);
-        printf("%s ir_format_event -> '%s'\n", ok ? "PASS" : "FAIL", buf); fails += !ok;
+    {   // canonical event formatter (matches printIRResultShort / the cmdr IR-tool regex)
+        char buf[96];
+        // Sony 20-bit raw 0x49d15 -> cmd=raw&0x7f=0x15, addr=raw>>7=0x93a (matches sony maps)
+        ir_format_event(buf, "Sony", 0x49d15u >> 7, 0x49d15u & 0x7f, 0x49d15u, 20);
+        bool ok = (strcmp(buf, "Protocol=Sony Address=0x93a, Command=0x15, Raw-Data=0x49d15, 20 bits") == 0);
+        printf("%s ir_format_event Sony -> '%s'\n", ok ? "PASS" : "FAIL", buf); fails += !ok;
+
+        ir_format_event(buf, "NEC", 0x0u, 0x0u, 0x0u, 32);   // zero fields render as 0x0
+        bool ok2 = (strcmp(buf, "Protocol=NEC Address=0x0, Command=0x0, Raw-Data=0x0, 32 bits") == 0);
+        printf("%s ir_format_event NEC zeros -> '%s'\n", ok2 ? "PASS" : "FAIL", buf); fails += !ok2;
     }
     {   // Sony SIRC: 12-bit code, emitted at the next frame's leading mark
         auto sendSony = [](SonyDecoder &d, uint32_t code, int nbits, int pct) {

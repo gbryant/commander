@@ -58,9 +58,13 @@ void IRModule::tick() {
     _protocol  = (uint8_t)IrReceiver.decodedIRData.protocol;
     _available = true;
     if (_out) {
-        char line[20];
-        ir_format_event(line, _code, _protocol);
-        _out->writeln(line);                 // one frame on the ir channel, unsolicited
+        // Same canonical line as printIRResultShort (and the Zephyr decoder), built from
+        // IRremote's already-split fields so the cmdr IR tools/maps parse it identically.
+        char line[96];
+        ir_format_event(line, IrReceiver.getProtocolString(),
+                        IrReceiver.decodedIRData.address, IrReceiver.decodedIRData.command,
+                        IrReceiver.decodedIRData.decodedRawData, IrReceiver.decodedIRData.numberOfBits);
+        _out->writeln(line);                 // one canonical event frame on the ir channel
     } else {
         Serial.print(F("\r\n"));
         IrReceiver.printIRResultShort(&Serial);

@@ -38,11 +38,13 @@ public:
 
 private:
     bool start();                           // configure the pin + edge interrupt (once)
-    void push(uint32_t code, uint8_t proto);  // latch a decoded code into the SPSC ring
 
     static constexpr uint8_t kProtocolNec  = 3;
     static constexpr uint8_t kProtocolSony = 4;
-    static constexpr uint8_t RING = 8;      // power-friendly small SPSC ring of codes
+    static constexpr uint8_t RING = 8;      // power-friendly small SPSC ring of decoded events
+
+    struct Ev { uint32_t code; uint8_t proto; uint8_t bits; };  // a decoded IR event
+    void push(uint32_t code, uint8_t proto, uint8_t bits);      // latch into the SPSC ring
 
     NecDecoder  _dec;                       // NEC + Sony run in parallel on the same edges;
     SonyDecoder _son;                       // whichever recognizes the frame publishes.
@@ -50,10 +52,9 @@ private:
     bool       _started  = false;
     uint32_t   _last_cyc = 0;
 
-    volatile uint32_t _ring[RING] = {};
-    volatile uint8_t  _ring_proto[RING] = {};  // protocol tag per decoded code
-    volatile uint8_t  _head = 0;            // ISR writes _head
-    volatile uint8_t  _tail = 0;            // tick() writes _tail
+    volatile Ev      _ring[RING] = {};
+    volatile uint8_t _head = 0;             // ISR writes _head
+    volatile uint8_t _tail = 0;             // tick() writes _tail
     uint32_t   _last       = 0;
     bool       _code_valid = false;
 };

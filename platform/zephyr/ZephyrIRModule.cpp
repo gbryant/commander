@@ -21,13 +21,17 @@ void ZephyrIRModule::onEdge() {
 
     uint32_t us  = k_cyc_to_us_floor32(dcyc);
     bool endedMark = (gpio_pin_get_dt(&ir_pin) == 1);  // now HIGH => a LOW mark just ended
-    if (_dec.feed(us, endedMark) == NecDecoder::CODE)  push(_dec.code(), kProtocolNec);
-    if (_son.feed(us, endedMark) == SonyDecoder::CODE) push(_son.code(), kProtocolSony);
+    if (_dec.feed(us, endedMark) == NecDecoder::CODE)  push(_dec.code(), kProtocolNec, 32);
+    if (_son.feed(us, endedMark) == SonyDecoder::CODE) push(_son.code(), kProtocolSony, _son.bits());
 }
 
-void ZephyrIRModule::push(uint32_t code, uint8_t proto) {
+void ZephyrIRModule::push(uint32_t code, uint8_t proto, uint8_t bits) {
     uint8_t n = (uint8_t)((_head + 1) % RING);
-    if (n != _tail) { _ring[_head] = code; _ring_proto[_head] = proto; _head = n; }  // drop if full
+    if (n == _tail) return;                              // full -> drop
+    _ring[_head].code  = code;                           // member-wise (volatile struct)
+    _ring[_head].proto = proto;
+    _ring[_head].bits  = bits;
+    _head = n;
 }
 
 bool ZephyrIRModule::start() {
@@ -45,15 +49,18 @@ bool ZephyrIRModule::start() {
 
 void ZephyrIRModule::tick() {
     while (_tail != _head) {
-        uint32_t code  = _ring[_tail];
-        uint8_t  proto = _ring_proto[_tail];
+        Ev e = { _ring[_tail].code, _ring[_tail].proto, _ring[_tail].bits };
         _tail = (uint8_t)((_tail + 1) % RING);
-        _last = code;
+        _last = e.code;
         _code_valid = true;
         if (_out) {
-            char line[20];
-            ir_format_event(line, code, proto);
-            _out->writeln(line);                     // one frame on the ir channel
+            // Split the raw value the protocol's way so it matches the cmdr IR maps/tools.
+            const char *name; uint32_t addr; uint32_t cmd;
+            if (e.proto == kProtocolSony) { name = "Sony"; cmd = e.code & 0x7F; addr = e.code >> 7; }
+            else                          { name = "NEC";  addr = e.code & 0xFF; cmd = (e.code >> 16) & 0xFF; }
+            char line[96];
+            ir_format_event(line, name, addr, cmd, e.code, e.bits);
+            _out->writeln(line);                     // one canonical event frame on the ir channel
         }
     }
 }
