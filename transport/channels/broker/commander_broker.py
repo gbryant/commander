@@ -283,9 +283,11 @@ class Broker:
             if self.log:
                 print(f"[ch{ch}] {payload!r}", flush=True)
             if ch == 0:
-                self.console.write(payload)
-            else:
-                self._fanout(ch, payload)
+                self.console.write(payload)        # ch0 also drives the human console (PTY/gadget)
+            self._fanout(ch, payload)              # ...and fans out to any chN.sock subscribers
+            #                                        (incl. ch0.sock if `--channels 0` exposed it:
+            #                                         a programmatic console for local processes,
+            #                                         e.g. the Uno Q IR tools sending `ir recv`)
 
     def _on_accept(self, ch):
         conn, _ = self.servers[ch].accept()
@@ -332,7 +334,10 @@ def main():
     ap.add_argument("-p", "--port", default="/dev/ttyHS1", help="MCU serial link (default ttyHS1)")
     ap.add_argument("-b", "--baud", type=int, default=115200)
     ap.add_argument("-r", "--rundir", default="/tmp/commander", help="dir for console PTY + chN.sock")
-    ap.add_argument("-c", "--channels", default="1,2", help="non-console channels to expose, comma list")
+    ap.add_argument("-c", "--channels", default="1,2",
+                    help="channels to expose as <rundir>/chN.sock, comma list. Include 0 to also "
+                         "expose the console as a socket (programmatic command access for local "
+                         "processes, alongside the human --console/PTY).")
     ap.add_argument("-C", "--console", default=None,
                     help="bridge ch0 to this device instead of a local PTY — e.g. /dev/ttyGS0 "
                          "(the Uno Q USB-CDC gadget), so the Mac serial console keeps working "

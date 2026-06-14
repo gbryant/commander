@@ -99,7 +99,49 @@ def main():
     print(f"{'PASS' if ok else 'FAIL'} ch0 frame from MCU appears on console PTY: {out!r}")
 
     fails += device_console()
+    fails += ch0_socket()
     print("\nALL PASS" if not fails else f"\n{fails} FAILED")
+    return fails
+
+
+def ch0_socket():
+    """`--channels 0` exposes the console as a socket too (programmatic command access for
+    local SBC tools, e.g. the IR mapper sending `ir recv`). Both directions on ch0.sock."""
+    fails = 0
+    lm, ls = os.openpty()                       # MCU link
+    for fd in (lm, ls):
+        tty.setraw(fd); os.set_blocking(fd, False)
+
+    class FakeLink:
+        port, baudrate = "pty", 115200
+        def fileno(self): return ls
+        def read(self, n):
+            try: return os.read(ls, n)
+            except BlockingIOError: return b""
+        def write(self, b): return os.write(ls, b)
+
+    rundir = os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmdr-brk-test-ch0")
+    broker = B.Broker(FakeLink(), rundir, [0, 1], log=False)   # ch0 exposed as a socket
+    threading.Thread(target=broker.run, daemon=True).start()
+    time.sleep(0.2)
+
+    cli = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    cli.connect(os.path.join(rundir, "ch0.sock"))
+    cli.settimeout(1.0)
+    time.sleep(0.1)
+
+    # client -> MCU: a console command frames on ch0
+    cli.sendall(b"ir recv")
+    got = read_frames(lm)
+    ok = any(ch == 0 and pay == b"ir recv" for ch, pay in got); fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} ch0.sock client command frames to MCU on ch0: {got}")
+
+    # MCU -> client: ch0 output fans out to the ch0.sock client (newline-delimited)
+    os.write(lm, B.frame(0, b"listening... (ir recv to stop)"))
+    try: reply = cli.recv(200)
+    except socket.timeout: reply = b""
+    ok = reply == b"listening... (ir recv to stop)\n"; fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} ch0 MCU output fans out to the ch0.sock client: {reply!r}")
     return fails
 
 

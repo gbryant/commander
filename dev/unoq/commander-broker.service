@@ -19,7 +19,9 @@ Conflicts=commander-bridge.service
 # transport/channels/broker/commander_broker.py in the repo). No pyserial needed (termios).
 # User arduino is in the dialout group, so it can open ttyHS1/ttyGS0; running as arduino keeps
 # the /tmp/commander/chN.sock sockets owned by arduino so other arduino processes can connect.
-ExecStart=/usr/bin/python3 /home/arduino/commander_broker.py --port /dev/ttyHS1 --console /dev/ttyGS0 --channels 1,2,3
+# --channels 0,1: ch1 = IR events; ch0 = a programmatic console socket (so SBC tools like
+# the IR mapper can send `ir recv`), alongside the human console on --console /dev/ttyGS0.
+ExecStart=/usr/bin/python3 /home/arduino/commander_broker.py --port /dev/ttyHS1 --console /dev/ttyGS0 --channels 0,1
 Restart=always
 RestartSec=2
 User=arduino
