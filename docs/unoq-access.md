@@ -11,7 +11,7 @@ STM32U585 running commander), in a way that survives reboots. Companion to
 | **Debian shell** | USB (ffs.adb gadget) | `adbd` | `adb shell` | ✅ adbd.service enabled |
 | **Debian shell** | WiFi / IP | `sshd` | `ssh arduino@<ip>` (`gandalf.local`?) | ✅ ssh enabled + WiFi auto-connects |
 | **Debian login** | UART `ttyMSM0` (QRB debug pins) | `serial-getty@ttyMSM0` | serial adapter on the debug header | ✅ enabled (needs physical UART) |
-| **MCU / commander** | USB CDC (`ttyGS0`) ↔ `ttyHS1` ↔ `lpuart1` | `commander-bridge.service` (socat) | open `/dev/cu.usbmodem*` | ✅ after Phase 1 (below) |
+| **MCU / commander** | USB CDC (`ttyGS0`) ↔ `ttyHS1` ↔ `lpuart1` | `commander-broker.service` (channel bus; `commander-bridge.service` = plain-console fallback) | open `/dev/cu.usbmodem*` | ✅ after Phase 1 (below) |
 
 Key distinction: **adb/ssh reach Debian (the SBC); the USB serial reaches the MCU
 (commander).** They are different targets — don't conflate them.

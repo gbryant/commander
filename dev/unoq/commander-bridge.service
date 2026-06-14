@@ -1,0 +1,12 @@
+[Unit]
+Description=Commander MCU bridge (ttyHS1/lpuart1 <-> USB CDC ttyGS0)
+Documentation=https://github.com/gbryant/commander docs/unoq-access.md
+After=adbd.service
+
+[Service]
+ExecStart=/usr/bin/socat /dev/ttyHS1,b115200,raw,echo=0 /dev/ttyGS0,b115200,raw,echo=0
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
