@@ -829,7 +829,11 @@ MODULE_SPECS = {
         ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5", "r4": "5", "unoq": "5"}),
     ], "features": [
         ("wall", "Roomba virtual-wall detection?", False, "COMMANDER_IR_WALL"),
-    ], "tools": ["irmap.py", "irlookup.py"], "seed_dirs": [("maps", "ir_maps")],
+    ], "tools": ["irmap.py", "irlookup.py"],
+        # On unoq IR is consumed over the channel bus (ch1), not a serial console — install
+        # the socket-based versions (run on the SBC next to the broker; no pyserial/find_port).
+        "unoq_tools": ["ir_map.py", "ir_lookup.py", "irchan.py"],
+        "seed_dirs": [("maps", "ir_maps")],
         "pio_lib_deps": ["IRremote"]},
     "roomba":  {"always": False, "platforms": ["r4"], "questions": [
         ("baud", "Roomba OI baud rate", "115200"),
@@ -1262,21 +1266,26 @@ def _regenerate(target: str, modules: dict) -> None:
 
 # Companion host tooling a module ships (e.g. IR's irmap/irlookup). Tools go in
 # bin/ (executable); tool_dirs are data dirs created empty (e.g. maps/).
-def _install_tools(spec: dict) -> None:
-    tools = spec.get("tools", [])
+def _install_tools(spec: dict, target: str) -> None:
+    # unoq's tools are channel-bus (socket) versions that run on the SBC — no serial port
+    # detection, no pyserial. Other targets get the serial tools + find_port.py.
+    serial_tools = target != "unoq"
+    tools = spec.get("tools", []) if serial_tools else spec.get("unoq_tools", [])
     if tools:
         bin_dir = Path("bin")
         bin_dir.mkdir(exist_ok=True)
-        # Shared port detection so tools pick the right board by VID/PID (same
-        # as the monitor script), not just the first cu.usb* device.
-        copy_template("find_port.py", bin_dir / "find_port.py")
-        (bin_dir / "find_port.py").chmod(0o755)
+        if serial_tools:
+            # Shared port detection so tools pick the right board by VID/PID (same
+            # as the monitor script), not just the first cu.usb* device.
+            copy_template("find_port.py", bin_dir / "find_port.py")
+            (bin_dir / "find_port.py").chmod(0o755)
         for tool in tools:
             dest = bin_dir / tool
             copy_template(tool, dest)
             dest.chmod(0o755)
             print(f"  • bin/{tool}")
-        print("    (the IR tools need: pip install pyserial)")
+        print("    (the IR tools need: pip install pyserial)" if serial_tools else
+              "    (run these on the SBC next to the broker — see README)")
     for d in spec.get("tool_dirs", []):
         Path(d).mkdir(exist_ok=True)
         print(f"  • {d}/")
@@ -1297,9 +1306,10 @@ def _install_tools(spec: dict) -> None:
         print(f"  • {dest_dir}/ ({seeded} library map(s))")
 
 
-def _remove_tools(spec: dict) -> None:
+def _remove_tools(spec: dict, target: str) -> None:
     bin_dir = Path("bin")
-    for tool in spec.get("tools", []):
+    tools = spec.get("tools", []) if target != "unoq" else spec.get("unoq_tools", [])
+    for tool in tools:
         p = bin_dir / tool
         if p.exists():
             p.unlink()
@@ -1636,11 +1646,7 @@ def cmd_module(args: argparse.Namespace) -> None:
         modules[name] = opts
         write_manifest(manifest, target, modules)
         _regenerate(target, modules)
-        # The serial IR host tools (irmap/irlookup) + maps assume a direct serial console;
-        # on the Uno Q, IR arrives over the channel bus (ch1) — consume it from the broker
-        # socket instead (see the README / broker/examples/ir_consumer.py).
-        if target != "unoq":
-            _install_tools(spec)
+        _install_tools(spec, target)   # serial tools, or unoq's channel-bus versions
         _add_pio_lib_deps(spec.get("pio_lib_deps", []))
         _sync_feature_flags(_feature_flags_on(modules))
         _sync_max_commands(modules)
@@ -1660,8 +1666,7 @@ def cmd_module(args: argparse.Namespace) -> None:
         del modules[name]
         write_manifest(manifest, target, modules)
         _regenerate(target, modules)
-        if target != "unoq":
-            _remove_tools(spec)
+        _remove_tools(spec, target)
         _remove_pio_lib_deps(spec.get("pio_lib_deps", []))
         _sync_feature_flags(_feature_flags_on(modules))
         _sync_max_commands(modules)
@@ -1785,9 +1790,19 @@ cmdr module enable ir    # NEC/Sony IR receive on D5 -> published on channel 1
 cmdr module list
 ```
 The Uno Q's menu is intentionally small — its Zephyr HAL backs the console/channel bus + IR so
-far (GPIO/I2C sensor modules aren't offered until the HAL grows). IR events arrive on **ch1**:
-watch them with `socat - UNIX-CONNECT:/tmp/commander/ch1.sock`, or see the parser at
-`transport/channels/broker/examples/ir_consumer.py` in the commander repo.
+far (GPIO/I2C sensor modules aren't offered until the HAL grows).
+
+Enabling `ir` drops the **channel-bus IR tools** into `bin/` (`ir_map.py`, `ir_lookup.py`,
+`irchan.py`) and seeds `maps/`. Unlike the serial boards, these run **on the SBC** — they read IR
+presses from the broker's `ch1.sock` and send `ir recv` over `ch0.sock`. Deploy + run them there:
+```
+adb push bin/ir_map.py bin/ir_lookup.py bin/irchan.py /home/arduino/
+adb push maps /home/arduino/
+adb shell "cd /home/arduino && python3 ir_lookup.py"     # identify presses against maps/
+adb shell "cd /home/arduino && python3 ir_map.py -o sony.json"   # build a named map
+adb pull /home/arduino/sony.json maps/                  # keep new maps under version control
+```
+(Or just eyeball them: `adb shell "socat - UNIX-CONNECT:/tmp/commander/ch1.sock"`.)
 
 ## Revert to stock Arduino
 ```
