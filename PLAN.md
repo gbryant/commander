@@ -1,5 +1,10 @@
 # commander — project plan
 
+> **Forward-looking framework directions** (cmdr test suite + build-matrix CI, the
+> console/channel *session* unification, binary channel framing, a HAL capability
+> model) live in [`docs/roadmap.md`](docs/roadmap.md). This file tracks current
+> architecture + status.
+
 ## Goals
 
 A portable embedded command shell that runs the same module code across multiple
