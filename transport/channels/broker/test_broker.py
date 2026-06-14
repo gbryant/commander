@@ -64,8 +64,8 @@ def main():
     os.write(m, B.frame(1, b"0x20DF10EF p3"))
     try: got = cli.recv(100)
     except socket.timeout: got = b""
-    ok = (got == b"0x20DF10EF p3"); fails += not ok
-    print(f"{'PASS' if ok else 'FAIL'} ch1 publish (MCU->SBC) reaches socket client: {got!r}")
+    ok = (got == b"0x20DF10EF p3\n"); fails += not ok   # fan-out is newline-delimited
+    print(f"{'PASS' if ok else 'FAIL'} ch1 publish (MCU->SBC) reaches socket client newline-framed: {got!r}")
 
     # 2) ch1.sock client write -> framed to the MCU on ch1
     cli.sendall(b"hello-mcu")

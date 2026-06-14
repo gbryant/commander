@@ -305,10 +305,18 @@ class Broker:
             return
         self.link.write(frame(ch, data))
 
+    # Each inbound frame is one message, but a SOCK_STREAM socket coalesces writes, so a
+    # consumer can't tell where one event ends and the next begins. We NEWLINE-DELIMIT each
+    # frame on fan-out: commander's published events are text lines (e.g. the canonical IR
+    # event "Protocol=Sony Address=0x.., ... bits"), so a consumer just reads line-by-line.
+    # FUTURE — binary channels: a newline isn't safe for arbitrary bytes. When a binary
+    # channel is needed, switch fan-out to a self-describing framing (length-prefix, or a
+    # SOCK_SEQPACKET socket that preserves message boundaries) rather than a delimiter; keep
+    # the newline form for the text/event channels. See docs/commander-channels-design.md.
     def _fanout(self, ch, payload):
         for conn in list(self.clients.get(ch, ())):
             try:
-                conn.sendall(payload)
+                conn.sendall(payload + b"\n")
             except OSError:
                 self.sel.unregister(conn)
                 self.clients[ch].discard(conn)

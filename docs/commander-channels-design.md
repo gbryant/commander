@@ -157,8 +157,11 @@ works on ch0, plus an SBC→MCU command. Optional/gated so the AVR tier pays not
 - [x] **Thin Python SBC broker** — `transport/channels/broker/commander_broker.py`: owns the
       framed link (`/dev/ttyHS1`; stop `commander-bridge.service` + the `arduino-router` stack to
       take it), COBS-deframes, bridges ch0 ↔ a PTY or `--console /dev/ttyGS0` (Mac console kept)
-      + fans each chN out to `<rundir>/chN.sock`. No pyserial (termios). Codec cross-checked vs
-      `ChannelCodec.h`; broker plumbing host-tested against a PTY fake-MCU.
+      + fans each chN out to `<rundir>/chN.sock`, **newline-delimited** (commander's published
+      events are text lines, e.g. the canonical IR event — a consumer reads line-by-line; see
+      `broker/examples/ir_consumer.py`). No pyserial (termios). Codec cross-checked vs
+      `ChannelCodec.h`; broker plumbing host-tested against a PTY fake-MCU. **Future binary
+      channels** need self-describing framing (length-prefix or SOCK_SEQPACKET), not a delimiter.
 - [x] **HW proof on the Uno Q ✅ (2026-06-13):** a Sony remote press on D5 decoded on the M33 and
       streamed to Debian on ch1 (`0x795 p4`) while the ch0 console ran concurrently — peer
       pub/sub MCU↔SBC proven. Required: a from-scratch NEC **and** Sony decoder on Zephyr, and a
