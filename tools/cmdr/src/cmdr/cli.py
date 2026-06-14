@@ -746,6 +746,38 @@ fi
 echo "restored. (re-running App Lab may need a reboot so the router takes ttyHS1 back)"
 """
 
+UNOQ_DEPLOY_SBC_SCRIPT = """\
+#!/bin/bash
+# Deploy this project's SBC-side tools to the Uno Q's Debian home (/home/arduino). These are the
+# scripts that run NEXT TO the broker and read its channel sockets — e.g. the channel IR tools
+# that `cmdr module enable ir` drops into bin/. Re-runnable; run it again after enabling a module
+# that ships SBC tools, or after editing one.
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
+DEST=/home/arduino
+
+if ! ls bin/*.py >/dev/null 2>&1; then
+  echo "nothing in bin/ to deploy — enable a module with SBC tools first (e.g. cmdr module enable ir)."
+  exit 0
+fi
+
+echo "==> pushing tools to $DEST"
+for f in bin/*.py; do
+  adb push "$f" "$DEST/$(basename "$f")" >/dev/null && echo "  $(basename "$f")"
+done
+
+# Seed the map library once — don't clobber maps you've built on the board (pull those back first).
+if [ -d maps ]; then
+  if adb shell "test -d $DEST/maps && echo EXISTS" 2>/dev/null | grep -q EXISTS; then
+    echo "==> $DEST/maps already on the board — left as-is (adb pull new maps before re-seeding)"
+  else
+    adb push maps "$DEST/maps" >/dev/null && echo "==> seeded $DEST/maps"
+  fi
+fi
+
+echo "run them on the board, e.g.:  adb shell 'cd $DEST && python3 ir_lookup.py'"
+"""
+
 
 def render(template: str, **kwargs) -> str:
     result = template
@@ -1795,13 +1827,13 @@ far (GPIO/I2C sensor modules aren't offered until the HAL grows).
 
 Enabling `ir` drops the **channel-bus IR tools** into `bin/` (`ir_map.py`, `ir_lookup.py`,
 `irchan.py`) and seeds `maps/`. Unlike the serial boards, these run **on the SBC** — they read IR
-presses from the broker's `ch1.sock` and send `ir recv` over `ch0.sock`. Deploy + run them there:
+presses from the broker's `ch1.sock` and send `ir recv` over `ch0.sock`. Deploy them to the board
+with one script, then run them there:
 ```
-adb push bin/ir_map.py bin/ir_lookup.py bin/irchan.py /home/arduino/
-adb push maps /home/arduino/
+./deploy-sbc                                             # push bin/ tools + seed maps/ to the board
 adb shell "cd /home/arduino && python3 ir_lookup.py"     # identify presses against maps/
 adb shell "cd /home/arduino && python3 ir_map.py -o sony.json"   # build a named map
-adb pull /home/arduino/sony.json maps/                  # keep new maps under version control
+adb pull /home/arduino/sony.json maps/                   # keep new maps under version control
 ```
 (Or just eyeball them: `adb shell "socat - UNIX-CONNECT:/tmp/commander/ch1.sock"`.)
 
@@ -1836,6 +1868,7 @@ def scaffold_unoq(name: str, out_dir: Path) -> None:
     write_script(out_dir / "enable-flash-boot", UNOQ_ENABLE_FLASH_BOOT_SCRIPT)
     write_script(out_dir / "install-broker",    UNOQ_INSTALL_BROKER_SCRIPT)
     write_script(out_dir / "restore-arduino",   UNOQ_RESTORE_ARDUINO_SCRIPT)
+    write_script(out_dir / "deploy-sbc",        UNOQ_DEPLOY_SBC_SCRIPT)
 
     print(f"Created {out_dir}/ for Arduino Uno Q (Zephyr M33 + channel bus + Linux broker)")
     print("One-time board setup (reversible — see README.md):")
