@@ -874,7 +874,7 @@ MODULE_SPECS = {
     ], "tools": ["irmap.py", "irlookup.py"],
         # On unoq IR is consumed over the channel bus (ch1), not a serial console — install
         # the socket-based versions (run on the SBC next to the broker; no pyserial/find_port).
-        "unoq_tools": ["ir_map.py", "ir_lookup.py", "irchan.py"],
+        "unoq_tools": ["ir_map.py", "ir_lookup.py", "ir_speak.py", "irchan.py"],
         "seed_dirs": [("maps", "ir_maps")],
         "pio_lib_deps": ["IRremote"]},
     "roomba":  {"always": False, "platforms": ["r4"], "questions": [
@@ -1835,16 +1835,19 @@ The Uno Q's menu is intentionally small — its Zephyr HAL backs the console/cha
 far (GPIO/I2C sensor modules aren't offered until the HAL grows).
 
 Enabling `ir` drops the **channel-bus IR tools** into `bin/` (`ir_map.py`, `ir_lookup.py`,
-`irchan.py`) and seeds `maps/`. Unlike the serial boards, these run **on the SBC** — they read IR
-presses from the broker's `ch1.sock` and send `ir recv` over `ch0.sock`. Deploy them to the board
-with one script, then run them there:
+`ir_speak.py`, `irchan.py`) and seeds `maps/`. Unlike the serial boards, these run **on the SBC** —
+they read IR presses from the broker's `ch1.sock` and send `ir recv` over `ch0.sock`. Deploy them to
+the board with one script, then run them there:
 ```
 ./deploy-sbc                                             # push bin/ tools + seed maps/ to the board
 adb shell "cd /home/arduino && python3 ir_lookup.py"     # identify presses against maps/
+adb shell "cd /home/arduino && python3 ir_speak.py"      # ...and speak the matched name (Piper TTS)
 adb shell "cd /home/arduino && python3 ir_map.py -o sony.json"   # build a named map
 adb pull /home/arduino/sony.json maps/                   # keep new maps under version control
 ```
-(Or just eyeball them: `adb shell "socat - UNIX-CONNECT:/tmp/commander/ch1.sock"`.)
+`ir_speak.py` drives `~/piper_project/tts_stream.py` as a warm co-process to speak the matched button
+name (override its location with `--piper-dir`; it prints-but-doesn't-speak if that's missing).
+(Or just eyeball presses: `adb shell "socat - UNIX-CONNECT:/tmp/commander/ch1.sock"`.)
 
 ## Revert to stock Arduino
 ```
