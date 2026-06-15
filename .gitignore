@@ -12,3 +12,7 @@ secrets.h
 __pycache__/
 .claude/settings.local.json
 platform/esp32/managed_components/
+
+# Local publish-prep notes (do not ship)
+PUBLISH_CHECKLIST.md
+PHILOSOPHY_NOTES.md
