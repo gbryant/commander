@@ -59,7 +59,8 @@ class ChannelLink:
 
     # ── ch1 events ───────────────────────────────────────────────────────────
     def events_lines(self):
-        """Yield IR event lines from ch1 (blocking, newline-delimited)."""
+        """Yield EVERY IR event line from ch1 (blocking, newline-delimited). Use this when you
+        want each press (ir_map.py / ir_lookup.py)."""
         while True:
             try:
                 data = self.events.recv(4096)
@@ -72,6 +73,29 @@ class ChannelLink:
             while b"\n" in self._ebuf:
                 line, self._ebuf = self._ebuf.split(b"\n", 1)
                 yield line.decode("utf-8", "replace").strip()
+
+    def latest_events(self, poll=0.05):
+        """Yield the NEWEST buffered ch1 line each cycle (or None when idle for one poll),
+        discarding any backlog. A held button retransmits ~20x/s; if a consumer is slower than
+        that (e.g. it speaks each press) the queue grows and it replays stale presses seconds
+        late. Draining to the latest frame keeps the consumer real-time — it sees the button
+        being pressed NOW, and the None idle ticks let it detect a release. For ir_speak.py."""
+        while True:
+            try:
+                while True:                       # drain the whole socket buffer, not one recv
+                    data = self.events.recv(4096)
+                    if not data:
+                        return
+                    self._ebuf += data
+            except BlockingIOError:
+                pass
+            latest = None
+            while b"\n" in self._ebuf:
+                line, self._ebuf = self._ebuf.split(b"\n", 1)
+                latest = line.decode("utf-8", "replace").strip()
+            yield latest                          # newest line, or None = idle tick
+            if latest is None:
+                time.sleep(poll)
 
     def close(self):
         for s in (self.console, self.events):

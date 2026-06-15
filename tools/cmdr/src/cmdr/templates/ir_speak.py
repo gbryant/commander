@@ -32,11 +32,11 @@ from irchan import ChannelLink
 
 DEFAULT_MAPS = "maps"
 
-# A held/pressed button retransmits: NEC sends a repeat frame (we skip those by name), but
-# Sony (SIRC) has none — it just resends the full command ~every 45 ms. So the same (address,
-# command) arriving again within this window is the SAME press, and we neither print nor speak
-# it twice. The window extends while the button is held, so one press = one utterance.
-REPEAT_GAP = 0.6   # seconds
+# A held/pressed button retransmits: NEC sends a repeat frame (skipped by name), Sony (SIRC)
+# has none — it just resends the full command ~every 20 ms. We announce on the button CHANGING
+# (read drains ch1 to the newest frame, so we stay real-time and never replay a backlog), then
+# treat a gap with no frames as a release so the SAME button pressed again re-announces.
+RELEASE_IDLE = 0.3   # seconds of no ch1 frames before a button counts as released
 
 IR_RE = re.compile(
     r'Protocol=(\w+)\s+Address=(0x[0-9A-Fa-f]+),\s+'
@@ -183,19 +183,24 @@ def main():
     link.enable_recv()
     print("Listening — press any button.  Ctrl-C to quit.\n")
 
-    last_key, last_t = None, 0.0
+    current, last_seen = None, 0.0
     try:
-        for line in link.events_lines():
+        for line in link.latest_events():
+            now = time.monotonic()
+            if line is None:                       # idle tick — no frame this poll
+                if current is not None and now - last_seen > RELEASE_IDLE:
+                    current = None                 # released — let the same button re-announce
+                continue
             m = IR_RE.search(line)
             if not m or 'Repeat' in line:
                 continue
             address  = m.group(2).lower()
             command  = m.group(3).lower()
-            key, now = (address, command), time.monotonic()
-            if key == last_key and now - last_t < REPEAT_GAP:
-                last_t = now                       # still held — extend the window, don't repeat
+            last_seen = now
+            key = (address, command)
+            if key == current:                     # same button still held — already announced
                 continue
-            last_key, last_t = key, now
+            current = key                          # button changed — announce it
             matches  = lookup(maps, address, command)
             spoke = speaker.say(matches[0][1]['name']) if matches else False
             show(m.group(1), address, command, int(m.group(5)), matches, spoke)
