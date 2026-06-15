@@ -7,7 +7,8 @@ TTS. It reuses your existing TTS method by driving ~/piper_project/tts_stream.py
 persistent co-process: that script loads the voice once and speaks each line piped to its
 `tts>` stdin loop, so the model stays warm between presses and ir_speak.py itself stays on the
 plain system python3 like the other channel tools (the TTS deps live in the piper venv, which
-only the co-process needs). Run it on the SBC next to the broker. A test/demo tool.
+only the co-process needs). If piper isn't available (or dies), it falls back to **espeak-ng**
+so it still speaks. Run it on the SBC next to the broker. A test/demo tool.
 
 Usage:
     python3 ir_speak.py [--maps DIR] [--rundir DIR] [--piper-dir DIR]
@@ -20,6 +21,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -61,45 +63,65 @@ def fmt_match(remote, entry):
 
 
 class Speaker:
-    """Drives tts_stream.py as a warm co-process. Reusing your script verbatim (its `tts>`
-    input loop) instead of re-implementing the TTS keeps this in lockstep with whatever
-    voice/method that script uses, and loads the model once."""
+    """Speaks button names. Primary backend: the user's tts_stream.py driven as a warm
+    co-process (reusing their script verbatim — its `tts>` input loop — keeps this in lockstep
+    with whatever Piper voice/method it uses, and loads the model once). Backup: espeak-ng,
+    one process per utterance (it starts fast, no warm-up). Falls back if piper is missing at
+    start or dies mid-run, so a degraded run still speaks."""
     def __init__(self, piper_dir):
-        self.proc = None
+        self.proc = None                                    # piper co-process, when live
+        self.espeak = shutil.which("espeak-ng")             # backup CLI, or None
         py = os.path.join(piper_dir, "venv", "bin", "python")
         script = os.path.join(piper_dir, "tts_stream.py")
         missing = py if not os.path.exists(py) else (script if not os.path.exists(script) else None)
-        if missing:
-            print(f"[ir_speak] TTS disabled — {missing} not found; matches will print but not "
-                  f"speak. (point --piper-dir at your piper project)", file=sys.stderr)
-            return
-        try:
-            self.proc = subprocess.Popen(
-                [py, script],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,   # hide its "Loading voice"/`tts>` chatter; we print our own
-                text=True,
-            )
-        except OSError as exc:
-            print(f"[ir_speak] TTS disabled — could not start tts_stream.py: {exc}", file=sys.stderr)
+        if not missing:
+            try:
+                self.proc = subprocess.Popen(
+                    [py, script],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,   # hide its "Loading voice"/`tts>` chatter; we print our own
+                    text=True,
+                )
+            except OSError as exc:
+                missing = f"tts_stream.py ({exc})"
+        if self.proc:
+            return                                          # piper is primary
+        if self.espeak:
+            print(f"[ir_speak] piper TTS unavailable ({missing} not found) — using espeak-ng "
+                  f"backup.", file=sys.stderr)
+        else:
+            print(f"[ir_speak] TTS disabled — {missing} not found and no espeak-ng; matches "
+                  f"print only.", file=sys.stderr)
 
     @property
-    def live(self):
-        return self.proc is not None and self.proc.poll() is None
+    def backend(self):
+        if self.proc is not None and self.proc.poll() is None:
+            return "piper"
+        return "espeak" if self.espeak else None
 
     def say(self, text):
-        if not self.live:
-            return False
-        try:
-            self.proc.stdin.write(text.replace("\n", " ") + "\n")   # one line = one utterance
-            self.proc.stdin.flush()
-            return True
-        except (BrokenPipeError, ValueError):
-            self.proc = None
-            return False
+        text = text.replace("\n", " ")
+        if self.proc is not None:                           # primary: warm piper co-process
+            if self.proc.poll() is None:
+                try:
+                    self.proc.stdin.write(text + "\n")      # one line = one utterance
+                    self.proc.stdin.flush()
+                    return True
+                except (BrokenPipeError, ValueError):
+                    self.proc = None
+            else:
+                self.proc = None                            # piper died -> fall through to espeak
+        if self.espeak:                                     # backup: fire-and-forget espeak-ng
+            try:
+                subprocess.Popen([self.espeak, text],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True
+            except OSError:
+                self.espeak = None
+        return False
 
     def close(self):
-        if self.live:
+        if self.proc is not None and self.proc.poll() is None:
             try:
                 self.proc.stdin.close()      # EOF -> tts_stream prints "bye" and exits cleanly
             except Exception:
@@ -145,8 +167,10 @@ def main():
         print(f"No map files in '{args.maps}/' — nothing to match/speak. Build one with ir_map.py.\n")
 
     speaker = Speaker(args.piper_dir)
-    if speaker.live:
+    if speaker.backend == "piper":
         print("Piper voice warming up — the first press may lag until it loads.\n")
+    elif speaker.backend == "espeak":
+        print("Speaking matched names via espeak-ng.\n")
 
     link = ChannelLink(args.rundir)
     link.enable_recv()

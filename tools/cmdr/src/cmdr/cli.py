@@ -1846,7 +1846,8 @@ adb shell "cd /home/arduino && python3 ir_map.py -o sony.json"   # build a named
 adb pull /home/arduino/sony.json maps/                   # keep new maps under version control
 ```
 `ir_speak.py` drives `~/piper_project/tts_stream.py` as a warm co-process to speak the matched button
-name (override its location with `--piper-dir`; it prints-but-doesn't-speak if that's missing).
+name (override its location with `--piper-dir`; it falls back to `espeak-ng` if piper is missing, or
+prints-only if neither is available).
 (Or just eyeball presses: `adb shell "socat - UNIX-CONNECT:/tmp/commander/ch1.sock"`.)
 
 ## Revert to stock Arduino
