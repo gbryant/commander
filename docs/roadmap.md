@@ -13,6 +13,10 @@ Status key: **proposed** (not started).
 
 ## 1. Tests + CI for `cmdr` and a platform build matrix — *proposed*
 
+> **Detailed plan: `docs/testing.md`** (tiered pyramid — host C++ unit tests, `cmdr` golden-file
+> codegen tests, generated-project compile smoke, build-matrix CI — plus the toolchain-detecting
+> local runner).
+
 **Why (the biggest non-glamorous win).** `cmdr` is now the heart of the UX — ~2,300 lines of
 Python — with **zero tests**. Real bugs this session (a duplicate include, a stale editable
 install, honest-menu gating) were caught only by hand-scaffolding and eyeballing. As boards and
@@ -34,6 +38,10 @@ machine." Precondition for everything below.
 ---
 
 ## 2. Console as just another channel — the session/channel unification — *proposed*
+
+> **Implementation home: `docs/channels-first-class.md`** (Phase B). That note frames this unification
+> as the keystone of a broader plan to make the channel bus first-class — channel identity
+> (`channel_ids.h`), portability across boards, `cmdr` integration, and a connect handshake.
 
 This is the cleanest architectural move and the one that makes the channel bus *general* instead
 of "console plus pub/sub." It is the highest-value evolving-path work.
