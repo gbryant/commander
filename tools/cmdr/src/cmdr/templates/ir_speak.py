@@ -24,12 +24,19 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from irchan import ChannelLink
 
 DEFAULT_MAPS = "maps"
+
+# A held/pressed button retransmits: NEC sends a repeat frame (we skip those by name), but
+# Sony (SIRC) has none — it just resends the full command ~every 45 ms. So the same (address,
+# command) arriving again within this window is the SAME press, and we neither print nor speak
+# it twice. The window extends while the button is held, so one press = one utterance.
+REPEAT_GAP = 0.6   # seconds
 
 IR_RE = re.compile(
     r'Protocol=(\w+)\s+Address=(0x[0-9A-Fa-f]+),\s+'
@@ -176,6 +183,7 @@ def main():
     link.enable_recv()
     print("Listening — press any button.  Ctrl-C to quit.\n")
 
+    last_key, last_t = None, 0.0
     try:
         for line in link.events_lines():
             m = IR_RE.search(line)
@@ -183,6 +191,11 @@ def main():
                 continue
             address  = m.group(2).lower()
             command  = m.group(3).lower()
+            key, now = (address, command), time.monotonic()
+            if key == last_key and now - last_t < REPEAT_GAP:
+                last_t = now                       # still held — extend the window, don't repeat
+                continue
+            last_key, last_t = key, now
             matches  = lookup(maps, address, command)
             spoke = speaker.say(matches[0][1]['name']) if matches else False
             show(m.group(1), address, command, int(m.group(5)), matches, spoke)
