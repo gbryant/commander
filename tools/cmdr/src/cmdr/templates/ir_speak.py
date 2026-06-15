@@ -32,10 +32,13 @@ from irchan import ChannelLink
 
 DEFAULT_MAPS = "maps"
 
-# A held/pressed button retransmits: NEC sends a repeat frame (skipped by name), Sony (SIRC)
-# has none — it just resends the full command ~every 20 ms. We announce on the button CHANGING
-# (read drains ch1 to the newest frame, so we stay real-time and never replay a backlog), then
-# treat a gap with no frames as a release so the SAME button pressed again re-announces.
+# A held/pressed button retransmits; we announce a button once and re-announce only after a
+# release. Reads drain ch1 to the newest frame (real-time, no backlog), and two guards keep a
+# switch clean: (1) a frame must be the latest for TWO consecutive reads to count — a lone
+# stray/trailing frame of the button you just left (what made the OLD button announce on a
+# switch) is superseded by the new button before it confirms, so it's dropped; a real press is
+# always several frames, so it confirms. (2) a gap with no frames (RELEASE_IDLE) marks a release
+# so the SAME button pressed again re-announces.
 RELEASE_IDLE = 0.3   # seconds of no ch1 frames before a button counts as released
 
 IR_RE = re.compile(
@@ -183,13 +186,13 @@ def main():
     link.enable_recv()
     print("Listening — press any button.  Ctrl-C to quit.\n")
 
-    current, last_seen = None, 0.0
+    announced, armed, prev, last_seen = None, False, None, 0.0
     try:
         for line in link.latest_events():
             now = time.monotonic()
             if line is None:                       # idle tick — no frame this poll
-                if current is not None and now - last_seen > RELEASE_IDLE:
-                    current = None                 # released — let the same button re-announce
+                if announced is not None and now - last_seen > RELEASE_IDLE:
+                    armed, prev = True, None        # released — let the same button re-announce
                 continue
             m = IR_RE.search(line)
             if not m or 'Repeat' in line:
@@ -198,9 +201,12 @@ def main():
             command  = m.group(3).lower()
             last_seen = now
             key = (address, command)
-            if key == current:                     # same button still held — already announced
+            confirmed, prev = (key == prev), key   # latest twice -> drop lone stray/trailing frames
+            if not confirmed:
                 continue
-            current = key                          # button changed — announce it
+            if key == announced and not armed:     # same button still held — already announced
+                continue
+            announced, armed = key, False          # new (or re-pressed) button — announce it
             matches  = lookup(maps, address, command)
             spoke = speaker.say(matches[0][1]['name']) if matches else False
             show(m.group(1), address, command, int(m.group(5)), matches, spoke)
