@@ -154,10 +154,16 @@ class Console:
             os.write(self.fd, self.prompt)
 
     def on_input(self):
+        """Returns True while the fd is live, False on hangup/EOF (an empty read on a fd the
+        selector reported readable — e.g. the USB-CDC gadget host detached). The caller reopens
+        the console then; without this, the HUP'd fd stays 'readable' forever and the select
+        loop spins at 100% CPU."""
         try:
             data = os.read(self.fd, 4096)
         except OSError:
-            return
+            return True
+        if not data:
+            return False                          # hangup/EOF — caller reopens the console
         out = bytearray()
         for b in data:
             if b in (0x0D, 0x0A):                 # CR/LF -> dispatch one command
@@ -179,6 +185,7 @@ class Console:
         if out:
             os.write(self.fd, bytes(out))
             self.last = time.time()
+        return True
 
     def write(self, payload):                     # MCU ch0 output -> the console
         os.write(self.fd, payload)
@@ -213,17 +220,27 @@ class Broker:
 
     # ch0 console: a device (e.g. /dev/ttyGS0 -> the Mac) or, by default, a local PTY -------
     def _open_console(self, dev):
+        self.console_dev = dev                       # remembered so a hangup can reopen the same backing
+        fd = self._open_console_fd()
+        self.console = Console(self.link, fd, echo=True)
+        self.sel.register(fd, selectors.EVENT_READ, ("console", None))
+        self.console.start()                         # initial prompt
         if dev:
-            fd = os.open(dev, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+            print(f"[broker] ch0 console -> {dev} (interactive, echo on)", flush=True)
+        else:
+            path = os.path.join(self.rundir, "console")
+            print(f"[broker] ch0 console -> {path} (screen $(readlink {path}))", flush=True)
+
+    def _open_console_fd(self):
+        """Open the ch0 console backing — the --console device gadget, or a fresh local PTY —
+        and return the fd the selector watches. Reused by _reopen_console() on a hangup."""
+        if self.console_dev:
+            fd = os.open(self.console_dev, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
             try:
                 tty.setraw(fd)           # raw: broker owns echo/editing + binary-clean frames
             except termios.error:
                 pass                     # not a tty (e.g. a plain fd under test) — fine
-            self.console = Console(self.link, fd, echo=True)
-            self.sel.register(fd, selectors.EVENT_READ, ("console", None))
-            self.console.start()                 # initial prompt
-            print(f"[broker] ch0 console -> {dev} (interactive, echo on)", flush=True)
-            return
+            return fd
         master, slave = os.openpty()
         os.set_blocking(master, False)
         # Raw the slave so its line discipline doesn't ECHO what we write to the master back
@@ -231,6 +248,10 @@ class Broker:
         # bogus command. Keep the slave fd open so the raw setting persists for later openers
         # (screen/echo). We supply our own echo/editing, so a raw slave loses nothing.
         tty.setraw(slave)
+        old = getattr(self, "_console_slave", None)
+        if old is not None:
+            try: os.close(old)
+            except OSError: pass
         self._console_slave = slave
         path = os.path.join(self.rundir, "console")
         try:
@@ -238,10 +259,28 @@ class Broker:
         except FileNotFoundError:
             pass
         os.symlink(os.ttyname(slave), path)
-        self.console = Console(self.link, master, echo=True)
-        self.sel.register(master, selectors.EVENT_READ, ("console", None))
-        self.console.start()                         # initial prompt
-        print(f"[broker] ch0 console -> {path} (screen $(readlink {path}))", flush=True)
+        return master
+
+    # A console fd hung up (the --console /dev/ttyGS0 gadget's Mac host detached, or a PTY's
+    # readers all closed). A HUP'd fd reports readable forever, so an empty read would spin the
+    # select loop at 100% CPU. Drop it and reopen the same backing: a fresh gadget fd blocks
+    # until the Mac reconnects instead of spinning. (Common trigger: a `bum` monitor on the new
+    # project opening then closing the cu.usbmodem end of ttyGS0.)
+    def _reopen_console(self):
+        old = self.console.fd
+        try:
+            self.sel.unregister(old)
+        except (KeyError, ValueError):
+            pass
+        try:
+            os.close(old)
+        except OSError:
+            pass
+        fd = self._open_console_fd()
+        self.console.fd = fd
+        self.console.pending = False
+        self.sel.register(fd, selectors.EVENT_READ, ("console", None))
+        print("[broker] ch0 console hangup — reopened", flush=True)
 
     # chN unix socket server ---------------------------------------------------------
     def _open_channel(self, ch):
@@ -268,7 +307,8 @@ class Broker:
                 if kind == "link":
                     self._on_link()
                 elif kind == "console":
-                    self.console.on_input()
+                    if not self.console.on_input():
+                        self._reopen_console()
                 elif kind == "accept":
                     self._on_accept(ch)
                 elif kind == "client":

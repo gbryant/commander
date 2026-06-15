@@ -100,7 +100,62 @@ def main():
 
     fails += device_console()
     fails += ch0_socket()
+    fails += console_hangup()
     print("\nALL PASS" if not fails else f"\n{fails} FAILED")
+    return fails
+
+
+def console_hangup():
+    """A hangup on the ch0 console fd (the --console /dev/ttyGS0 gadget's Mac host detaching —
+    e.g. a `bum` monitor closing) must be DETECTED and the console reopened, not spun on. A
+    HUP'd fd reports readable forever; an empty read that wasn't treated as a hangup would peg
+    the select loop at 100% CPU. Regression test for that."""
+    fails = 0
+
+    # Console.on_input() returns False on a hangup (empty read on a readable fd)...
+    r, w = os.pipe()
+    os.close(w)                                  # writer gone -> read() returns b"" (EOF/HUP)
+    ok = (B.Console(None, r, echo=True).on_input() is False); fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} Console.on_input() returns False on a hangup (empty read)")
+    os.close(r)
+
+    # ...and True while the fd is live (input that doesn't complete a line touches no link)
+    r2, w2 = os.pipe(); os.set_blocking(r2, False); os.write(w2, b"x")
+    ok = (B.Console(None, r2, echo=False).on_input() is True); fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} Console.on_input() returns True on a live fd")
+    os.close(r2); os.close(w2)
+
+    # The broker reopens after a hangup and ch0 still flows (driven synchronously to avoid
+    # racing a background select loop against the reopen's selector mutation).
+    lm, ls = os.openpty()
+    for fd in (lm, ls): tty.setraw(fd); os.set_blocking(fd, False)
+
+    class FakeLink:
+        port, baudrate = "pty", 115200
+        def fileno(self): return ls
+        def read(self, n):
+            try: return os.read(ls, n)
+            except BlockingIOError: return b""
+        def write(self, b): return os.write(ls, b)
+
+    rundir = os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmdr-brk-test-hup")
+    broker = B.Broker(FakeLink(), rundir, [1], log=False)   # not started — pump it by hand
+    link = os.path.join(rundir, "console")
+    old_pty = os.readlink(link)                  # fd numbers get recycled — compare the PTY name
+    broker._reopen_console()
+    ok = (os.readlink(link) != old_pty); fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} _reopen_console() allocates a fresh console PTY")
+
+    cfd = os.open(os.readlink(link), os.O_RDWR | os.O_NONBLOCK)
+    os.write(lm, B.frame(0, b"after-reopen")); time.sleep(0.05)
+    broker._on_link()
+    out = b""
+    end = time.time() + 1.0
+    while time.time() < end and b"after-reopen" not in out:
+        try: out += os.read(cfd, 200)
+        except BlockingIOError: time.sleep(0.01)
+    ok = b"after-reopen" in out; fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} ch0 still flows to the reopened console: {out!r}")
     return fails
 
 
