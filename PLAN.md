@@ -108,12 +108,12 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | **`commander_generate_scripts()`**| ✅ done      | generates bum/build/upload/monitor/bum-ota scripts  |
 | **`runners/esp32/`**              | ✅ done      | IDF component; UART + WiFi + Telnet confirmed       |
 | **`runners/arduino-r4/`**         | ✅ done      | FreeRTOS; UART + WiFi + Telnet + mDNS confirmed     |
-| **`cmdr` tool**                   | ✅ done      | pip install; `init` uno/r4/pico/pico2/esp32/**bluepill**; `--chip/--flash/--psram`; `pull`/`update`/`config` |
+| **`cmdr` tool**                   | ✅ done      | pip install; `init` uno/r4/pico/pico2/esp32/**bluepill**; `--chip/--flash/--psram`; `pull`/`update`/`config`; `link`/`unlink` (local checkout); `pin`/`unpin` (lock commander version) |
 | **`cmdr module` system**          | ✅ done      | enable/disable/list; cmdr.toml manifest; generates `commander_modules.h`; system/compass/sonar/ir/roomba |
 | **`cmdr` features + tooling**     | ✅ done      | optional build-flag features (e.g. IR `wall`); per-module host tools in `bin/` + seed dirs; VID/PID port detection |
 | OTA — R4 (on-demand)              | ✅ done      | `cmdr enable ota`; `ota start` hands off telnet→OTA; push confirmed on hardware (2026-05-29) |
 | OTA — Pico (pull `ota <url>`)     | 🟡 untested  | runner wires `ota` + pfb_firmware_commit (COMMANDER_ENABLE_OTA); needs hardware test |
-| OTA — ESP32 (pull `ota <url>`)    | 🟡 untested  | runner registers `ota` (COMMANDER_ENABLE_OTA); needs hardware test  |
+| OTA — ESP32 (pull `ota <url>`)    | ✅ done      | `cmdr enable ota`; HW-confirmed via cmdr-ipstube `bum-ota` (2026-06); weak `commander_on_ota_*` display hooks; project-level `commander_stamp_version()` so `bum-ota` confirms the build |
 | DFU upload — Bluepill             | ✅ done      | `cmdr enable dfu`; davidgfnet bootloader (`bootloader` cmd + dfu-util); HW-confirmed |
 | Board commands — Pico             | ⬜ todo      | reboot-to-bootloader via SystemModule or hook       |
 | `modules/ir/IIRModule.h`          | ✅ done      | interface only                                      |

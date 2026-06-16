@@ -79,8 +79,27 @@ OTA differs by platform. **Pico and ESP32 use a pull model** instead: their
 runners register an `ota <url>` command (gated by `COMMANDER_ENABLE_OTA`, set by
 `cmdr enable ota` on the CMake side) that downloads firmware from a URL and
 self-flashes (pico_fota_bootloader / esp_ota). lwIP has plenty of sockets there,
-so no Telnet hand-off is needed. Both are wired in the runners but not yet
-hardware-tested. R4's push model is the exception, forced by WiFiS3's socket cap.
+so no Telnet hand-off is needed. **ESP32 pull OTA is hardware-confirmed** (2026-06,
+cmdr-ipstube over `bum-ota`); pico is wired but not yet HW-tested. R4's push model
+is the exception, forced by WiFiS3's socket cap.
+
+The ESP32 `ota` command (`runners/esp32/.../ota_cmd.h`) emits weak lifecycle hooks
+— `commander_on_ota_begin(total)` / `..._progress(written, total)` / `..._end(ok)`
+— so an app can show update state on its display and restore it on failure (every
+post-begin exit pairs with an `end()`). cmdr-ipstube uses them for a tube-fill
+progress screen.
+
+**Build versioning** (`version` command) is stamped at the project level on ESP32
+via `commander_stamp_version()` (runner `project_include.cmake`), matching the pico
+helper of the same name; it writes `commander_build.h` (BUILD_NAME = project name,
+BUILD_NUMBER, timestamp) each build and `./.build_number` so `bum-ota` can confirm
+an OTA landed. `version.h` provides overridable fallbacks.
+
+**Framework version pinning** (consumer side): builds fetch commander via
+FetchContent at `GIT_TAG`. `cmdr pin <ref>` / `--latest` / `cmdr unpin` lock or
+float a project's commander version (rewrites the committed `CMakeLists.txt`);
+`cmdr link <path>` / `cmdr unlink` builds against a local checkout instead (a
+gitignored `commander_local.cmake` override) for framework development.
 
 ### Pico W
 Build system is CMake + Pico SDK. `pico_sdk_import.cmake` and
