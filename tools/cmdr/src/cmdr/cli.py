@@ -2151,21 +2151,28 @@ def _enable_ota_esp32(cmake: Path, content: str) -> None:
 # the joltwallet/esp_littlefs managed dependency, and a pre-build image of a source
 # dir. Composes with OTA: the partition table reflows to fit whatever's enabled.
 
-def _add_managed_dep(name: str, version: str) -> None:
+# esp_littlefs is not on the Espressif component registry (GitHub only), so it's
+# pulled as a pinned git dependency — portable and offline-friendly, no registry.
+_ESP_LITTLEFS_GIT = "https://github.com/joltwallet/esp_littlefs.git"
+_ESP_LITTLEFS_VER = "v1.22.1"
+
+
+def _add_git_dep(name: str, url: str, version: str) -> None:
     man = Path("main") / "idf_component.yml"
+    block = f"  {name}:\n    git: {url}\n    version: \"{version}\"\n"
     if man.exists():
         text = man.read_text()
         if name in text:
             return
         if re.search(r"^dependencies:", text, re.MULTILINE):
-            text = re.sub(r"(^dependencies:[^\n]*\n)", rf'\1  {name}: "{version}"\n',
+            text = re.sub(r"(^dependencies:[^\n]*\n)", lambda m: m.group(1) + block,
                           text, count=1, flags=re.MULTILINE)
         else:
-            text = text.rstrip() + f'\ndependencies:\n  {name}: "{version}"\n'
+            text = text.rstrip() + "\ndependencies:\n" + block
         man.write_text(text)
     else:
         man.parent.mkdir(parents=True, exist_ok=True)
-        man.write_text(f'dependencies:\n  {name}: "{version}"\n')
+        man.write_text("dependencies:\n" + block)
 
 
 def _reconfigure_cmake() -> None:
@@ -2204,8 +2211,8 @@ def enable_littlefs(label: str = "storage", subdir: str = "storage",
         sdk.write_text(sdk_content + "\nCONFIG_PARTITION_TABLE_CUSTOM=y\n"
                        'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"\n')
 
-    # 3. esp_littlefs as a managed dependency of the app
-    _add_managed_dep("joltwallet/esp_littlefs", "*")
+    # 3. esp_littlefs as a pinned git dependency of the app
+    _add_git_dep("esp_littlefs", _ESP_LITTLEFS_GIT, _ESP_LITTLEFS_VER)
 
     # 4. Pre-build image of the source dir (after project(), so the function exists)
     if "littlefs_create_partition_image" not in content:
@@ -2230,7 +2237,7 @@ def enable_littlefs(label: str = "storage", subdir: str = "storage",
     print(f"Enabled LittleFS '{label}' on {flash_mb} MB flash:")
     print(f"  • partitions.csv composed ({'dual OTA + ' if ota else ''}{label} filesystem"
           + (f", {size_mb} MB" if size_mb else ", remaining flash") + ")")
-    print("  • joltwallet/esp_littlefs added to main/idf_component.yml")
+    print(f"  • esp_littlefs (git {_ESP_LITTLEFS_VER}) added to main/idf_component.yml")
     print(f"  • littlefs_create_partition_image() builds {subdir}/ into the flashed image")
     print(f"  • {subdir}/ created for filesystem contents")
     print("\nMount it in your app (the runner already pulls esp_littlefs via the dep):")
