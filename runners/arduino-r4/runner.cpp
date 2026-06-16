@@ -57,6 +57,14 @@ extern "C" void vApplicationMallocFailedHook(void) {
     for (;;) {}
 }
 
+void commander_on_panic() {
+    Serial.println();
+    Serial.println("!! commander panic (duplicate command ID)");
+    Serial.flush();
+    vTaskDelay(pdMS_TO_TICKS(100));
+    NVIC_SystemReset();
+}
+
 // ── Minimal mDNS A-record responder ──────────────────────────────────────────
 // Joins 224.0.0.251:5353 and responds to A/ANY queries for <hostname>.local.
 // No external library needed — uses WiFiUDP multicast (AT+UDPBEGINMULTI).
@@ -329,6 +337,12 @@ void setup() {
         hal_i2c_init((uint8_t)_cfg.i2c_sda, (uint8_t)_cfg.i2c_scl, _cfg.i2c_hz);
 
     commander_setup(_registry);
+    _registry.registerCommand(CMD("reset", "reboot the firmware", CMD_RESET,
+        [](const char *, Writer &out, void *) {
+            out.writeln("Rebooting...");
+            vTaskDelay(pdMS_TO_TICKS(50));
+            NVIC_SystemReset();
+        }, nullptr));
 #ifdef COMMANDER_R4_OTA
     _registry.registerCommand(CMD("ota", "OTA firmware update ('ota start')", I2C_NONE, otaCmd, nullptr));
 #endif

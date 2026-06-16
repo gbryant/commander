@@ -35,6 +35,7 @@ static volatile bool _wifi_user_off = false;
 // boundary; main() reads and prints it after USB CDC is up.
 #define PANIC_MAGIC_MALLOC 0x0BAD0001u
 #define PANIC_MAGIC_STACK  0x0BAD0002u
+#define PANIC_MAGIC_CMDID  0x0BAD0003u
 
 extern "C" {
     void vApplicationMallocFailedHook(void) {
@@ -48,6 +49,12 @@ extern "C" {
         for (;;) {}
     }
     void vApplicationIdleHook(void) {}
+}
+
+void commander_on_panic() {
+    watchdog_hw->scratch[6] = PANIC_MAGIC_CMDID;
+    watchdog_reboot(0, 0, 0);
+    for (;;) {}
 }
 
 // ── Weak hook defaults ────────────────────────────────────────────────────
@@ -229,6 +236,7 @@ int main() {
     watchdog_hw->scratch[6] = 0;
     if (panic_code == PANIC_MAGIC_MALLOC) printf("[PANIC] malloc failed — rebooted\n");
     if (panic_code == PANIC_MAGIC_STACK)  printf("[PANIC] stack overflow — rebooted\n");
+    if (panic_code == PANIC_MAGIC_CMDID)  printf("[PANIC] duplicate command ID — rebooted\n");
 
     _uart.begin(_registry, _cfg.uart_baud, _cfg.uart_greeting);
 
