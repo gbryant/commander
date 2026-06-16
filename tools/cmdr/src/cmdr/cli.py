@@ -1004,6 +1004,16 @@ MODULE_SPECS = {
     # weak commander_on_controller_ready(ControllerModule&) hook or `bind`.
     # Needs BLUEPAD32_PATH + injects CMake (CYW43_ENABLE_BLUETOOTH, the runner option).
     "controller": {"always": False, "platforms": ["pico", "pico2"], "questions": []},
+    # Secondary-UART → telnet bridge. Streams whatever is on a hardware UART to the
+    # connected telnet (or serial) client. Useful for monitoring another board (e.g.
+    # an R4 or ESP32) wired to the Pico's UART1 RX without a second USB connection.
+    # uart0 is typically the console UART, so defaults to uart1 (GP8/GP9).
+    "serial_monitor": {"always": False, "platforms": ["pico", "pico2"], "questions": [
+        ("uart", "UART instance (0 or 1)", "1"),
+        ("rx",   "RX pin",                "9"),
+        ("tx",   "TX pin",                "8"),
+        ("baud", "baud rate",             "115200"),
+    ]},
     # R4 side: I2C-slave bridge that forwards CMD_LOCO_* to a Roomba over Serial1.
     # Self-contained — it also provides the `oi` debug command (via RoombaModule on
     # the shared driver), so it supersedes `roomba` on the R4 (mutually exclusive).
@@ -1272,6 +1282,18 @@ def _emit_module(name: str, opts: dict, target: str):
                  "void commander_on_controller_ready(ControllerModule &);"],
                 ["reg.registerModule(_m_controller);",
                  "commander_on_controller_ready(_m_controller);"], [])
+    if name == "serial_monitor":
+        if target not in ("pico", "pico2"):
+            die(f"serial_monitor module is not supported on target '{target}'")
+        uart_num = int(opts.get("uart", 1))
+        if uart_num not in (0, 1):
+            die(f"serial_monitor 'uart' must be 0 or 1 (got '{uart_num}')")
+        rx   = opts.get("rx",   9)
+        tx   = opts.get("tx",   8)
+        baud = opts.get("baud", 115200)
+        return (['#include "runners/pico/SerialMonitorModule.h"'],
+                [f"static SerialMonitorModule _m_serial_monitor(uart{uart_num}, {rx}, {tx}, {baud});"],
+                ["reg.registerModule(_m_serial_monitor);"], [])
     die(f"no code emitter for module '{name}'")
 
 
@@ -1558,6 +1580,7 @@ def _sync_feature_flags(flags_on: set) -> None:
 _MODULE_COMMANDS = {
     "system": 2, "compass": 1, "sonar": 1, "i2c": 1, "ir": 1,
     "roomba": 1, "locomotion": 4, "loco-bridge": 1, "controller": 5, "wifi": 1,
+    "serial_monitor": 1,
     # ina219 is namespaced: one `ina` command no matter how many channels.
     "ina219": 1,
     # ipstube: one namespaced `ipstube` command (on/off/dim/fill/clear/test).
