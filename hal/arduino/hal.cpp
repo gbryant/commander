@@ -46,8 +46,18 @@ uint32_t hal_pulse_in_us(uint8_t pin, bool level, uint32_t timeout_us) {
 }
 
 void     hal_delay_ms(uint32_t ms)  { delay(ms); }
-// micros() wraps at ~70 min; fine for pulse timing, not for long uptimes
-uint64_t hal_time_us(void) { return (uint64_t)micros(); }
+
+// micros() is 32-bit and wraps every ~70 min. Detect rollovers by comparing
+// successive calls; requires call frequency > 1/70 min (trivially met by the
+// UART task). Not ISR-safe, but hal_time_us is only called from task context.
+static uint32_t _last_us = 0;
+static uint64_t _high    = 0;
+uint64_t hal_time_us(void) {
+    uint32_t now = micros();
+    if (now < _last_us) _high += (uint64_t)1 << 32;
+    _last_us = now;
+    return _high | now;
+}
 
 void hal_uart_init(uint32_t baud) { Serial.begin(baud); }
 

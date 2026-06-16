@@ -14,7 +14,6 @@ static StaticTask_t    _uartTCB;
 
 extern "C" __attribute__((weak)) void commander_early_init()                   {}
 extern "C" __attribute__((weak)) void commander_on_uart_ready(UartTransport &) {}
-extern "C" __attribute__((weak)) void commander_on_wifi_connected()            {}
 
 extern "C" void vApplicationMallocFailedHook() {
     hal_uart_puts("[PANIC] malloc failed\r\n");

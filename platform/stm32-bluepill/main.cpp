@@ -1,68 +1,18 @@
-// STM32F103C8 "Bluepill" platform main (in-repo testbed, analogous to platform/arduino/main.cpp).
-// Phase 2: command shell over USART1 (PA9/PA10). No USB yet — Phase 3 swaps the console to
-// USB CDC behind COMMANDER_STM32_USB_CONSOLE. I2C-backed modules (compass) wait for Phase 4.
-#include "stm32f1xx.h"
-#include "FreeRTOS.h"
-#include "task.h"
-#include "core/CommandRegistry.h"
+// STM32F103C8 "Bluepill" app config (in-repo testbed).
+// Provides commander_config() and commander_setup(); the runner owns main(),
+// the clock, console bring-up, FreeRTOS task creation, and panic/DFU plumbing.
+#include "commander.h"
 #include "core/SystemModule.h"
-#include "transport/uart/UartTransport.h"
-#include "hal/hal.h"
-#include "platform/stm32-bluepill/stm32_panic.h"
 
-extern "C" void stm32_clock_init(void);
-#ifdef COMMANDER_STM32_USB_CONSOLE
-extern "C" void usb_hw_init(void);     // platform/stm32-bluepill/usb.c
-extern "C" void usbd_task(void *);
-#endif
-#ifdef COMMANDER_STM32_DFU
-extern "C" uint32_t _estack;           // top of RAM (linker symbol)
-#endif
+static SystemModule _m_system;
 
-static CommandRegistry registry;
-static SystemModule    systemModule;
-static UartTransport   uart;
+extern "C" CommanderConfig commander_config() {
+    CommanderConfig cfg;
+    cfg.uart_baud     = 115200;
+    cfg.uart_greeting = "commander/stm32-bluepill";
+    return cfg;
+}
 
-
-int main(void) {
-    stm32_clock_init();
-#ifdef COMMANDER_STM32_DFU
-    SCB->VTOR = 0x08001000;                 // app runs above the 4 KB DFU bootloader
-#endif
-    led_init();
-
-#ifdef COMMANDER_STM32_USB_CONSOLE
-    usb_hw_init();                          // enable USB peripheral + IRQ, nudge enumeration
-#endif
-
-    uart.begin(registry, 115200, "commander/stm32-bluepill");   // USART1, or no-op on USB
-
-    registry.registerModule(systemModule);
-    registry.registerCommand(CMD("reset", "reboot the firmware", CMD_RESET,
-        [](const char *, Writer &out, void *) {
-            out.writeln("Rebooting...");
-            hal_delay_ms(50);
-            NVIC_SystemReset();
-        }, nullptr));
-#ifdef COMMANDER_STM32_DFU
-    // `bootloader`: drop into the davidgfnet DFU bootloader so the app can be re-flashed
-    // over USB (dfu-util). Magic word at top-of-RAM-8 is what the bootloader checks at boot.
-    registry.registerCommand(CMD("bootloader", "reboot into the USB DFU bootloader", CMD_BOOTLOADER,
-        [](const char *, Writer &out, void *) {
-            out.writeln("entering DFU bootloader...");
-            hal_delay_ms(80);               // let the line flush over USB before we reset
-            *(volatile uint64_t *)((uint8_t *)&_estack - 8) = 0xDEADBEEFCC00FFEEULL;
-            __DSB();
-            NVIC_SystemReset();
-        }, nullptr));
-#endif
-    registry.validateIds();
-
-#ifdef COMMANDER_STM32_USB_CONSOLE
-    xTaskCreate(usbd_task, "usbd", 512, nullptr, 3, nullptr);    // pump tud_task()
-#endif
-    xTaskCreate(UartTransport::taskBody, "uart", 256, &uart, 2, nullptr);
-    vTaskStartScheduler();
-
-    for (;;) { }   // only reached if the scheduler failed to start
+extern "C" void commander_setup(CommandRegistry &reg) {
+    reg.registerModule(_m_system);
 }
