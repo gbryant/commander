@@ -23,6 +23,7 @@ idf_component_register(
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    BUILD_NAME="${CMAKE_PROJECT_NAME}"
     BUILD_COMMIT="${GIT_COMMIT}"
     BUILD_NUMBER=${GIT_BUILD_NUMBER}
 )

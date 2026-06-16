@@ -1,8 +1,7 @@
-# Run via `cmake -DOUT=<header> -DCOUNTER=<file> -P VersionStamp.cmake`.
-# Increments the build counter and writes a header with BUILD_NUMBER + a
-# timestamp, so `version` reports which firmware is running (confirms OTAs).
-# The header is only rewritten when the values change, so the version TU
-# recompiles each build but nothing else does.
+# Run via `cmake -DOUT=<header> -DCOUNTER=<file> [-DNAME=<name>] -P VersionStamp.cmake`.
+# Increments the build counter and writes a header with BUILD_NUMBER + a timestamp
+# (and BUILD_NAME when NAME is given), so `version` reports which firmware is
+# running (confirms OTAs). Rewritten each build → only the version TU recompiles.
 
 set(n 0)
 if(EXISTS "${COUNTER}")
@@ -16,6 +15,10 @@ math(EXPR n "${n} + 1")
 file(WRITE "${COUNTER}" "${n}\n")
 
 string(TIMESTAMP ts "%Y-%m-%d %H:%M")
-file(WRITE "${OUT}"
-    "#pragma once\n#define BUILD_NUMBER ${n}\n#define BUILD_COMMIT \"${ts}\"\n")
-message(STATUS "[version] build #${n} (${ts})")
+set(_body "#pragma once\n")
+if(NAME)
+    string(APPEND _body "#define BUILD_NAME \"${NAME}\"\n")
+endif()
+string(APPEND _body "#define BUILD_NUMBER ${n}\n#define BUILD_COMMIT \"${ts}\"\n")
+file(WRITE "${OUT}" "${_body}")
+message(STATUS "[version] ${NAME} build #${n} (${ts})")

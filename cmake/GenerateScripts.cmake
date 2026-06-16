@@ -27,6 +27,7 @@ function(commander_stamp_version TARGET)
         COMMAND ${CMAKE_COMMAND}                        # won't cascade a phony dep)
             -DOUT=${CMAKE_BINARY_DIR}/commander_build.h
             -DCOUNTER=${CMAKE_SOURCE_DIR}/.build_number
+            -DNAME=${TARGET}
             -P ${_CMDR_CMAKE_DIR}/VersionStamp.cmake
         BYPRODUCTS ${CMAKE_BINARY_DIR}/commander_build.h
         COMMENT "[commander] stamping build version"

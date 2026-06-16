@@ -21,8 +21,10 @@ with open(COUNTER, "w") as f:
     f.write("%d\n" % n)
 
 stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+name = env["PIOENV"]  # the [env:<name>] this build runs under — the project identity
 env.Append(CPPDEFINES=[
+    ("BUILD_NAME", env.StringifyMacro(name)),
     ("BUILD_NUMBER", n),
     ("BUILD_COMMIT", env.StringifyMacro(stamp)),
 ])
-print("[version] build #%d (%s)" % (n, stamp))
+print("[version] %s build #%d (%s)" % (name, n, stamp))

@@ -121,6 +121,11 @@ list(APPEND EXTRA_COMPONENT_DIRS ${commander_SOURCE_DIR}/runners/esp32)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(__NAME__)
+
+# Stamp the project name + build number into the firmware so `version` reports the
+# running build (and bum-ota can confirm an OTA took). Provided by the commander
+# runner's project_include.cmake; must be called after project().
+commander_stamp_version()
 """
 
 ESP32_MAIN_CMAKE_TEMPLATE = """\

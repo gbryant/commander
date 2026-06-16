@@ -66,6 +66,7 @@ pico_generate_pio_header(commander ${CMAKE_CURRENT_LIST_DIR}/ir_rx.pio)
 
 target_compile_definitions(commander PRIVATE
     CYW43_TASK_STACK_SIZE=2048
+    BUILD_NAME="${PROJECT_NAME}"
     BUILD_COMMIT="${GIT_COMMIT}"
     BUILD_NUMBER=${GIT_BUILD_NUMBER}
     PICO_DEFAULT_UART=1
