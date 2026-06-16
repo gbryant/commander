@@ -101,6 +101,19 @@ float a project's commander version (rewrites the committed `CMakeLists.txt`);
 `cmdr link <path>` / `cmdr unlink` builds against a local checkout instead (a
 gitignored `commander_local.cmake` override) for framework development.
 
+**Composable partition table + filesystem (ESP32).** `cmdr` owns the ESP32
+`partitions.csv` as a composition of enabled features rather than each feature
+overwriting it (`parse_partitions` / `compose_partitions` in `cli.py`): `enable
+ota` and `enable littlefs` re-derive the other's state from the existing table, so
+order doesn't matter and `disable ota` keeps a filesystem partition. App slots
+reflow to fit a fixed-size FS; OTA-only maximizes slot size. `cmdr enable littlefs
+[--size MB] [--label L] [--dir D]` adds a LittleFS data partition, a pinned git
+dependency on joltwallet/esp_littlefs (not on the component registry) in
+`main/idf_component.yml`, and a `littlefs_create_partition_image()` build of the
+source dir (flashed with the app; OTA carries the app only, not the FS). Mount it
+with the header-only `commander_mount_littlefs(label, base)` (`include/commander_littlefs.h`).
+cmdr-ipstube uses it for swappable clock faces + fonts.
+
 ### Pico W
 Build system is CMake + Pico SDK. `pico_sdk_import.cmake` and
 `FreeRTOS_Kernel_import.cmake` are checked in at the repo root.

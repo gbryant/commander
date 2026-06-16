@@ -111,6 +111,7 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | **`cmdr` tool**                   | ✅ done      | pip install; `init` uno/r4/pico/pico2/esp32/**bluepill**; `--chip/--flash/--psram`; `pull`/`update`/`config`; `link`/`unlink` (local checkout); `pin`/`unpin` (lock commander version) |
 | **`cmdr module` system**          | ✅ done      | enable/disable/list; cmdr.toml manifest; generates `commander_modules.h`; system/compass/sonar/ir/roomba |
 | **`cmdr` features + tooling**     | ✅ done      | optional build-flag features (e.g. IR `wall`); per-module host tools in `bin/` + seed dirs; VID/PID port detection |
+| **LittleFS — ESP32**              | ✅ done      | `cmdr enable littlefs [--size/--label/--dir]`; composable partitions (stacks with OTA, `disable ota` keeps FS); esp_littlefs git dep; `commander_mount_littlefs()`; HW-confirmed via cmdr-ipstube |
 | OTA — R4 (on-demand)              | ✅ done      | `cmdr enable ota`; `ota start` hands off telnet→OTA; push confirmed on hardware (2026-05-29) |
 | OTA — Pico (pull `ota <url>`)     | 🟡 untested  | runner wires `ota` + pfb_firmware_commit (COMMANDER_ENABLE_OTA); needs hardware test |
 | OTA — ESP32 (pull `ota <url>`)    | ✅ done      | `cmdr enable ota`; HW-confirmed via cmdr-ipstube `bum-ota` (2026-06); weak `commander_on_ota_*` display hooks; project-level `commander_stamp_version()` so `bum-ota` confirms the build |
