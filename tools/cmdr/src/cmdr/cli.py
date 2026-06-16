@@ -1251,7 +1251,7 @@ def _emit_module(name: str, opts: dict, target: str):
         wire = "Wire1" if int(opts.get("port", 1)) else "Wire"
         return (['#include <Arduino.h>',
                  '#include "modules/roomba/RoombaModule.h"',
-                 '#include "modules/locomotion/LocomotionBridge.h"'],
+                 '#include "runners/arduino-r4/LocomotionBridge.h"'],
                 [ROOMBA_R4_ADAPTER,
                  "static R4RoombaPort _m_roomba_port;",
                  "static RoombaModule _m_roomba(_m_roomba_port);",

@@ -17,6 +17,7 @@
 #include "i2c_ids.h"
 #include "hal/hal.h"
 #include "transport/uart/UartTransport.h"
+#include "platform/stm32-bluepill/stm32_panic.h"
 
 extern "C" void stm32_clock_init(void);
 #ifdef COMMANDER_STM32_USB_CONSOLE
@@ -33,40 +34,6 @@ static UartTransport   _uart;
 
 extern "C" __attribute__((weak)) void commander_early_init()                   {}
 extern "C" __attribute__((weak)) void commander_on_uart_ready(UartTransport &) {}
-
-// PC13 = onboard LED (active low) — used by the panic hook.
-static void led_init(void) {
-    RCC->APB2ENR |= RCC_APB2ENR_IOPCEN;
-    GPIOC->CRH = (GPIOC->CRH & ~(0xFu << 20)) | (0x2u << 20);
-}
-static inline void led(bool on) { GPIOC->BSRR = on ? GPIO_BSRR_BR13 : GPIO_BSRR_BS13; }
-
-// Override the weak hook in core/CommandRegistry.cpp: blink fast forever on panic.
-void commander_on_panic() {
-    for (;;) {
-        led(true);  for (volatile uint32_t i = 0; i < 400000; i++) { }
-        led(false); for (volatile uint32_t i = 0; i < 400000; i++) { }
-    }
-}
-
-// On USB-console builds the hooks must NOT touch the console (TinyUSB OSAL mutex from a
-// fault context could deadlock) — they blink instead.
-extern "C" void vApplicationMallocFailedHook(void) {
-#ifndef COMMANDER_STM32_USB_CONSOLE
-    hal_uart_puts("[PANIC] malloc failed\r\n");
-#endif
-    commander_on_panic();
-}
-extern "C" void vApplicationStackOverflowHook(TaskHandle_t, char *name) {
-#ifndef COMMANDER_STM32_USB_CONSOLE
-    hal_uart_puts("[PANIC] stack overflow: ");
-    hal_uart_puts(name ? name : "?");
-    hal_uart_puts("\r\n");
-#else
-    (void)name;
-#endif
-    commander_on_panic();
-}
 
 int main(void) {
     stm32_clock_init();
@@ -88,6 +55,12 @@ int main(void) {
         hal_i2c_init((uint8_t)_cfg.i2c_sda, (uint8_t)_cfg.i2c_scl, _cfg.i2c_hz);
 
     commander_setup(_registry);
+    _registry.registerCommand(CMD("reset", "reboot the firmware", CMD_RESET,
+        [](const char *, Writer &out, void *) {
+            out.writeln("Rebooting...");
+            hal_delay_ms(50);
+            NVIC_SystemReset();
+        }, nullptr));
 #ifdef COMMANDER_STM32_DFU
     // `bootloader`: reboot into the DFU bootloader so the app can be re-flashed over USB.
     _registry.registerCommand(CMD("bootloader", "reboot into the USB DFU bootloader", CMD_BOOTLOADER,

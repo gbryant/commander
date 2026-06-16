@@ -8,6 +8,7 @@ struct WiFiWriter : Writer {
     explicit WiFiWriter(WiFiClient& c) : client(c) {}
     void write(const char* s)   override { client.print(s); }
     void writeln(const char* s) override { client.print(s); client.print("\r\n"); }
+    bool ok()                   override { return client.connected(); }
 };
 }
 

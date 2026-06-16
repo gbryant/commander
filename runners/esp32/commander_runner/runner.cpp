@@ -5,7 +5,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
+#include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -23,6 +25,23 @@ static CommanderConfig _cfg;
 static CommandRegistry _registry;
 static UartTransport   _uart;
 static TelnetTransport _telnet;
+
+// ── FreeRTOS panic hooks ──────────────────────────────────────────────────────
+// These may run from ISR context. esp_rom_printf is ISR-safe; esp_restart() is
+// safe to call from any context on ESP32. RTC_NOINIT_ATTR survives esp_restart(),
+// so the panic type is logged after the reboot when the console is up.
+#define PANIC_MAGIC_MALLOC 0x0BAD0001u
+#define PANIC_MAGIC_STACK  0x0BAD0002u
+RTC_NOINIT_ATTR static uint32_t s_panic_code;
+
+extern "C" void vApplicationMallocFailedHook(void) {
+    s_panic_code = PANIC_MAGIC_MALLOC;
+    esp_restart();
+}
+extern "C" void vApplicationStackOverflowHook(TaskHandle_t, char *) {
+    s_panic_code = PANIC_MAGIC_STACK;
+    esp_restart();
+}
 
 // ── Weak hook defaults ────────────────────────────────────────────────────────
 extern "C" __attribute__((weak)) void commander_early_init()                   {}
@@ -132,6 +151,12 @@ static void runnerTask(void *) {
         hal_i2c_init((uint8_t)_cfg.i2c_sda, (uint8_t)_cfg.i2c_scl, _cfg.i2c_hz);
 
     commander_setup(_registry);
+    _registry.registerCommand(CMD("reset", "reboot the firmware", CMD_RESET,
+        [](const char *, Writer &out, void *) {
+            out.writeln("Rebooting...");
+            vTaskDelay(pdMS_TO_TICKS(50));
+            esp_restart();
+        }, nullptr));
 #ifdef COMMANDER_ENABLE_OTA
     _registry.registerCommand(CMD("ota", "flash firmware from URL (http)", I2C_NONE, cmdOta, nullptr));
 #endif
@@ -162,6 +187,10 @@ static void runnerTask(void *) {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 extern "C" void app_main(void) {
+    if (s_panic_code == PANIC_MAGIC_MALLOC) ESP_LOGW(TAG, "[PANIC] malloc failed — rebooted");
+    if (s_panic_code == PANIC_MAGIC_STACK)  ESP_LOGW(TAG, "[PANIC] stack overflow — rebooted");
+    s_panic_code = 0;
+
     commander_early_init();
     _cfg = commander_config();
 

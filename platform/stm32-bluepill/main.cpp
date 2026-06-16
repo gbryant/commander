@@ -8,6 +8,7 @@
 #include "core/SystemModule.h"
 #include "transport/uart/UartTransport.h"
 #include "hal/hal.h"
+#include "platform/stm32-bluepill/stm32_panic.h"
 
 extern "C" void stm32_clock_init(void);
 #ifdef COMMANDER_STM32_USB_CONSOLE
@@ -22,40 +23,6 @@ static CommandRegistry registry;
 static SystemModule    systemModule;
 static UartTransport   uart;
 
-// PC13 = onboard LED (active low).
-static void led_init(void) {
-    RCC->APB2ENR |= RCC_APB2ENR_IOPCEN;
-    GPIOC->CRH = (GPIOC->CRH & ~(0xFu << 20)) | (0x2u << 20);
-}
-static inline void led(bool on) { GPIOC->BSRR = on ? GPIO_BSRR_BR13 : GPIO_BSRR_BS13; }
-
-// Override the weak hook in core/CommandRegistry.cpp: blink fast forever on panic.
-void commander_on_panic() {
-    for (;;) {
-        led(true);  for (volatile uint32_t i = 0; i < 400000; i++) { }
-        led(false); for (volatile uint32_t i = 0; i < 400000; i++) { }
-    }
-}
-
-// In USB-console builds the panic hooks must NOT touch the console: hal_uart_puts() would
-// take TinyUSB's OSAL mutex from a fault context and could deadlock (cf. the Pico lesson).
-// They blink instead.
-extern "C" void vApplicationMallocFailedHook(void) {
-#ifndef COMMANDER_STM32_USB_CONSOLE
-    hal_uart_puts("[PANIC] malloc failed\r\n");
-#endif
-    commander_on_panic();
-}
-extern "C" void vApplicationStackOverflowHook(TaskHandle_t, char *name) {
-#ifndef COMMANDER_STM32_USB_CONSOLE
-    hal_uart_puts("[PANIC] stack overflow: ");
-    hal_uart_puts(name ? name : "?");
-    hal_uart_puts("\r\n");
-#else
-    (void)name;
-#endif
-    commander_on_panic();
-}
 
 int main(void) {
     stm32_clock_init();
@@ -71,6 +38,12 @@ int main(void) {
     uart.begin(registry, 115200, "commander/stm32-bluepill");   // USART1, or no-op on USB
 
     registry.registerModule(systemModule);
+    registry.registerCommand(CMD("reset", "reboot the firmware", CMD_RESET,
+        [](const char *, Writer &out, void *) {
+            out.writeln("Rebooting...");
+            hal_delay_ms(50);
+            NVIC_SystemReset();
+        }, nullptr));
 #ifdef COMMANDER_STM32_DFU
     // `bootloader`: drop into the davidgfnet DFU bootloader so the app can be re-flashed
     // over USB (dfu-util). Magic word at top-of-RAM-8 is what the bootloader checks at boot.

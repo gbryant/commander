@@ -329,6 +329,12 @@ void setup() {
         hal_i2c_init((uint8_t)_cfg.i2c_sda, (uint8_t)_cfg.i2c_scl, _cfg.i2c_hz);
 
     commander_setup(_registry);
+    _registry.registerCommand(CMD("reset", "reboot the firmware", CMD_RESET,
+        [](const char *, Writer &out, void *) {
+            out.writeln("Rebooting...");
+            vTaskDelay(pdMS_TO_TICKS(50));
+            NVIC_SystemReset();
+        }, nullptr));
 #ifdef COMMANDER_R4_OTA
     _registry.registerCommand(CMD("ota", "OTA firmware update ('ota start')", I2C_NONE, otaCmd, nullptr));
 #endif
