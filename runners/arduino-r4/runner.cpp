@@ -57,6 +57,14 @@ extern "C" void vApplicationMallocFailedHook(void) {
     for (;;) {}
 }
 
+void commander_on_panic() {
+    Serial.println();
+    Serial.println("!! commander panic (duplicate command ID)");
+    Serial.flush();
+    vTaskDelay(pdMS_TO_TICKS(100));
+    NVIC_SystemReset();
+}
+
 // ── Minimal mDNS A-record responder ──────────────────────────────────────────
 // Joins 224.0.0.251:5353 and responds to A/ANY queries for <hostname>.local.
 // No external library needed — uses WiFiUDP multicast (AT+UDPBEGINMULTI).

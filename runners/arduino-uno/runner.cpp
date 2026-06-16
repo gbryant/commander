@@ -16,6 +16,19 @@ extern "C" __attribute__((weak)) void commander_early_init()                   {
 extern "C" __attribute__((weak)) void commander_on_uart_ready(UartTransport &) {}
 extern "C" __attribute__((weak)) void commander_on_wifi_connected()            {}
 
+extern "C" void vApplicationMallocFailedHook() {
+    hal_uart_puts("[PANIC] malloc failed\r\n");
+    wdt_enable(WDTO_15MS);
+    for (;;) {}
+}
+
+void commander_on_panic() {
+    hal_uart_puts("[PANIC] duplicate command ID\r\n");
+    hal_delay_ms(50);
+    wdt_enable(WDTO_15MS);
+    for (;;) {}
+}
+
 void setup() {
     commander_early_init();
     _cfg = commander_config();
