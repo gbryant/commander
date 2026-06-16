@@ -1,5 +1,14 @@
 #!/bin/bash
 set -e
+# Source ESP-IDF if it isn't already active, so you don't have to run `esp` first.
+# Override IDF_EXPORT to point at your esp-idf/export.sh.
+if ! command -v idf.py >/dev/null 2>&1; then
+    for _exp in "${IDF_EXPORT:-}" "$HOME/u-developer/esp-idf/export.sh" \
+                "${IDF_PATH:-}/export.sh" "$HOME/esp/esp-idf/export.sh"; do
+        [ -n "$_exp" ] && [ -f "$_exp" ] && { . "$_exp" >/dev/null 2>&1; break; }
+    done
+fi
+command -v idf.py >/dev/null 2>&1 || { echo "esp-idf not found — run 'esp' or set IDF_EXPORT" >&2; exit 1; }
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PORT=$(python3 "$REPO_ROOT/scripts/find_port.py" esp32s3)
 echo "Flashing $PORT..."

@@ -60,8 +60,18 @@ void IRModule::tick() {
     if (_out) {
         // Same canonical line as printIRResultShort (and the Zephyr decoder), built from
         // IRremote's already-split fields so the cmdr IR tools/maps parse it identically.
+        // getProtocolString() is a PROGMEM (__FlashStringHelper*) on AVR but a plain
+        // const char* on the 32-bit cores — copy into RAM so ir_format_event sees a
+        // normal C string on every platform.
+        char proto[16];
+#if defined(__AVR__)
+        strncpy_P(proto, reinterpret_cast<const char *>(IrReceiver.getProtocolString()), sizeof(proto) - 1);
+#else
+        strncpy(proto, reinterpret_cast<const char *>(IrReceiver.getProtocolString()), sizeof(proto) - 1);
+#endif
+        proto[sizeof(proto) - 1] = '\0';
         char line[96];
-        ir_format_event(line, IrReceiver.getProtocolString(),
+        ir_format_event(line, proto,
                         IrReceiver.decodedIRData.address, IrReceiver.decodedIRData.command,
                         IrReceiver.decodedIRData.decodedRawData, IrReceiver.decodedIRData.numberOfBits);
         _out->writeln(line);                 // one canonical event frame on the ir channel

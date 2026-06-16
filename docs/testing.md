@@ -1,7 +1,23 @@
 # Design note: a test suite + local build-test system
 
-**Status:** design note only — NOT started. Captured 2026-06-15. This is the detailed plan behind
-roadmap #1 ("Tests + CI for `cmdr` and a platform build matrix"). [[project_roadmap]]
+**Status:** IMPLEMENTED (2026-06-16) — all four tiers landed. Captured 2026-06-15 as the detailed
+plan behind roadmap #1 ("Tests + CI for `cmdr` and a platform build matrix"); the original design
+text is kept below for context, with a "what landed" note at the end. [[project_roadmap]]
+
+## How to run (quick reference)
+
+```bash
+tests/run.sh                 # Tier 0 + Tier 1 — host C++ + cmdr pytest. The pre-commit gate (seconds).
+tests/run.sh cpp             # Tier 0 only (no python needed)
+tests/run.sh py              # Tier 1 only (needs: pip install pytest)
+tests/build-matrix.sh        # Tier 2 — one representative config per board (toolchain-detecting)
+tests/build-matrix.sh --full # Tier 3 — every config in the matrix
+tests/build-matrix.sh --list # show the matrix + what each row needs
+tests/build-matrix.sh pico   # only the given board(s)
+
+# regenerate the cmdr golden snapshots after an intended codegen change:
+CMDR_UPDATE_GOLDEN=1 python3 -m pytest tools/cmdr/tests/test_codegen_golden.py
+```
 
 commander has **three very different things that can regress**, and they need different test
 strategies running at very different speeds:
@@ -62,26 +78,34 @@ and **actually invoke its build script**. This is the only tier that catches "va
 that doesn't compile" — and it would have caught the `build/`-dir collision (it runs the real
 generated script) and any header that compiles standalone but not when unity-included.
 
-### Tier 3 — full build matrix in CI
+### Tier 3 — full local build matrix *(no CI)*
 
-Tier 2 exhaustively: all boards × representative module combinations, in containers (PlatformIO and
-ESP-IDF ship Docker images; Pico SDK and Zephyr both build in Linux CI — Zephyr won't build on the
-Intel Mac, but **does** build in a Linux CI container). Optionally matrix-build the example consumer
-repos (`cmdr-robot`, `cmdr-oi-bridge`, …) so their adoption path is guarded too.
+Tier 2 exhaustively: all boards × representative module combinations. **No GitHub Actions / no
+containers** — this runs locally on the Mac, because every toolchain we ship is reachable here:
+Uno/R4/Bluepill (PlatformIO), Pico/Pico 2 W (CMake + Pico SDK), ESP32 (ESP-IDF after `esp`), and
+**Uno Q/Zephyr builds on the Mac too** via `ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb` against the
+standalone Arm GNU Toolchain 14.2 (`/Applications/ArmGNUToolchain/14.2.rel1`) — no Zephyr SDK, which
+has no Intel-macOS toolchain. So Tier 3 is just `build-matrix.sh` with the full config list instead
+of one representative set; same skip-with-notice mechanics (e.g. the Uno Q row still needs an
+adb-reachable board to *flash*, but it **compiles** locally). Optionally matrix-build the example
+consumer repos (`cmdr-robot`, `cmdr-oi-bridge`, …) so their adoption path is guarded too.
 
 ## The local build-test system (mechanics)
 
-The constraint that shapes everything: **you can't build everything on the Mac.** Zephyr/Uno Q
-builds happen on the SBC (the Zephyr SDK dropped Intel-Mac support; a gnuarmemb chain builds
-on-board), and ESP-IDF needs `esp` sourced first. So the local runner must be
-**toolchain-detecting and skip-with-notice**, never all-or-nothing:
+All six toolchains build on the Mac — including Zephyr/Uno Q, via `gnuarmemb` + the standalone Arm
+GNU Toolchain 14.2 (the Zephyr SDK has no Intel-macOS chain, so we don't use the SDK). ESP-IDF just
+needs `esp` sourced first. The remaining constraint is *flashing*, not compiling: the Uno Q is
+flashed over an adb/ssh-reachable board, so its row can compile locally but only flashes when the
+board is up. So the local runner must be **toolchain-detecting and skip-with-notice**, never
+all-or-nothing:
 
 - **`tests/run.sh`** → Tier 0 + Tier 1 only. No toolchains, runs in seconds. **This is the
   pre-commit gate** — everything that doesn't need a cross-compiler.
-- **`tests/build-matrix.sh`** → Tier 2. Probes what's available (`pio`; `cmake` + `PICO_SDK_PATH`;
-  `idf.py` after `esp`; an ssh/adb-reachable board for Zephyr), builds the configs it can, and
-  prints `SKIP unoq (board unreachable)` for the rest. **Pre-push / on-demand**, minutes. Reuses
-  per-board build dirs for speed.
+- **`tests/build-matrix.sh`** → Tier 2 (and Tier 3 with the full config list). Probes what's
+  available (`pio`; `cmake` + `PICO_SDK_PATH`; `idf.py` after `esp`; `west` + the gnuarmemb chain
+  for Zephyr), **compiles** every config it can, and prints `SKIP <cfg> (toolchain missing)` for the
+  rest. Flashing the Uno Q still needs an adb/ssh-reachable board, but compiling it does not.
+  **Pre-push / on-demand**, minutes. Reuses per-board build dirs for speed.
 - **Codec↔broker byte-compat guard** (call this out specifically): a test that compiles a tiny C
   harness emitting `channel_encode` output (embedded zeros + a multi-frame payload), pipes it to the
   Python broker's deframer, and asserts a **byte-for-byte round-trip both directions**. The MCU
@@ -106,5 +130,50 @@ on-board), and ESP-IDF needs `esp` sourced first. So the local runner must be
 seconds-fast, it needs no toolchains, and it pins exactly the codegen-regression class that's been
 the recurring papercut. Stand up `pytest` + golden `commander_modules.h` snapshots for the configs
 actually shipped (uno / r4 / pico / esp32 / unoq × their typical modules), then consolidate Tier 0
-alongside. Tier 2/3 come after, once there's a green baseline worth protecting — and they slot
-straight into roadmap #1's build-matrix CI line.
+alongside. Tier 2/3 come after, once there's a green baseline worth protecting — and they realize
+roadmap #1's build-matrix line as a local runner rather than CI.
+
+## What landed (2026-06-16)
+
+All four tiers, built in the order above.
+
+- **Tier 0** — `tests/run.sh` is the single consolidated host gate. It compiles+runs the existing
+  channel-codec / NEC-Sony tests *plus* new coverage: `core/tests/test_registry.cpp`
+  (dispatch/Writer/SystemModule/overflow/duplicate-id panic), `modules/locomotion/tests/test_drivemixer.cpp`
+  (two-zone curve, ramping, spin + LocoProtocol pack/unpack), `modules/controller/tests/test_calibration.cpp`
+  (re-center/rescale/deadzone). Also runs the broker PTY-loopback and the new codec↔broker guard.
+- **Tier 1** — `tools/cmdr/tests/` (pytest). 24 golden `commander_modules.h` snapshots under
+  `golden/` over a (target × module-set) matrix; invariant lint (unique includes, no designated
+  initializers, balanced braces, system-first, register-line dedup, the unoq channel-bus-hook vs
+  UART-hook split); honest-menu gating; manifest round-trip; ESP32 partition composition; and
+  `cmd_init` / `cmd_module` scaffolding + enable/disable idempotence with subprocess+`input` stubbed.
+  Update goldens with `CMDR_UPDATE_GOLDEN=1`.
+- **codec↔broker byte-compat guard** — `transport/channels/tests/codec_harness.cpp` exposes the real
+  C codec as a Unix filter; `test_codec_compat.py` round-trips tricky frames (embedded zeros, >254
+  run, multi-frame) through it and the broker's Python port, **both directions**, byte-for-byte.
+  This is the permanent home for what was a manual cross-check — it caught nothing yet because the
+  two are in sync, which is the point.
+- **Tier 2/3** — `tests/build-matrix.sh`. Toolchain-detecting, skip-with-notice. It `cmdr init`s a
+  throwaway project per row, points it at *this* checkout (`cmdr link` for CMake incl. unoq — its
+  `FetchContent_Populate` gets the same local hook injected — and a `symlink://` lib_dep for
+  PlatformIO, so it compiles the working tree, not GitHub `main`), enables a representative module
+  set, and runs the real generated build script. `--full` is Tier 3 (every config); `--list` shows
+  the matrix. Build dirs are reused under `$CMDR_MATRIX_CACHE`. **Validated 2026-06-16: all six
+  platforms compile the local tree here — pico/base, pico/sensors, r4/wifi_ir, uno/ir, bluepill/base,
+  esp32/base, unoq/base all PASS** (esp32 after sourcing the IDF env, unoq via the Zephyr venv + gnuarmemb).
+
+Notes / gotchas found while building it:
+- Project names must avoid the Pico SDK's reserved `pico_*` target namespace (a project literally
+  named `pico_base` breaks `pico_add_extra_outputs`); the matrix prefixes every throwaway with `mtx_`.
+- `FETCHCONTENT_SOURCE_DIR_COMMANDER` as an *environment* variable is **not** honored by CMake's
+  FetchContent — only the CMake cache var is. So local-tree builds go through `cmdr link` (which
+  writes that cache var into `commander_local.cmake`), not an env export. Pico/Pico 2 W `init` still
+  does one quick GitHub fetch during its auto-configure before `cmdr link` swaps in the local source.
+- ESP-IDF builds are `-Werror` + misleading-indentation; the broadened Tier 0 tests are host-g++ so
+  they don't see that, but the build matrix (Tier 2) does — it's the tier that catches it.
+- ESP-IDF and Zephyr aren't on the bare PATH — they're activated by an env script (the `esp` alias
+  sources `export.sh`; the unoq `build` script sources the Zephyr venv at `~/zephyrproject/.venv`).
+  So `build-matrix.sh` probes for those *activators* (`idf_export` / `zephyr_venv`, overridable via
+  `$IDF_EXPORT` / `$ZEPHYR_VENV`) and activates ESP-IDF itself before building, rather than checking
+  for `idf.py`/`west` on PATH. The Uno Q **compiles** locally (gnuarmemb, since the Zephyr SDK has no
+  Intel-Mac build); only *flashing* it needs an adb-reachable board.

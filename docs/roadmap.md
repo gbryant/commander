@@ -11,11 +11,13 @@ Status key: **proposed** (not started).
 
 ---
 
-## 1. Tests + CI for `cmdr` and a platform build matrix — *proposed*
+## 1. Tests + CI for `cmdr` and a platform build matrix — *DONE (local runner) 2026-06-16*
 
-> **Detailed plan: `docs/testing.md`** (tiered pyramid — host C++ unit tests, `cmdr` golden-file
-> codegen tests, generated-project compile smoke, build-matrix CI — plus the toolchain-detecting
-> local runner).
+> **Detailed plan + what landed: `docs/testing.md`** (tiered pyramid — host C++ unit tests, `cmdr`
+> golden-file codegen tests, generated-project compile smoke, build matrix — plus the
+> toolchain-detecting local runner). All four tiers are implemented as local runners
+> (`tests/run.sh` = Tier 0/1 pre-commit gate; `tests/build-matrix.sh` = Tier 2/3). A GitHub-Actions
+> CI wrapper is the only remaining piece, and is optional given the local matrix.
 
 **Why (the biggest non-glamorous win).** `cmdr` is now the heart of the UX — ~2,300 lines of
 Python — with **zero tests**. Real bugs this session (a duplicate include, a stale editable

@@ -3,6 +3,7 @@
 import argparse
 import configparser
 import importlib.resources
+import os
 import re
 import subprocess
 import sys
@@ -149,10 +150,27 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "$DIR/monitor"
 """
 
+# Source the ESP-IDF env so build/upload are self-contained — you don't have to run
+# `esp` / `. $IDF_PATH/export.sh` first. No-op if idf.py is already on PATH. Tries
+# $IDF_EXPORT, the path captured at `cmdr init`, $IDF_PATH/export.sh, then the standard
+# install locations. Override IDF_EXPORT to point at your own export.sh. (__IDF_EXPORT__
+# is filled in at init from the environment's $IDF_PATH, blank if IDF wasn't active.)
+ESP32_ENV_PREAMBLE = """\
+if ! command -v idf.py >/dev/null 2>&1; then
+    for _exp in "${IDF_EXPORT:-}" "__IDF_EXPORT__" "${IDF_PATH:-}/export.sh" \\
+                "$HOME/esp/esp-idf/export.sh" "$HOME/esp-idf/export.sh"; do
+        [ -n "$_exp" ] && [ -f "$_exp" ] && { . "$_exp" >/dev/null 2>&1; break; }
+    done
+fi
+command -v idf.py >/dev/null 2>&1 || {
+    echo "esp-idf not found — run 'esp' (or set IDF_EXPORT to your esp-idf/export.sh)" >&2; exit 1; }
+"""
+
 ESP32_BUILD_SCRIPT = """\
 #!/bin/bash
 set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+""" + ESP32_ENV_PREAMBLE + """\
 BUILD="$DIR/build-esp32"
 if [ ! -f "$BUILD/config/sdkconfig.json" ]; then
     idf.py -B "$BUILD" set-target __CHIP__
@@ -164,6 +182,7 @@ ESP32_UPLOAD_SCRIPT = """\
 #!/bin/bash
 set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+""" + ESP32_ENV_PREAMBLE + """\
 PORT=$(python3 "$DIR/scripts/find_port.py" __CHIP__)
 echo "Flashing $PORT..."
 idf.py -B "$DIR/build-esp32" -p "$PORT" flash
@@ -2031,14 +2050,24 @@ def scaffold_esp32(name: str, out_dir: Path, chip: str, flash_mb: int, psram_mb:
     scripts_dir.mkdir()
     copy_template("find_port.py", scripts_dir / "find_port.py")
 
+    # If IDF is active in this shell (you ran `esp` before `cmdr init`), bake its
+    # export.sh as the build/upload scripts' default so they self-source it — you won't
+    # have to run `esp` first. Overridable at runtime via $IDF_EXPORT.
+    idf_path = os.environ.get("IDF_PATH", "")
+    idf_export = f"{idf_path}/export.sh" if idf_path else ""
+
     write_script(out_dir / "bum",     ESP32_BUM_SCRIPT)
-    write_script(out_dir / "build",   render(ESP32_BUILD_SCRIPT,   chip=chip))
-    write_script(out_dir / "upload",  render(ESP32_UPLOAD_SCRIPT,  chip=chip))
+    write_script(out_dir / "build",   render(ESP32_BUILD_SCRIPT,   chip=chip, idf_export=idf_export))
+    write_script(out_dir / "upload",  render(ESP32_UPLOAD_SCRIPT,  chip=chip, idf_export=idf_export))
     write_script(out_dir / "monitor", render(ESP32_MONITOR_SCRIPT, chip=chip))
 
     psram_str = f"{psram_mb} MB PSRAM" if psram_mb else "no PSRAM"
     print(f"Created {out_dir}/ [{chip}, {flash_mb} MB flash, {psram_str}]")
     print(f"Edit {out_dir}/secrets.h with your WiFi credentials")
+    if idf_export:
+        print(f"(build/upload will source ESP-IDF from {idf_export} — override with $IDF_EXPORT)")
+    else:
+        print("(run `esp` once per shell, or set $IDF_EXPORT, so build/upload find ESP-IDF)")
     print(f"\nDone.\n  cd {out_dir}\n  ./bum")
     print(f"(First build runs 'idf.py set-target {chip}' automatically)")
 

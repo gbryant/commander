@@ -150,8 +150,12 @@ First build runs `idf.py set-target esp32s3` automatically (detects missing `sdk
 Transport uses native USB (USB Serial/JTAG, GPIO19/20) — connect tio to the `usbmodem` port.
 The board has no USB-to-serial chip; UART0 (GPIO43/44) is on headers only.
 
-**ESP-IDF environment:** run `esp` before any `idf.py` or `dev/esp32/*` command.
-`esp` is a shell alias for `. ~/u-developer/esp-idf/export.sh`.
+**ESP-IDF environment:** the `dev/esp32/*` build/upload scripts (and cmdr-generated
+esp32 `build`/`upload`) **self-source ESP-IDF** if `idf.py` isn't already on PATH, so
+you no longer have to run `esp` first — they try `$IDF_EXPORT`, then
+`~/u-developer/esp-idf/export.sh` / `$IDF_PATH/export.sh` / the standard install paths
+(cmdr bakes the init-time `$IDF_PATH` as the generated script's default). `esp` is still
+a handy shell alias for `. ~/u-developer/esp-idf/export.sh` (e.g. for raw `idf.py`).
 
 ### STM32 Bluepill (STM32F103C8)
 Native CMSIS + vendored FreeRTOS (GCC/ARM_CM3) + raw TinyUSB — **not** the Arduino

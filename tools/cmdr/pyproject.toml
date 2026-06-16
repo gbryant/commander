@@ -9,8 +9,16 @@ description = "Project manager for the commander embedded framework"
 requires-python = ">=3.8"
 dependencies = []
 
+[project.optional-dependencies]
+# Tier 1 test suite (see docs/testing.md): pip install -e '.[test]'
+test = ["pytest>=7"]
+
 [project.scripts]
 cmdr = "cmdr.cli:main"
 
 [tool.hatchling.build.targets.wheel]
 packages = ["src/cmdr"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -219,6 +219,19 @@ Goal: migrate Roomba robot to this framework.
 - [ ] Hardware test: re-confirm a pad drives the robot from the rolled-in
       `controller` module (and telnet still works alongside BT)
 
+### Testing
+
+A tiered test suite landed (2026-06-16) — see `docs/testing.md`. Quick reference:
+
+- `tests/run.sh` — Tier 0 (host C++: codec, NEC/Sony, CommandRegistry, DriveMixer,
+  ControllerCalibration, broker loopback, codec↔broker byte-compat) + Tier 1
+  (`tools/cmdr/tests/` pytest: golden `commander_modules.h` snapshots, codegen
+  invariants, honest-menu gating, manifest/partition round-trips, scaffold +
+  enable/disable idempotence). The seconds-fast pre-commit gate.
+- `tests/build-matrix.sh` — Tier 2/3 compile smoke: `cmdr init`s throwaway projects
+  against the local checkout and runs their real build scripts. Toolchain-detecting,
+  skip-with-notice. `--full` for every config; `--list` to see the matrix.
+
 ### What's next
 
 1. **Phase R3 — Bluetooth controller** — generic `modules/controller/` plumbing is
