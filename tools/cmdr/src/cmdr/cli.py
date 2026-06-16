@@ -504,18 +504,103 @@ add_subdirectory(${PFB_PATH} pfb_build)\
 """
 
 # ── partition table generation ────────────────────────────────────────────────
+# The table is composed from the enabled features (OTA, filesystem) so they stack
+# instead of clobbering each other. `cmdr enable ota` / `enable littlefs` each
+# re-derive the *other* feature's state from the existing partitions.csv, so the
+# order they're enabled in doesn't matter.
 
-def make_ota_partitions_csv(flash_mb: int) -> str:
-    app_size = 0x1B0000 if flash_mb <= 4 else 0x300000
-    app1_offset = 0x10000 + app_size
-    return (
-        f"# {flash_mb} MB flash — dual OTA\n"
-        "# Name,   Type, SubType, Offset,   Size\n"
-        f"nvs,      data, nvs,     0x9000,   0x5000\n"
-        f"otadata,  data, ota,     0xe000,   0x2000\n"
-        f"app0,     app,  ota_0,   0x10000,  {hex(app_size)}\n"
-        f"app1,     app,  ota_1,   {hex(app1_offset)}, {hex(app_size)}\n"
-    )
+_ALIGN = 0x10000          # app partitions must be 64 KB aligned; we align everything to it
+_APP_START = 0x10000      # first app/factory partition offset (after nvs + otadata)
+
+
+def _detect_flash_mb(default: int = 16) -> int:
+    sdk = Path("sdkconfig.defaults")
+    if sdk.exists():
+        m = re.search(r"CONFIG_ESPTOOLPY_FLASHSIZE_(\d+)MB=y", sdk.read_text())
+        if m:
+            return int(m.group(1))
+    return default
+
+
+def _default_app_budget(flash_mb: int) -> int:
+    # App region size when a filesystem takes "the rest" — a balanced split that
+    # leaves the remaining flash for the FS. Used only when an FS has no fixed size.
+    return {4: 0x300000, 8: 0x400000}.get(flash_mb, flash_mb * 0x100000 // 2)
+
+
+def parse_partitions(text: str) -> "tuple[bool, list]":
+    """Recover (ota_enabled, [(label, subtype, size|None), …]) from a partitions.csv."""
+    ota = False
+    fs: "list" = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        cols = [c.strip() for c in line.split(",")]
+        if len(cols) < 3:
+            continue
+        name, ptype, subtype = cols[0], cols[1], cols[2]
+        if ptype == "app" and subtype.startswith("ota_"):
+            ota = True
+        elif ptype == "data" and subtype in ("littlefs", "spiffs", "fat"):
+            size = None
+            if len(cols) >= 5 and cols[4]:
+                try:
+                    size = int(cols[4], 0)
+                except ValueError:
+                    size = None
+            fs.append((name, subtype, size))
+    return ota, fs
+
+
+def compose_partitions(flash_mb: int, ota: bool, fs: "list") -> str:
+    """Build a partitions.csv for the given flash size, OTA flag, and FS partitions.
+
+    fs is a list of (label, subtype, size|None); None means "take the remaining
+    flash" (split evenly if several). App slots reflow to make room for fixed-size
+    filesystems, so adding an FS to an OTA project (or vice versa) just works.
+    """
+    flash = flash_mb * 0x100000
+    usable = flash - _APP_START
+    fixed_fs = sum(sz for (_, _, sz) in fs if sz)
+    has_rest = any(sz is None for (_, _, sz) in fs)
+    app_budget = (_default_app_budget(flash_mb) if has_rest else usable - fixed_fs) & ~(_ALIGN - 1)
+    if app_budget < _ALIGN:
+        die(f"no room for the app on {flash_mb} MB flash — filesystem too large")
+
+    rows = []
+    if ota:
+        rows += [("nvs", "data", "nvs", 0x9000, 0x5000),
+                 ("otadata", "data", "ota", 0xe000, 0x2000)]
+    else:
+        rows += [("nvs", "data", "nvs", 0x9000, 0x7000)]   # fills 0x9000..0x10000
+    cur = _APP_START
+    if ota:
+        slot = (app_budget // 2) & ~(_ALIGN - 1)
+        rows += [("app0", "app", "ota_0", cur, slot)]; cur += slot
+        rows += [("app1", "app", "ota_1", cur, slot)]; cur += slot
+    else:
+        rows += [("factory", "app", "factory", cur, app_budget)]; cur += app_budget
+
+    rest_pool = flash - cur - fixed_fs
+    n_rest = sum(1 for (_, _, sz) in fs if sz is None)
+    for (label, subtype, sz) in fs:
+        size = (sz if sz else rest_pool // max(n_rest, 1)) & ~(_ALIGN - 1)
+        if size < _ALIGN:
+            die(f"no room for filesystem '{label}' on {flash_mb} MB flash")
+        rows += [(label, "data", subtype, cur, size)]; cur += size
+
+    if cur > flash:
+        die(f"partition layout {hex(cur)} exceeds {flash_mb} MB flash")
+
+    fsnote = "".join(f" + {l}({st})" for (l, t, st, _, _) in rows
+                     if t == "data" and st in ("littlefs", "spiffs", "fat"))
+    out = [f"# {flash_mb} MB flash — {'dual OTA' if ota else 'single app'}{fsnote}",
+           "# Name,     Type, SubType,  Offset,     Size"]
+    for (name, ptype, subtype, off, size) in rows:
+        out.append(f"{name + ',':<11} {ptype + ',':<5} {subtype + ',':<9} "
+                   f"{hex(off) + ',':<11} {hex(size)}")
+    return "\n".join(out) + "\n"
 
 
 # ── sdkconfig generation ──────────────────────────────────────────────────────
@@ -2018,17 +2103,11 @@ def _enable_ota_esp32(cmake: Path, content: str) -> None:
     )
     cmake.write_text(content)
 
-    # 2. Detect flash size and write partitions.csv
-    flash_mb = 16
-    sdk = Path("sdkconfig.defaults")
-    if sdk.exists():
-        for line in sdk.read_text().splitlines():
-            m = re.match(r"CONFIG_ESPTOOLPY_FLASHSIZE_(\d+)MB=y", line)
-            if m:
-                flash_mb = int(m.group(1))
-                break
-    app_size = 0x1B0000 if flash_mb <= 4 else 0x300000
-    Path("partitions.csv").write_text(make_ota_partitions_csv(flash_mb))
+    # 2. Compose partitions.csv: add OTA, preserving any existing filesystem.
+    flash_mb = _detect_flash_mb()
+    parts = Path("partitions.csv")
+    _, fs = parse_partitions(parts.read_text()) if parts.exists() else (False, [])
+    parts.write_text(compose_partitions(flash_mb, ota=True, fs=fs))
 
     # 3. Add partition config to sdkconfig.defaults
     sdk_content = sdk.read_text() if sdk.exists() else ""
@@ -2052,7 +2131,8 @@ def _enable_ota_esp32(cmake: Path, content: str) -> None:
 
     print("Enabled OTA in CMakeLists.txt:")
     print("  • COMMANDER_ENABLE_OTA set")
-    print(f"  • partitions.csv written ({flash_mb} MB flash, {hex(app_size)} per OTA slot)")
+    print(f"  • partitions.csv composed ({flash_mb} MB flash, dual OTA"
+          + (", filesystem preserved" if fs else "") + ")")
     print("  • sdkconfig.defaults updated with custom partition table")
     print(f"  • bum-ota written (usage: ./bum-ota [host]  default: {name}.local)")
 
@@ -2064,6 +2144,130 @@ def _enable_ota_esp32(cmake: Path, content: str) -> None:
     for build_dir in build_dirs:
         print(f"\nReconfiguring {build_dir}/...")
         subprocess.run(["cmake", "-B", str(build_dir)], check=True)
+
+
+# ── enable / disable littlefs (ESP32 filesystem partition) ────────────────────
+# Adds a LittleFS data partition for runtime assets (fonts, images, config, logs),
+# the joltwallet/esp_littlefs managed dependency, and a pre-build image of a source
+# dir. Composes with OTA: the partition table reflows to fit whatever's enabled.
+
+def _add_managed_dep(name: str, version: str) -> None:
+    man = Path("main") / "idf_component.yml"
+    if man.exists():
+        text = man.read_text()
+        if name in text:
+            return
+        if re.search(r"^dependencies:", text, re.MULTILINE):
+            text = re.sub(r"(^dependencies:[^\n]*\n)", rf'\1  {name}: "{version}"\n',
+                          text, count=1, flags=re.MULTILINE)
+        else:
+            text = text.rstrip() + f'\ndependencies:\n  {name}: "{version}"\n'
+        man.write_text(text)
+    else:
+        man.parent.mkdir(parents=True, exist_ok=True)
+        man.write_text(f'dependencies:\n  {name}: "{version}"\n')
+
+
+def _reconfigure_cmake() -> None:
+    dirs = _cmake_build_dirs()
+    if not dirs:
+        print("\nNo build directory found — run cmake manually to configure.")
+        return
+    for bd in dirs:
+        print(f"\nReconfiguring {bd}/...")
+        subprocess.run(["cmake", "-B", str(bd)], check=True)
+
+
+def enable_littlefs(label: str = "storage", subdir: str = "storage",
+                    size_mb: "int | None" = None) -> None:
+    if Path("platformio.ini").exists():
+        die("`cmdr enable littlefs` is esp32-only (CMake/ESP-IDF) for now")
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        die("no CMakeLists.txt — run from your project root")
+    content = cmake.read_text()
+    if "FetchContent_Populate(commander)" not in content:
+        die("`cmdr enable littlefs` currently supports esp32 projects only")
+
+    flash_mb = _detect_flash_mb()
+    # 1. Compose partitions.csv: keep the OTA state, add/replace the FS partition.
+    parts = Path("partitions.csv")
+    ota, fs = parse_partitions(parts.read_text()) if parts.exists() else (False, [])
+    fs = [f for f in fs if f[0] != label]                          # replace same-label FS
+    fs.append((label, "littlefs", size_mb * 0x100000 if size_mb else None))
+    parts.write_text(compose_partitions(flash_mb, ota=ota, fs=fs))
+
+    # 2. sdkconfig.defaults → custom partition table (idempotent)
+    sdk = Path("sdkconfig.defaults")
+    sdk_content = sdk.read_text() if sdk.exists() else ""
+    if "CONFIG_PARTITION_TABLE_CUSTOM" not in sdk_content:
+        sdk.write_text(sdk_content + "\nCONFIG_PARTITION_TABLE_CUSTOM=y\n"
+                       'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"\n')
+
+    # 3. esp_littlefs as a managed dependency of the app
+    _add_managed_dep("joltwallet/esp_littlefs", "*")
+
+    # 4. Pre-build image of the source dir (after project(), so the function exists)
+    if "littlefs_create_partition_image" not in content:
+        m = re.search(r"^project\([^\n]*\)\s*$", content, re.MULTILINE)
+        if not m:
+            die("could not find project() in CMakeLists.txt")
+        block = (f"\n\n# LittleFS image ({subdir}/) flashed with the app — `cmdr enable littlefs`.\n"
+                 f"littlefs_create_partition_image({label} ${{CMAKE_SOURCE_DIR}}/{subdir} FLASH_IN_PROJECT)")
+        cmake.write_text(content[:m.end()] + block + content[m.end():])
+
+    # 5. Source dir for filesystem contents
+    d = Path(subdir)
+    d.mkdir(parents=True, exist_ok=True)
+    if not any(d.iterdir()):
+        (d / ".gitkeep").write_text("")
+
+    # 6. Regenerate sdkconfig against the new table
+    for f in [Path("sdkconfig"), Path("build-esp32") / "sdkconfig"]:
+        if f.exists():
+            f.unlink()
+
+    print(f"Enabled LittleFS '{label}' on {flash_mb} MB flash:")
+    print(f"  • partitions.csv composed ({'dual OTA + ' if ota else ''}{label} filesystem"
+          + (f", {size_mb} MB" if size_mb else ", remaining flash") + ")")
+    print("  • joltwallet/esp_littlefs added to main/idf_component.yml")
+    print(f"  • littlefs_create_partition_image() builds {subdir}/ into the flashed image")
+    print(f"  • {subdir}/ created for filesystem contents")
+    print("\nMount it in your app (the runner already pulls esp_littlefs via the dep):")
+    print('  #include "commander_littlefs.h"')
+    print(f'  commander_mount_littlefs("{label}", "/{label}");')
+    _reconfigure_cmake()
+
+
+def disable_littlefs(label: str = "storage") -> None:
+    if Path("platformio.ini").exists():
+        die("`cmdr enable littlefs` is esp32-only")
+    parts = Path("partitions.csv")
+    if not parts.exists():
+        print("No partitions.csv — nothing to disable.")
+        return
+    ota, fs = parse_partitions(parts.read_text())
+    if not any(f[0] == label for f in fs):
+        print(f"No '{label}' filesystem partition found.")
+        return
+    fs = [f for f in fs if f[0] != label]
+    if ota or fs:
+        parts.write_text(compose_partitions(_detect_flash_mb(), ota=ota, fs=fs))
+    else:
+        parts.unlink()
+    # Drop the image-build line for this label from CMakeLists.
+    cmake = Path("CMakeLists.txt")
+    if cmake.exists():
+        text = cmake.read_text()
+        text = re.sub(r"\n*# LittleFS image[^\n]*\nlittlefs_create_partition_image\("
+                      + re.escape(label) + r"[^\n]*\n", "\n", text)
+        cmake.write_text(text)
+    for f in [Path("sdkconfig"), Path("build-esp32") / "sdkconfig"]:
+        if f.exists():
+            f.unlink()
+    print(f"Disabled LittleFS '{label}'. Left main/idf_component.yml and {label}/ in place "
+          "(remove by hand if unused).")
+    _reconfigure_cmake()
 
 
 def _env_name_from_pio(text: str) -> str:
@@ -2176,23 +2380,26 @@ def _disable_ota_esp32(cmake: Path, content: str) -> None:
     )
     cmake.write_text(content)
 
-    # 2. Remove partitions.csv
+    # 2. Re-compose partitions.csv: drop OTA, but keep any filesystem partition.
+    #    Only tear the custom table down entirely if nothing else needs it.
     p = Path("partitions.csv")
-    if p.exists():
-        p.unlink()
-
-    # 3. Remove partition config from sdkconfig.defaults
+    _, fs = parse_partitions(p.read_text()) if p.exists() else (False, [])
+    kept_fs = bool(fs)
     sdk = Path("sdkconfig.defaults")
-    if sdk.exists():
-        sdk_content = sdk.read_text()
-        sdk_content = sdk_content.replace(
-            "\nCONFIG_PARTITION_TABLE_CUSTOM=y\n"
-            'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"\n',
-            "",
-        )
-        sdk.write_text(sdk_content)
+    if kept_fs:
+        p.write_text(compose_partitions(_detect_flash_mb(), ota=False, fs=fs))
+    else:
+        if p.exists():
+            p.unlink()
+        # 3. Remove partition config from sdkconfig.defaults (custom table no longer needed)
+        if sdk.exists():
+            sdk.write_text(sdk.read_text().replace(
+                "\nCONFIG_PARTITION_TABLE_CUSTOM=y\n"
+                'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"\n',
+                "",
+            ))
 
-    # 4. Delete sdkconfig so it regenerates without the partition table override
+    # 4. Delete sdkconfig so it regenerates against the (changed) partition table
     for f in [Path("sdkconfig"), Path("build-esp32") / "sdkconfig"]:
         if f.exists():
             f.unlink()
@@ -2204,8 +2411,10 @@ def _disable_ota_esp32(cmake: Path, content: str) -> None:
 
     print("Disabled OTA in CMakeLists.txt:")
     print("  • COMMANDER_ENABLE_OTA removed")
-    print("  • partitions.csv removed")
-    print("  • sdkconfig.defaults partition config removed")
+    print("  • partitions.csv recomposed (single app, filesystem kept)" if kept_fs
+          else "  • partitions.csv removed")
+    if not kept_fs:
+        print("  • sdkconfig.defaults partition config removed")
     print("  • bum-ota removed")
 
     build_dirs = [d for d in Path(".").iterdir()
@@ -2355,6 +2564,8 @@ def cmd_enable(args: argparse.Namespace) -> None:
         enable_ota()
     elif args.feature == "dfu":
         enable_dfu()
+    elif args.feature == "littlefs":
+        enable_littlefs(label=args.label, subdir=args.dir, size_mb=args.size)
 
 
 def cmd_disable(args: argparse.Namespace) -> None:
@@ -2362,6 +2573,8 @@ def cmd_disable(args: argparse.Namespace) -> None:
         disable_ota()
     elif args.feature == "dfu":
         disable_dfu()
+    elif args.feature == "littlefs":
+        disable_littlefs(label=args.label)
 
 
 def cmd_update() -> None:
@@ -2623,10 +2836,18 @@ def main() -> None:
 
     # ── enable / disable ──────────────────────────────────────────────────────
     enable_p = sub.add_parser("enable", help="enable a feature in the current project")
-    enable_p.add_argument("feature", choices=["ota", "dfu"], help="feature to enable")
+    enable_p.add_argument("feature", choices=["ota", "dfu", "littlefs"], help="feature to enable")
+    enable_p.add_argument("--size", type=int, metavar="MB",
+                          help="littlefs: filesystem size in MB (default: remaining flash)")
+    enable_p.add_argument("--label", default="storage",
+                          help="littlefs: partition label / mount point (default: storage)")
+    enable_p.add_argument("--dir", default="storage", dest="dir",
+                          help="littlefs: source dir packed into the image (default: storage)")
 
     disable_p = sub.add_parser("disable", help="disable a feature in the current project")
-    disable_p.add_argument("feature", choices=["ota", "dfu"], help="feature to disable")
+    disable_p.add_argument("feature", choices=["ota", "dfu", "littlefs"], help="feature to disable")
+    disable_p.add_argument("--label", default="storage",
+                           help="littlefs: partition label to remove (default: storage)")
 
     # ── update / pull ─────────────────────────────────────────────────────────
     sub.add_parser("update", help="update cmdr itself to latest")
