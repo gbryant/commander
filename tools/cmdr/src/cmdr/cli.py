@@ -2526,6 +2526,77 @@ def cmd_unlink(args: argparse.Namespace) -> None:
           + ("" if build_dirs else " (no build dir to reconfigure)"))
 
 
+# ── pin / unpin (commander version) ───────────────────────────────────────────
+# Projects fetch commander with FetchContent at GIT_TAG. `main` floats (tracks the
+# branch tip — not reproducible); pin to a fixed commit (or, later, a release tag)
+# so the project always builds against a known-good framework. The pin lives in the
+# committed CMakeLists.txt — it's the project's declared dependency version.
+
+_PIN_RE = r"(FetchContent_Declare\(\s*commander\b.*?GIT_TAG\s+)(\S+)"
+
+
+def _read_pin(text: str) -> "str | None":
+    m = re.search(_PIN_RE, text, re.DOTALL)
+    return m.group(2) if m else None
+
+
+def _resolve_remote_main() -> str:
+    r = subprocess.run(["git", "ls-remote", REPO_URL, "main"],
+                       capture_output=True, text=True, check=True)
+    sha = r.stdout.split()[0] if r.stdout.strip() else ""
+    if not sha:
+        die("could not resolve commander's main from the remote")
+    return sha
+
+
+def _apply_pin(cmake: Path, ref: str, cur: str) -> None:
+    text = cmake.read_text()
+    new, n = re.subn(_PIN_RE, lambda m: m.group(1) + ref, text, count=1, flags=re.DOTALL)
+    if n == 0:
+        die("could not find FetchContent_Declare(commander ... GIT_TAG ...) in CMakeLists.txt")
+    cmake.write_text(new)
+    print(f"Pinned commander → {ref}" + (f"  (was {cur})" if cur != ref else ""))
+    bd = _cmake_build_dirs()
+    if bd:
+        _reconfigure_commander(bd)
+    if Path(_LOCAL_CMAKE).exists():
+        print("note: `cmdr link` is active — the pin is ignored until you `cmdr unlink`.")
+
+
+def cmd_pin(args: argparse.Namespace) -> None:
+    if Path("platformio.ini").exists():
+        die("`cmdr pin` is for CMake (pico/esp32) projects; PlatformIO pins via lib_deps")
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        die("no CMakeLists.txt here — run from a cmdr project root")
+    cur = _read_pin(cmake.read_text())
+    if cur is None:
+        die("no FetchContent_Declare(commander ...) GIT_TAG found in CMakeLists.txt")
+
+    if not args.ref and not args.latest:                 # bare → status
+        floating = cur in ("main", "master")
+        print(f"commander pin: {cur}" + (" (floating — tracks the branch tip)"
+                                         if floating else " (pinned)"))
+        if Path(_LOCAL_CMAKE).exists():
+            print("note: `cmdr link` is active — builds use a local checkout, not this pin.")
+        return
+
+    _apply_pin(cmake, _resolve_remote_main() if args.latest else args.ref, cur)
+
+
+def cmd_unpin(args: argparse.Namespace) -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        die("no CMakeLists.txt here — run from a cmdr project root")
+    cur = _read_pin(cmake.read_text())
+    if cur is None:
+        die("no FetchContent_Declare(commander ...) GIT_TAG found in CMakeLists.txt")
+    if cur in ("main", "master"):
+        print(f"already floating on {cur}")
+        return
+    _apply_pin(cmake, "main", cur)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="cmdr",
@@ -2566,6 +2637,13 @@ def main() -> None:
     link_p.add_argument("path", nargs="?", help="path to a local commander checkout")
     sub.add_parser("unlink", help="revert to building commander from GitHub")
 
+    # ── pin / unpin ───────────────────────────────────────────────────────────
+    pin_p = sub.add_parser("pin", help="pin commander to a git ref (bare: show; --latest: freeze main)")
+    pin_p.add_argument("ref", nargs="?", help="commit SHA, tag, or branch to pin")
+    pin_p.add_argument("--latest", action="store_true",
+                       help="resolve the remote main tip and pin that commit")
+    sub.add_parser("unpin", help="float commander back to the main branch")
+
     # ── module ────────────────────────────────────────────────────────────────
     module_p = sub.add_parser("module", help="enable/disable/list modules in the current project")
     module_sub = module_p.add_subparsers(dest="action", metavar="<action>")
@@ -2601,6 +2679,10 @@ def main() -> None:
             cmd_link(args)
         elif args.command == "unlink":
             cmd_unlink(args)
+        elif args.command == "pin":
+            cmd_pin(args)
+        elif args.command == "unpin":
+            cmd_unpin(args)
         elif args.command == "module":
             cmd_module(args)
         elif args.command == "config":
