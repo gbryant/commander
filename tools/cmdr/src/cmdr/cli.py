@@ -821,22 +821,26 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 BROKER=$(find build-unoq -name commander_broker.py 2>/dev/null | head -1)
 SERVICE=$(find build-unoq -name commander-broker.service 2>/dev/null | head -1)
 if [ -z "$BROKER" ] || [ -z "$SERVICE" ]; then
-  echo "couldn't find the broker in the fetched commander source — run ./build first."; exit 1
+  echo "broker not found under build-unoq/ — the commander framework hasn't been fetched yet."
+  echo "Run ./build first (it downloads commander + the broker via FetchContent), then re-run ./install-broker."
+  exit 1
 fi
 
+# Ask for the board sudo password ONCE, then run every privileged step in a SINGLE sudo
+# invocation. (Separate sudo calls each re-prompt on a fresh adb tty, and the PTY churn
+# between them leaves the local terminal echoing — so your retyped password becomes visible.)
+# -p '' suppresses sudo's own prompt since we feed the password on stdin.
 read -s -p "Board (arduino@gandalf) sudo password: " PW; echo
-run() { adb shell "echo '$PW' | sudo -S bash -c '$1'"; }
 
 echo "==> pushing broker + service unit to the board"
 adb push "$BROKER"  /home/arduino/commander_broker.py     >/dev/null
 adb push "$SERVICE" /home/arduino/commander-broker.service >/dev/null
 
-echo "==> masking the Arduino router stack (frees ttyHS1)"
-run 'cd /etc/systemd/system && for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do [ -f $u ] && [ ! -L $u ] && mv $u $u.commander-bak && ln -sf /dev/null $u; done; systemctl daemon-reload || true'
-
-echo "==> installing + (re)starting commander-broker.service"
-run 'cp /home/arduino/commander-broker.service /etc/systemd/system/ && systemctl daemon-reload && systemctl disable --now commander-bridge.service 2>/dev/null; systemctl enable commander-broker.service; systemctl restart commander-broker.service'
-adb shell "systemctl is-active commander-broker.service"
+echo "==> masking the Arduino router stack + installing commander-broker.service (one sudo)"
+adb shell "echo '$PW' | sudo -S -p '' bash -c '
+  cd /etc/systemd/system && for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do [ -f \\$u ] && [ ! -L \\$u ] && mv \\$u \\$u.commander-bak && ln -sf /dev/null \\$u; done; systemctl daemon-reload || true;
+  cp /home/arduino/commander-broker.service /etc/systemd/system/ && systemctl daemon-reload && systemctl disable --now commander-bridge.service 2>/dev/null; systemctl enable commander-broker.service; systemctl restart commander-broker.service'"
+adb shell "systemctl is-active commander-broker.service"     # status query — no sudo needed
 echo "done. open the Mac console with ./monitor"
 """
 
@@ -2023,23 +2027,26 @@ Two brains, tightly coupled: commander runs on the **STM32U585 (M33) via Zephyr*
 `cmdr` only generates software — the steps that change the board are **scripts you run**, each
 with a revert. Run them in this order on a fresh board:
 
-## 1. One-time board setup (reversible)
+## 1. Build your firmware (on the Mac) — also fetches the commander framework
 ```
-./enable-flash-boot     # M33 boots your firmware from flash (sets STM32 option bytes).
-                        #   Without it the chip boots its ROM bootloader and stays silent.
-./install-broker        # broker service owns /dev/ttyHS1, bridges ch0 -> the Mac's USB
-                        #   serial + fans chN -> /tmp/commander/chN.sock. (needs board sudo)
-```
-
-## 2. Dev loop (on the Mac)
-```
-./build      # west build (sets the gnuarmemb toolchain env — the Zephyr SDK has no Intel-Mac build)
+./build      # west build (sets the gnuarmemb toolchain env — the Zephyr SDK has no Intel-Mac build).
+             #   FetchContent pulls commander into build-unoq/, including the SBC broker.
 ./flash      # openocd-over-adb gdb load (west flash isn't working for this board upstream)
-./monitor    # open the ch0 console over the USB-CDC gadget (tio); type `help`
+./monitor    # open the ch0 console over the USB-CDC gadget (tio); type `help`  (after ./install-broker)
 ./bum        # build + flash + monitor
 ```
 Prereqs: a Zephyr/`west` checkout (`~/zephyrproject`), the Arm GNU Toolchain, and `adb`. Override
 `ZEPHYR_BASE` / `GNUARMEMB_TOOLCHAIN_PATH` / `GDB` if yours live elsewhere.
+
+## 2. One-time board setup (reversible — needs board sudo)
+Run these **after a first `./build`** — `install-broker` pushes the broker from the fetched
+commander source, so the framework has to be downloaded first:
+```
+./enable-flash-boot     # M33 boots your firmware from flash (sets STM32 option bytes).
+                        #   Without it the chip boots its ROM bootloader and stays silent.
+./install-broker        # broker service owns /dev/ttyHS1, bridges ch0 -> the Mac's USB
+                        #   serial + fans chN -> /tmp/commander/chN.sock.
+```
 
 ## 3. Modules
 ```
@@ -2051,15 +2058,19 @@ far (GPIO/I2C sensor modules aren't offered until the HAL grows).
 
 Enabling `ir` drops the **channel-bus IR tools** into `bin/` (`ir_map.py`, `ir_lookup.py`,
 `ir_speak.py`, `irchan.py`) and seeds `maps/`. Unlike the serial boards, these run **on the SBC** —
-they read IR presses from the broker's `ch1.sock` and send `ir recv` over `ch0.sock`. Deploy them to
-the board with one script, then run them there:
+they are **pure subscribers** to the broker's `ch1.sock` and start nothing. Receiving IR is a
+standing board capability: turn it on once with autostart so a fresh board streams presses with
+no command sent (and the human console stays private):
 ```
+cmdr autostart add "ir recv"                             # one-time; board streams IR on boot
 ./deploy-sbc                                             # push bin/ tools + seed maps/ to the board
 adb shell "cd /home/arduino && python3 ir_lookup.py"     # identify presses against maps/
 adb shell "cd /home/arduino && python3 ir_speak.py"      # ...and speak the matched name (Piper TTS)
 adb shell "cd /home/arduino && python3 ir_map.py -o sony.json"   # build a named map
 adb pull /home/arduino/sony.json maps/                   # keep new maps under version control
 ```
+(To inspect or stop the stream, open a command session on `ch2` — `ch2.sock` — and run `ir recv`
+to toggle it; the consuming tools above never touch it.)
 `ir_speak.py` drives `~/piper_project/tts_stream.py` as a warm co-process to speak the matched button
 name (override its location with `--piper-dir`; it falls back to `espeak-ng` if piper is missing, or
 prints-only if neither is available).
@@ -2099,10 +2110,12 @@ def scaffold_unoq(name: str, out_dir: Path) -> None:
     write_script(out_dir / "deploy-sbc",        UNOQ_DEPLOY_SBC_SCRIPT)
 
     print(f"Created {out_dir}/ for Arduino Uno Q (Zephyr M33 + channel bus + Linux broker)")
-    print("One-time board setup (reversible — see README.md):")
+    print(f"\nNext (see README.md):\n  cd {out_dir}")
+    print("  ./build               # builds + fetches the commander framework (incl. the broker)")
+    print("One-time board setup, AFTER a first ./build (reversible, needs board sudo):")
     print("  ./enable-flash-boot   # M33 boots from flash (STM32 option bytes)")
-    print("  ./install-broker      # broker service owns the link (needs board sudo)")
-    print(f"\nThen:\n  cd {out_dir}\n  ./bum")
+    print("  ./install-broker      # broker service owns the link (pushed from the fetched source)")
+    print("  ./bum                 # build + flash + monitor")
 
 
 def scaffold_bluepill(name: str, out_dir: Path) -> None:

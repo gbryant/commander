@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """ir_lookup.py — identify live IR presses against saved maps, over the channel bus (Uno Q).
 
-The channel-bus counterpart of irlookup.py: reads presses from the broker's ch1 socket
-(driving `ir recv` over ch0) and matches each against every JSON map in maps/. Run it on the
-SBC next to the broker. Map files are the same format ir_map.py / irmap.py produce.
+The channel-bus counterpart of irlookup.py: a pure subscriber to the broker's ch1 socket —
+matches each press against every JSON map in maps/. It starts nothing: the board streams IR
+on ch1 as a standing capability (one-time setup: `cmdr autostart add "ir recv"`), so this
+tool just listens and never touches the human console. Run it on the SBC next to the broker.
+Map files are the same format ir_map.py / irmap.py produce.
 
 Usage:
     python3 ir_lookup.py [--maps DIR] [--rundir DIR]
 
     --maps   DIR   directory of JSON map files (default: maps/)
-    --rundir DIR   broker rundir holding ch0.sock/ch1.sock (default: /tmp/commander)
+    --rundir DIR   broker rundir holding ch1.sock (default: /tmp/commander)
 """
 import argparse
 import json
@@ -72,7 +74,7 @@ def main():
         pass
     p = argparse.ArgumentParser(description="Identify IR presses against saved maps over the channel bus")
     p.add_argument('--maps', '-m', default=DEFAULT_MAPS, metavar='DIR', help='map files directory')
-    p.add_argument('--rundir', default='/tmp/commander', help='broker rundir (ch0.sock/ch1.sock)')
+    p.add_argument('--rundir', default='/tmp/commander', help='broker rundir (ch1.sock)')
     args = p.parse_args()
 
     maps = load_maps(args.maps)
@@ -84,8 +86,8 @@ def main():
         print(f"No map files in '{args.maps}/' — all presses report as unknown. Build one with ir_map.py.\n")
 
     link = ChannelLink(args.rundir)
-    link.enable_recv()
-    print("Listening — press any button.  Ctrl-C to quit.\n")
+    print(link.hint())
+    print("Press any button.  Ctrl-C to quit.\n")
 
     try:
         for line in link.events_lines():

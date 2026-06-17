@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""irchan.py — channel-bus link shared by the Uno Q IR tools (ir_map.py / ir_lookup.py).
+"""irchan.py — channel-bus link shared by the Uno Q IR tools (ir_map / ir_lookup / ir_speak).
 
-On the Uno Q, IR doesn't come over a serial console — it comes over the commander channel bus.
-The broker exposes per-channel Unix sockets under a rundir (default /tmp/commander):
+On the Uno Q, IR presses come over the commander channel bus, not a serial console. The
+broker exposes per-channel Unix sockets under a rundir (default /tmp/commander); these tools
+only need:
 
-    ch1.sock   IR events  (one canonical line per press, newline-delimited)
-    ch0.sock   the console (send `ir recv` here; read its reply) — broker must run with
-               `--channels 0,1` so ch0 is exposed as a socket alongside the human console.
+    ch1.sock   IR events — one canonical line per press, newline-delimited (subscribe)
 
-This runs on the SBC (Debian) next to the broker. No third-party deps — just Unix sockets.
+The tools are **pure ch1 subscribers** — they don't drive the console. The IR receiver is
+started at boot via autostart (one-time setup on the board:  `cmdr autostart add "ir recv"`),
+so a fresh board streams presses with no command sent and the human console (ch0) stays
+private. (Before, the tools reached through ch0 to send `ir recv`, which meant sharing the
+human console and running the broker with `--channels 0,1`; autostart removed that need.)
+
+Runs on the SBC (Debian) next to the broker. No third-party deps — just Unix sockets.
 """
 import socket
 import time
@@ -16,9 +21,8 @@ import time
 
 class ChannelLink:
     def __init__(self, rundir="/tmp/commander"):
-        self.console = self._connect(f"{rundir}/ch0.sock")
-        self.events  = self._connect(f"{rundir}/ch1.sock")
-        self._cbuf = b""
+        self.rundir = rundir
+        self.events = self._connect(f"{rundir}/ch1.sock")
         self._ebuf = b""
 
     @staticmethod
@@ -28,34 +32,15 @@ class ChannelLink:
             s.connect(path)
         except (FileNotFoundError, ConnectionRefusedError) as e:
             raise SystemExit(f"can't reach {path}: {e}\n"
-                             f"  is the broker running with --channels 0,1? (./install-broker sets that)")
+                             f"  is the broker running? (./install-broker sets it up; ch1 is "
+                             f"exposed by default)")
         s.setblocking(False)
         return s
 
-    # ── ch0 console ──────────────────────────────────────────────────────────
-    def send(self, command):
-        """Send one console command (the broker frames it on ch0)."""
-        self.console.sendall(command.encode())
-
-    def wait_console(self, marker, timeout=3.0):
-        """Read ch0 output until `marker` appears (or timeout)."""
-        end = time.time() + timeout
-        while time.time() < end:
-            try:
-                self._cbuf += self.console.recv(4096)
-            except BlockingIOError:
-                time.sleep(0.02)
-            if marker.encode() in self._cbuf:
-                return True
-        return False
-
-    def enable_recv(self):
-        """Turn on `ir recv` (it toggles, so confirm via the console reply)."""
-        self.send("ir recv")
-        if not self.wait_console("listening"):
-            self.send("ir recv")                       # was on -> we just turned it off; flip back
-            if not self.wait_console("listening"):
-                print("warning: could not confirm IR receive mode")
+    def hint(self):
+        """One-line nudge for the common 'I see no presses' case — the stream isn't on."""
+        return ('listening on ch1 — if no presses appear, start the IR stream on the board:\n'
+                '  cmdr autostart add "ir recv"   (one-time; then re-flash)')
 
     # ── ch1 events ───────────────────────────────────────────────────────────
     def events_lines(self):
@@ -98,8 +83,7 @@ class ChannelLink:
                 time.sleep(poll)
 
     def close(self):
-        for s in (self.console, self.events):
-            try:
-                s.close()
-            except Exception:
-                pass
+        try:
+            self.events.close()
+        except Exception:
+            pass

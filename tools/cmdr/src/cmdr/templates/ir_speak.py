@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """ir_speak.py — like ir_lookup.py, but SPEAKS the matched button name aloud (Uno Q).
 
-Reads IR presses from the broker's ch1 socket (driving `ir recv` over ch0), matches each
-against the JSON maps in maps/, prints the match, and SPEAKS the button's name through Piper
+A pure subscriber to the broker's ch1 socket — it starts nothing (the board streams IR on
+ch1 as a standing capability; one-time setup `cmdr autostart add "ir recv"`). Matches each
+press against the JSON maps in maps/, prints the match, and SPEAKS the button's name through Piper
 TTS. It reuses your existing TTS method by driving ~/piper_project/tts_stream.py as a
 persistent co-process: that script loads the voice once and speaks each line piped to its
 `tts>` stdin loop, so the model stays warm between presses and ir_speak.py itself stays on the
@@ -14,7 +15,7 @@ Usage:
     python3 ir_speak.py [--maps DIR] [--rundir DIR] [--piper-dir DIR]
 
     --maps      DIR   directory of JSON map files (default: maps/)
-    --rundir    DIR   broker rundir holding ch0.sock/ch1.sock (default: /tmp/commander)
+    --rundir    DIR   broker rundir holding ch1.sock (default: /tmp/commander)
     --piper-dir DIR   piper TTS project dir (default: ~/piper_project) — holds venv/ + tts_stream.py
 """
 import argparse
@@ -163,7 +164,7 @@ def main():
         pass
     p = argparse.ArgumentParser(description="Speak the matched IR button name over the channel bus")
     p.add_argument('--maps', '-m', default=DEFAULT_MAPS, metavar='DIR', help='map files directory')
-    p.add_argument('--rundir', default='/tmp/commander', help='broker rundir (ch0.sock/ch1.sock)')
+    p.add_argument('--rundir', default='/tmp/commander', help='broker rundir (ch1.sock)')
     p.add_argument('--piper-dir', default=os.path.expanduser('~/piper_project'),
                    help='piper TTS project dir (holds venv/ + tts_stream.py)')
     args = p.parse_args()
@@ -183,8 +184,8 @@ def main():
         print("Speaking matched names via espeak-ng.\n")
 
     link = ChannelLink(args.rundir)
-    link.enable_recv()
-    print("Listening — press any button.  Ctrl-C to quit.\n")
+    print(link.hint())
+    print("Press any button.  Ctrl-C to quit.\n")
 
     announced, armed, prev, last_seen = None, False, None, 0.0
     try:

@@ -2,16 +2,18 @@
 """ir_map.py — build a named IR button map from the commander channel bus (Uno Q).
 
 The channel-bus counterpart of irmap.py: instead of a serial console it reads presses from
-the broker's ch1 socket and drives `ir recv` over ch0 (see irchan.py). Run it on the SBC
-next to the broker. The output JSON is identical to irmap.py's, so the maps are
-interchangeable and irlookup/ir_lookup read them the same way.
+the broker's ch1 socket (a pure subscriber, see irchan.py). It starts nothing — the board
+streams IR on ch1 as a standing capability (one-time: `cmdr autostart add "ir recv"`), so
+the human console stays private. Run it on the SBC next to the broker. The output JSON is
+identical to irmap.py's, so the maps are interchangeable and irlookup/ir_lookup read them
+the same way.
 
 Usage:
     python3 ir_map.py [--output FILE] [--selects NAME ...] [--rundir DIR]
 
     --output FILE     output JSON map (default: ir_map.json)
     --selects NAME…   names for each select-switch position, left to right (omit if none)
-    --rundir  DIR     broker rundir holding ch0.sock/ch1.sock (default: /tmp/commander)
+    --rundir  DIR     broker rundir holding ch1.sock (default: /tmp/commander)
 """
 import argparse
 import json
@@ -62,7 +64,7 @@ def main():
     p = argparse.ArgumentParser(description="Map IR remote buttons over the commander channel bus")
     p.add_argument('--output', '-o', default=DEFAULT_OUT, help='output JSON file')
     p.add_argument('--selects', nargs='*', metavar='NAME', help='select-switch position names, left to right')
-    p.add_argument('--rundir', default='/tmp/commander', help='broker rundir (ch0.sock/ch1.sock)')
+    p.add_argument('--rundir', default='/tmp/commander', help='broker rundir (ch1.sock)')
     args = p.parse_args()
 
     out_path = Path(args.output)
@@ -87,8 +89,7 @@ def main():
         print(f"Resuming — loaded {len(entries)} existing entr{'y' if len(entries)==1 else 'ies'} from {out_path}.")
 
     link = ChannelLink(args.rundir)
-    link.enable_recv()
-    print("IR receive mode active.")
+    print(link.hint())
     print(f"Press buttons on the remote. Ctrl-C when done (saves to {out_path}).\n")
 
     try:
