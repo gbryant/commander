@@ -232,6 +232,23 @@ A tiered test suite landed (2026-06-16) — see `docs/testing.md`. Quick referen
   against the local checkout and runs their real build scripts. Toolchain-detecting,
   skip-with-notice. `--full` for every config; `--list` to see the matrix.
 
+### Channel bus (roadmap #2 — session unification)
+
+Phases **A + B1 shipped (2026-06-17)** — see `docs/channels-first-class.md`. Uno Q +
+tooling only; the six UART boards are untouched.
+
+- **A — channel identity:** `include/channel_ids.h` is the single authority for channel
+  ids + roles (the `i2c_ids.h` model: id, name, dir, kind, `command_session`). The broker
+  mirrors it and derives its channel set from it; `test_channel_ids_sync.py` guards drift.
+- **B1 — command sessions:** `ChannelTransport::route()` dispatches any `command_session`
+  channel on its own writer, so multiple host processes get isolated shells over one link
+  (ch0 unchanged). Replies frame back on the originating channel.
+- **Deferred (by design):** B2 (collapse `UartTransport`/ch0-console — the only part that
+  reaches the AVR tier, gated on a flash+RAM size diff), C (channels on more boards — the
+  prerequisite for a multi-consumer Pico), D (cmdr channel modeling), E (handshake/binary).
+  Protocol versioning was **declined** (self-contained, matched-pair deploy + the build-time
+  codec↔broker test); a one-byte mismatch tripwire is the deferred fallback.
+
 ### What's next
 
 1. **Phase R3 — Bluetooth controller** — generic `modules/controller/` plumbing is
