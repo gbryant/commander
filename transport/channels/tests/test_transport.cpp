@@ -35,6 +35,19 @@ int main() {
     bool ok1 = deframe(g_tx,ch,out) && ch==0 && out.find("help")!=std::string::npos && out.find("version")!=std::string::npos;
     printf("%s ch0 console 'help' -> framed response on ch0\n", ok1?"PASS":"FAIL"); fails+=!ok1;
 
+    // B1: a SECOND command session (CH_TOOLS=2) dispatches independently and frames its
+    // reply back on ITS channel — the multi-session capability, isolated from ch0.
+    g_tx.clear(); feedFrame(ct,CH_TOOLS,"help");
+    uint8_t tch=255; std::string tout;
+    bool ok_sess = deframe(g_tx,tch,tout) && tch==CH_TOOLS && tout.find("help")!=std::string::npos;
+    printf("%s ch%u (CH_TOOLS) command session 'help' -> framed response on ch%u\n",
+           ok_sess?"PASS":"FAIL", CH_TOOLS, tch); fails+=!ok_sess;
+
+    // role check straight from the authority table
+    bool ok_role = channel_is_command_session(CH_CONSOLE) && channel_is_command_session(CH_TOOLS)
+                   && !channel_is_command_session(CH_IR);
+    printf("%s channel_ids: console+tools are sessions, ir is data\n", ok_role?"PASS":"FAIL"); fails+=!ok_role;
+
     feedFrame(ct,5,"hello-data");
     bool ok2 = (got_ch5==1 && ch5_payload=="hello-data");
     printf("%s ch5 subscriber received '%s'\n", ok2?"PASS":"FAIL", ch5_payload.c_str()); fails+=!ok2;

@@ -1217,15 +1217,17 @@ def _emit_module(name: str, opts: dict, target: str):
                     ["uart.addTicker(_m_ir);"])
         if target == "unoq":
             # Zephyr GPIO-ISR NEC/Sony receiver (pin from app.overlay's ir-gpios). On the
-            # channel-bus build it publishes each press on ch1 and is pumped by the bus
+            # channel-bus build it publishes each press on CH_IR and is pumped by the bus
             # thread — so its wiring (publisher + ticker) goes into the channel-bus-ready
-            # hook, where `bus` is in scope (see generate_modules_file).
-            return (['#include "platform/zephyr/ZephyrIRModule.h"',
+            # hook, where `bus` is in scope (see generate_modules_file). The channel id
+            # comes from channel_ids.h (the authority), never a hand-picked integer.
+            return (['#include "channel_ids.h"',
+                     '#include "platform/zephyr/ZephyrIRModule.h"',
                      '#include "transport/channels/ChannelBusRunner.h"'],
                     ["static ZephyrIRModule _m_ir;",
                      "static ChannelTransport::ChannelPublisher _pub_ir;"],
                     ["reg.registerModule(_m_ir);"],
-                    ["_pub_ir = bus.channels().publisher(1);",
+                    ["_pub_ir = bus.channels().publisher(CH_IR);",
                      "_m_ir.setOutput(&_pub_ir);",
                      "bus.addTicker(_m_ir);"])
         die(f"ir module is not yet supported on target '{target}'")

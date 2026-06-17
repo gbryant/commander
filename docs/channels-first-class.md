@@ -1,6 +1,9 @@
 # Design note: making the channel bus first-class
 
-**Status:** design note only — NOT started. Captured 2026-06-15, after Phase 2a landed and was
+**Status:** Phase A + B1 IMPLEMENTED 2026-06-17 (Uno Q + tooling only; the six UART boards are
+untouched). Remaining: B2 (console/UartTransport collapse — deferred, measured AVR gate), C
+(portability), D (cmdr channel modeling), E (handshake/binary). Captured 2026-06-15, after Phase 2a
+landed and was
 HW-confirmed on the Arduino Uno Q (a Sony press on the M33 streamed to Debian on ch1 while the ch0
 console ran concurrently — see `docs/commander-channels-design.md` and
 `docs/commander-channels-bringup.md`, [[project_commander_channels]]).
@@ -38,28 +41,38 @@ Five phases. The spine is **A → B**; C/D/E are independent follow-ons that get
 lands. None of this is urgent — commander works today — but A is the cheap fix that the next
 publishing module will force.
 
-### Phase A — Channel identity *(foundation; small; do first)*
+### Phase A — Channel identity *(DONE 2026-06-17)*
 
-A single source of truth analogous to `i2c_ids.h`: a new **`include/channel_ids.h`** declaring
-`CH_CONSOLE = 0`, `CH_IR`, … plus a tiny descriptor per channel (id, name, direction
-pub/sub/both, payload kind text|binary). The broker and the host tools read the **same** manifest —
-mirror it the way `i2c_ids.h` is mirrored across platforms, or generate a small JSON/py from it so
-there's one authority. Add a `channels` console command that enumerates the live table
-(`ch1 ir pub text`), the way `i2c scan` makes the bus legible.
+A single source of truth analogous to `i2c_ids.h`: **`include/channel_ids.h`** declares
+`CH_CONSOLE = 0`, `CH_IR = 1`, `CH_TOOLS = 2`, … plus a `ChannelDesc` per channel (id, name,
+direction pub/sub/both, payload kind text|binary, **`command_session`**). The broker mirrors it
+(`CHANNELS` in `commander_broker.py`) and derives its exposed channel set from it (no more
+hand-maintained `--channels` default); the `test_channel_ids_sync.py` guard fails the suite if the
+mirror drifts. `cmdr`'s unoq IR codegen now emits `publisher(CH_IR)`, not a literal `1`.
 
-- **Kills** the "pick a free int in three files" problem (gap #3) and is the precondition for D.
-- **Cost:** roughly a day; mirrors a convention already trusted (`i2c_ids.h` is *the* wire-protocol
-  spec, "DO NOT diverge between platforms").
+- **Killed** the "pick a free int in three files" problem (gap #3); precondition for D.
 - **Invariant:** ch0 stays reserved for the console binding.
+- **Dropped from the original plan:** the `channels` console command — it would only print the
+  compile-time table (no runtime discovery like `i2c scan`), and the same info lives in the manifest
+  / a future host-side `cmdr channel list`. Not worth an MCU command slot.
 
 ### Phase B — Unify console and channel *(the architectural keystone)*
 
-Realize roadmap #2. Define a **`Session = (addressable Writer + optional input source)`**. ch0
-becomes a session that happens to dispatch; `ChannelTransport::route()` generalizes so that *any*
-channel can be marked a **command session** whose inbound frames dispatch through the
-`CommandRegistry` and whose output (plus any async stream it spawns) routes back to *that same
-channel's* writer. Then collapse the `UartTransport` / ch0-console duplication onto one shared
-dispatch core — a UART console becomes "the degenerate single-channel session."
+Realize roadmap #2. Split in implementation:
+
+**B1 — multi command-session routing *(DONE 2026-06-17)*.** `ChannelTransport::route()` now dispatches
+*any* channel flagged `command_session` in `channel_ids.h` (ch0 console, ch2 tools, …) through the
+`CommandRegistry` on its **own** `ChannelWriter`, so the reply (and any async stream) frames back on
+the originating channel. Several host processes each get an isolated shell over the one link; ch0
+behaves exactly as before (it's just a command session by descriptor). Host-tested
+(`test_transport.cpp` covers a second session). Role declaration is **static** via the descriptor —
+no handshake (see below).
+
+**B2 — collapse `UartTransport` / ch0-console onto one shared dispatch core *(DEFERRED)*.** This is
+the only part with reach onto the six UART boards (it touches `UartTransport`), it delivers *no new
+capability* (the real shared core — `registry.dispatch` + `Writer` — already exists), and it risks
+the AVR/tiny tier. Deferred to its own task gated on a **flash+RAM size diff** on `uno`/`bluepill`/a
+loaded `r4`; pairs naturally with Phase C. May not be worth doing unless it visibly simplifies.
 
 - **Unlocks** many concurrent, isolated command sessions over one link: on a capable board several
   Debian processes (teleop, an IR mapper, a logger, autonomy) each open their *own* command session
@@ -112,13 +125,21 @@ the anonymous-int collision bites, and A is the cheap fix that also unblocks D. 
 as the real first-class milestone; it changes the model rather than the plumbing, and C/D get much
 cheaper once it's done.
 
-## Open questions (carried from the design doc — get these right, don't rush)
+## Open questions — decisions (2026-06-17)
 
-- How a channel declares its role: static config (`channel_ids.h` descriptor) vs a handshake frame
-  vs the broker assigning roles at connect.
-- Session lifecycle: open/close, per-session writer state, what happens to an async stream when its
-  session closes.
-- Fairness across command sessions sharing the one serial queue (the queue is serial by design — is
-  round-robin enough, or does a session need priority?).
-- Reconcile with what commander already half-has: the Pico→R4 `bridge <cmd>` remote console and
-  telnet are both latent "sessions." Design the session abstraction once so they unify, not twice.
+- **How a channel declares its role → RESOLVED: static, via the `channel_ids.h` descriptor.** The
+  MCU is authoritative; the broker learns the table by mirroring the header (not by a runtime
+  handshake). No broker-assigned roles.
+- **Handshake / protocol versioning → DECLINED for now.** This is a self-contained, co-deployed
+  ecosystem (firmware + broker + tools all from one repo, shipped as a matched pair), and the
+  build-time **codec↔broker byte-compat test** already guarantees the two speak the same protocol
+  when built together. Runtime version *negotiation* / competing-version support would be overbuild.
+  The one residual crack — **separate deployment** (OTA the MCU, stale broker service) — is left for
+  a future cheap **one-byte mismatch tripwire** (a smoke detector, not versioning), not a handshake.
+- **Session lifecycle → static sessions for now.** A channel flagged `command_session` is always a
+  session; no dynamic open/close. Dynamic per-process session allocation (and async-stream teardown
+  on close) is a later enhancement.
+- **Fairness across sessions:** unchanged — the command queue is serial by design; round-robin input
+  is fine until a real priority need appears.
+- **Still latent for B2/later:** the Pico→R4 `bridge <cmd>` remote console and telnet are both
+  latent "sessions"; unify them onto this model when B2 (the dispatch-core collapse) is done.

@@ -365,6 +365,24 @@ class Broker:
                 conn.close()
 
 
+# ── Channel identity — MIRROR of include/channel_ids.h (the authority). KEEP IN SYNC. ──
+# id -> (name, dir, kind, command_session). The broker sockets every non-console channel
+# at <rundir>/chN.sock and pipes bytes both ways; a command_session channel is one the
+# MCU treats as a shell (client sends command lines, reads replies), a data channel is
+# pub/sub. (The piping is identical either way today; the role is the single source of
+# truth that replaces the old hand-maintained --channels default and feeds Phase D.)
+CHANNELS = {
+    0: ("console", "both", "text", True),
+    1: ("ir",      "pub",  "text", False),
+    2: ("tools",   "both", "text", True),
+}
+
+
+def default_channels():
+    """Every non-console channel in the authority (ch0 is the console, handled specially)."""
+    return [ch for ch in CHANNELS if ch != 0]
+
+
 def parse_channels(s):
     return [int(x) for x in s.split(",") if x.strip()] if s else []
 
@@ -374,8 +392,9 @@ def main():
     ap.add_argument("-p", "--port", default="/dev/ttyHS1", help="MCU serial link (default ttyHS1)")
     ap.add_argument("-b", "--baud", type=int, default=115200)
     ap.add_argument("-r", "--rundir", default="/tmp/commander", help="dir for console PTY + chN.sock")
-    ap.add_argument("-c", "--channels", default="1,2",
-                    help="channels to expose as <rundir>/chN.sock, comma list. Include 0 to also "
+    ap.add_argument("-c", "--channels", default=None,
+                    help="channels to expose as <rundir>/chN.sock, comma list. Default: every "
+                         "non-console channel from channel_ids.h (the authority). Include 0 to also "
                          "expose the console as a socket (programmatic command access for local "
                          "processes, alongside the human --console/PTY).")
     ap.add_argument("-C", "--console", default=None,
@@ -385,8 +404,9 @@ def main():
     ap.add_argument("--log", action="store_true", help="print every inbound frame to stdout")
     args = ap.parse_args()
 
+    channels = parse_channels(args.channels) if args.channels is not None else default_channels()
     link = SerialLink(args.port, args.baud)
-    Broker(link, args.rundir, parse_channels(args.channels), args.log,
+    Broker(link, args.rundir, channels, args.log,
            console_dev=args.console).run()
 
 

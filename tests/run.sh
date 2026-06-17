@@ -58,6 +58,11 @@ run_cpp() {
             echo "FAIL (codec_harness did not compile)"; fails=$((fails+1))
         fi
         echo
+
+        # channel_ids.h <-> broker CHANNELS mirror must not drift (the channel authority).
+        echo "== channel_ids.h <-> broker mirror sync =="
+        if ! python3 "$ROOT/transport/channels/tests/test_channel_ids_sync.py"; then fails=$((fails+1)); fi
+        echo
     else
         echo "SKIP broker PTY loopback + codec compat (python3 missing)"; echo
     fi

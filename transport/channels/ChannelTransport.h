@@ -5,23 +5,28 @@
 #include "core/CommandRegistry.h"
 #include "core/Writer.h"
 #include "transport/channels/ChannelCodec.h"
+#include "channel_ids.h"
 
 // Channel-mux transport — the peer pub/sub bus between commander (MCU) and a host/SBC
 // broker over one byte link (see docs/commander-channels-design.md). Frames are
 // COBS([channel][payload]) (ChannelCodec.h). Channels are multiplexed both directions:
 //
-//   ch0 (CONSOLE) — payload is a complete command line; we dispatch it through the
-//                   CommandRegistry and frame the output back on ch0. (Line editing /
-//                   echo is the host broker's job, not the MCU's — keeps the MCU simple
-//                   and the bus message-oriented.)
-//   ch1.. (DATA)  — delivered to a subscribed handler; modules publish() unsolicited.
+//   command sessions — channels flagged command_session in channel_ids.h (ch0 console,
+//                   ch2 tools, …). Inbound payload is a complete command line; we
+//                   dispatch it through the CommandRegistry and frame the output back on
+//                   THAT SAME channel, so several host processes each get an isolated
+//                   shell over the one link (roadmap #2). Line editing / echo is the
+//                   broker's job, not the MCU's — the bus is message-oriented.
+//   data channels — delivered to a subscribed handler; modules publish() unsolicited.
 //
 // Byte I/O is injected (WriteFn out, feedByte() in) so this is host-testable and link-
 // agnostic; the runner wires feedByte() to hal_uart_getchar and WriteFn to a byte writer.
 // (Frames contain 0x00 delimiters, so output must be a byte writer, NOT hal_uart_puts.)
 class ChannelTransport {
 public:
-    static constexpr uint8_t CH_CONSOLE = 0;
+    // Channel ids/roles live in channel_ids.h (the authority). Kept here as an alias for
+    // the long-standing ChannelTransport::CH_CONSOLE spelling.
+    static constexpr uint8_t CH_CONSOLE = ::CH_CONSOLE;
 
     typedef void (*WriteFn)(const uint8_t *data, size_t len, void *ctx);
     typedef void (*Handler)(uint8_t ch, const uint8_t *data, size_t len, void *ctx);
@@ -116,16 +121,20 @@ private:
     static constexpr uint8_t kMaxSub = 8;
 
     void route(uint8_t ch, const uint8_t *data, size_t len) {
-        if (ch == CH_CONSOLE) { dispatchConsole(data, len); return; }
+        // A command session (ch0 console, ch2 tools, …) dispatches its inbound frame as a
+        // command line and frames the reply back on the SAME channel — so each session is
+        // an isolated shell. Everything else is data → subscribers. ch0 stays a session by
+        // virtue of its channel_ids.h descriptor, so the console behaves exactly as before.
+        if (channel_is_command_session(ch)) { dispatchOn(ch, data, len); return; }
         for (uint8_t i = 0; i < _nsub; i++)
             if (_sub[i].ch == ch && _sub[i].h) _sub[i].h(ch, data, len, _sub[i].ctx);
     }
-    void dispatchConsole(const uint8_t *data, size_t len) {
+    void dispatchOn(uint8_t ch, const uint8_t *data, size_t len) {
         char cmd[CMDR_CH_FRAME_MAX];
         size_t n = len < sizeof(cmd) - 1 ? len : sizeof(cmd) - 1;
         memcpy(cmd, data, n);
         cmd[n] = '\0';
-        ChannelWriter out(*this, CH_CONSOLE);
+        ChannelWriter out(*this, ch);     // reply frames back on the originating channel
         _reg->dispatch(cmd, out);
         out.flush();
     }

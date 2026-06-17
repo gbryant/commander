@@ -3,6 +3,7 @@
 #pragma once
 #include "core/CommandRegistry.h"
 #include "core/SystemModule.h"
+#include "channel_ids.h"
 #include "platform/zephyr/ZephyrIRModule.h"
 #include "transport/channels/ChannelBusRunner.h"
 
@@ -16,7 +17,7 @@ inline void commander_register_modules(CommandRegistry &reg) {
 }
 
 extern "C" void commander_on_channel_bus_ready(ChannelBusRunner &bus) {
-    _pub_ir = bus.channels().publisher(1);
+    _pub_ir = bus.channels().publisher(CH_IR);
     _m_ir.setOutput(&_pub_ir);
     bus.addTicker(_m_ir);
 }
