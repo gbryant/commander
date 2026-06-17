@@ -5,7 +5,7 @@
 #include "core/SystemModule.h"
 #include <Arduino.h>
 #include "modules/roomba/RoombaModule.h"
-#include "modules/locomotion/LocomotionBridge.h"
+#include "runners/arduino-r4/LocomotionBridge.h"
 #include "transport/uart/UartTransport.h"
 
 static SystemModule _m_system;

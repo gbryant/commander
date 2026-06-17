@@ -33,6 +33,7 @@ MATRIX = [
     ("pico",     "ir",              ["ir"], {}),
     ("pico",     "ir_wall",         ["ir"], {"ir": {"wall": True}}),
     ("pico",     "controller",      ["controller"], {}),
+    ("pico",     "serial_monitor",  ["serial_monitor"], {}),
     ("pico",     "i2c_dedup",       ["compass", "i2c", "locomotion"], {}),
     ("pico",     "wifi_ctrl_loco",  ["wifi", "controller", "locomotion"], {}),
     ("pico2",    "controller_loco", ["controller", "locomotion"], {}),

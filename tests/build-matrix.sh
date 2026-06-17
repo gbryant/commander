@@ -34,6 +34,7 @@ MATRIX=(
     "pico|base|2|-|"
     "pico|sensors|2|ir compass i2c sonar|"
     "pico|controller|3|controller|BLUEPAD32_PATH"
+    "pico|serial_monitor|3|serial_monitor|"
     "pico|loco|3|locomotion wifi|"
     "pico2|base|3|-|"
     "pico2|controller|3|controller locomotion|BLUEPAD32_PATH"
