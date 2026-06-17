@@ -71,6 +71,8 @@ int main(void) {
     void *param = &_uart;
 #endif
 
+    commander_run_autostart(_registry);   // boot commands (cmdr autostart), e.g. `ir recv`
+
     k_thread_create(&_cmdr_uart_thread, _cmdr_uart_stack,
                     K_THREAD_STACK_SIZEOF(_cmdr_uart_stack),
                     transport_entry, param, nullptr, nullptr,

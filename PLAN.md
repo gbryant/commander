@@ -243,6 +243,13 @@ tooling only; the six UART boards are untouched.
 - **B1 — command sessions:** `ChannelTransport::route()` dispatches any `command_session`
   channel on its own writer, so multiple host processes get isolated shells over one link
   (ch0 unchanged). Replies frame back on the originating channel.
+
+**Autostart (2026-06-17)** — `cmdr autostart add|remove|list|clear` records boot command
+lines in `cmdr.toml` `[autostart]`; the generated `commander_run_autostart(reg)` (called by
+every runner after the ready-hook) dispatches them via a reusable `core/NullWriter`. Universal
+(any command, all platforms; empty = no-op weak default, so the AVR tier pays nothing); *stop*
+is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostart add "ir recv"`
+→ a fresh board streams presses with no command sent.
 - **Deferred (by design):** B2 (collapse `UartTransport`/ch0-console — the only part that
   reaches the AVR tier, gated on a flash+RAM size diff), C (channels on more boards — the
   prerequisite for a multi-consumer Pico), D (cmdr channel modeling), E (handshake/binary).

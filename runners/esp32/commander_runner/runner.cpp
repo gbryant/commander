@@ -185,6 +185,7 @@ static void runnerTask(void *) {
     _registry.validateIds();
 
     commander_on_uart_ready(_uart);
+    commander_run_autostart(_registry);   // boot commands (cmdr autostart), e.g. `ir recv`
     xTaskCreate(UartTransport::taskBody, "uart", 4096, &_uart, 2, nullptr);
 
     if (_cfg.wifi_ssid) {

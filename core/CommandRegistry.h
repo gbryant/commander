@@ -52,3 +52,11 @@ private:
     const char *_firstDropped = nullptr;
 #endif
 };
+
+// Autostart: dispatch any user-configured boot commands (cmdr.toml [autostart], wired by
+// `cmdr autostart`) once at startup, for their side effects (e.g. `ir recv` to begin
+// streaming). The runner calls this AFTER modules are registered and the ready-hook has
+// wired publishers/tickers, so a started stream's output is already routed. The weak
+// default is a no-op; the generated commander_modules.h provides the strong definition
+// when autostart commands are configured (output is discarded via NullWriter).
+extern "C" void commander_run_autostart(CommandRegistry &reg);

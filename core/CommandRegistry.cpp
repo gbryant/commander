@@ -5,6 +5,10 @@
 // Override in platform code to add board-specific diagnostic output (LED blink, etc.)
 __attribute__((weak)) void commander_on_panic() { for (;;) {} }
 
+// Weak default — no autostart commands. The generated commander_modules.h provides a
+// strong override when `cmdr autostart` has configured any (see CommandRegistry.h).
+extern "C" __attribute__((weak)) void commander_run_autostart(CommandRegistry &) {}
+
 void CommandRegistry::registerCommand(const Command &cmd) {
     if (_count >= kMaxCommands) {       // registry full — don't drop it silently
         _dropped++;

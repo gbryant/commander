@@ -200,6 +200,15 @@ board-specific adapter), and exposes `commander_register_modules(reg)`. Identica
 registration lines are deduped, so several I2C modules (e.g. `compass` + `i2c` +
 `locomotion`) share a single `hal_i2c_init` bring-up. The app's
 `main.cpp` just calls that hook, so disabled modules aren't compiled (no flags).
+
+**Autostart** (`cmdr autostart add|remove|list|clear`) records boot command lines in
+`cmdr.toml` `[autostart]`; the generated file emits `commander_run_autostart(reg)`, which
+every runner calls after the ready-hook (so publishers are wired) to `dispatch()` each
+command via a `NullWriter` (output discarded — we want the side effect). It's universal
+(any command, any platform; empty = a no-op weak default in `CommandRegistry.cpp`, so the
+AVR tier pays nothing) and the *stop* is just the command's own toggle. Headline use: `cmdr
+autostart add "ir recv"` makes a fresh board stream IR with no command sent — the zero-code
+Uno Q IR demo.
 Available: `system` (always), `compass` (HAL I2C — its emitter calls
 `hal_i2c_init`), `sonar` (HAL GPIO, one pin), `ds1302` (DS1302 RTC over a
 bit-banged 3-wire interface on `hal_gpio_*`, portable/all platforms; `sclk`/`io`/

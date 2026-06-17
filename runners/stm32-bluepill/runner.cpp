@@ -74,6 +74,7 @@ int main(void) {
 #endif
     _registry.validateIds();
     commander_on_uart_ready(_uart);
+    commander_run_autostart(_registry);   // boot commands (cmdr autostart), e.g. `ir recv`
 
 #ifdef COMMANDER_STM32_USB_CONSOLE
     xTaskCreate(usbd_task, "usbd", 512, nullptr, 3, nullptr);

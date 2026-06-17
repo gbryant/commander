@@ -14,7 +14,7 @@ def test_roundtrip_preserves_types(cli_mod, tmp_path):
     }
     p = tmp_path / "cmdr.toml"
     cli_mod.write_manifest(p, target, modules)
-    rt, rmods = cli_mod.read_manifest(p)
+    rt, rmods, _as = cli_mod.read_manifest(p)
 
     assert rt == target
     assert rmods == modules, "manifest round-trip changed values/types"
@@ -27,7 +27,7 @@ def test_roundtrip_preserves_types(cli_mod, tmp_path):
 def test_hex_and_string_values(cli_mod, tmp_path):
     p = tmp_path / "cmdr.toml"
     cli_mod.write_manifest(p, "esp32", {"ina219": {"channels": "a:0x40,b:0x45"}, "aicam": {"transport": "uart"}})
-    _t, mods = cli_mod.read_manifest(p)
+    _t, mods, _as = cli_mod.read_manifest(p)
     # a comma-list string stays a string (not parsed as int)
     assert mods["ina219"]["channels"] == "a:0x40,b:0x45"
     assert mods["aicam"]["transport"] == "uart"
@@ -36,7 +36,7 @@ def test_hex_and_string_values(cli_mod, tmp_path):
 def test_empty_modules_manifest(cli_mod, tmp_path):
     p = tmp_path / "cmdr.toml"
     cli_mod.write_manifest(p, "r4", {})
-    t, mods = cli_mod.read_manifest(p)
+    t, mods, _as = cli_mod.read_manifest(p)
     assert t == "r4" and mods == {}
 
 

@@ -6,6 +6,7 @@
 #include <string>
 #include "core/CommandRegistry.h"
 #include "core/SystemModule.h"
+#include "core/NullWriter.h"
 
 static int fails = 0;
 static void check(bool ok, const char *what) {
@@ -118,6 +119,22 @@ int main() {
     {
         StringWriter w; check(w.ok(), "Writer.ok() true while connected");
         w.connected = false; check(!w.ok(), "Writer.ok() false after disconnect");
+    }
+
+    // ── NullWriter + autostart-style dispatch: side effect runs, output discarded ─
+    // This is the mechanism behind commander_run_autostart — dispatch a command for its
+    // side effect with a Writer that throws the reply away.
+    {
+        static int fired = 0;
+        CommandRegistry reg;
+        reg.registerCommand(CMD("go", "x", I2C_NONE,
+            [](const char *, Writer &out, void *){ fired++; out.write("noise"); }, nullptr));
+        NullWriter nw;
+        reg.dispatch("go", nw);             // as commander_run_autostart would
+        check(fired == 1, "dispatch via NullWriter runs the handler (side effect)");
+        // NullWriter has no observable buffer; the contract is simply that it discards.
+        nw.write("anything"); nw.writeln("more");
+        check(true, "NullWriter discards output without error");
     }
 
     printf(fails ? "\n%d FAILED\n" : "\nALL PASS\n", fails);

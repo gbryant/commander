@@ -49,7 +49,7 @@ def test_init_file_set(cli_mod, project_dir, target):
     assert "commander_register_modules" in text and "_m_system" in text
 
     # manifest records the right target and starts with no optional modules
-    t, mods = cli_mod.read_manifest(root / "cmdr.toml")
+    t, mods, _as = cli_mod.read_manifest(root / "cmdr.toml")
     assert t == target
     assert mods == {}
 

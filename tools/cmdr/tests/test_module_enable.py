@@ -50,13 +50,13 @@ def test_enable_then_disable_returns_to_base(cli_mod, project_dir, answer_defaul
     cli_mod.cmd_module(mod_args("enable", "controller"))
     after_enable = (project_dir.path / "proj" / "commander_modules.h").read_text()
     assert after_enable != base
-    _t, mods = cli_mod.read_manifest(project_dir.path / "proj" / "cmdr.toml")
+    _t, mods, _as = cli_mod.read_manifest(project_dir.path / "proj" / "cmdr.toml")
     assert "controller" in mods
 
     cli_mod.cmd_module(mod_args("disable", "controller"))
     after_disable = (project_dir.path / "proj" / "commander_modules.h").read_text()
     assert after_disable == base, "disable should restore the base generated file"
-    _t, mods = cli_mod.read_manifest(project_dir.path / "proj" / "cmdr.toml")
+    _t, mods, _as = cli_mod.read_manifest(project_dir.path / "proj" / "cmdr.toml")
     assert "controller" not in mods
 
 
