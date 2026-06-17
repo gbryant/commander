@@ -81,6 +81,26 @@ def test_esp32_layout_has_main_component(cli_mod, project_dir):
     assert not any(c and c[0] in ("cmake", "idf.py") for c in project_dir.calls)
 
 
+def test_cmake_fetchcontent_form_and_discriminator(cli_mod, project_dir):
+    """All CMake targets use FetchContent_MakeAvailable (not the deprecated _Populate).
+    esp32/unoq download-only via SOURCE_SUBDIR=include; esp32 carries the IDF_PATH marker
+    that the OTA/littlefs codepaths use to tell esp32 from pico (a regression guard for the
+    Populate->MakeAvailable migration, which removed the old Populate-vs-MakeAvailable
+    discriminator)."""
+    for target in ("esp32", "unoq", "pico"):
+        name = f"p_{target}"
+        cli_mod.cmd_init(init_args(target, name=name))
+        cmake = (project_dir.path / name / "CMakeLists.txt").read_text()
+        # strip comment lines so a comment that mentions Populate isn't a false positive
+        code = "\n".join(l for l in cmake.splitlines() if not l.lstrip().startswith("#"))
+        assert "FetchContent_MakeAvailable(commander)" in code, f"{target}: must use MakeAvailable"
+        assert "FetchContent_Populate(commander)" not in code, f"{target}: deprecated Populate present"
+        if target in ("esp32", "unoq"):
+            assert "SOURCE_SUBDIR" in code, f"{target}: download-only needs SOURCE_SUBDIR"
+        # IDF_PATH is the esp32 discriminator the OTA/littlefs dispatch relies on
+        assert ("IDF_PATH" in code) == (target == "esp32"), f"{target}: IDF_PATH marker mismatch"
+
+
 def test_esp32_build_scripts_self_source_idf(cli_mod, project_dir, monkeypatch):
     """build/upload self-source ESP-IDF so the user needn't run `esp` first: the env
     preamble is present, honors $IDF_EXPORT, and bakes the init-time $IDF_PATH default."""

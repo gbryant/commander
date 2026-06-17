@@ -110,16 +110,19 @@ if(NOT DEFINED ENV{IDF_PATH})
     message(FATAL_ERROR "IDF_PATH not set — run 'esp' to load the ESP-IDF environment")
 endif()
 
-# Download commander source before IDF initializes (FetchContent_Populate
-# does download only — does not process commander's CMakeLists.txt).
+# Download commander source before IDF initializes — download ONLY, we must not process
+# commander's own (Pico) CMakeLists.txt. SOURCE_SUBDIR points at a dir with no CMakeLists.txt
+# (include/), so MakeAvailable populates the source but skips add_subdirectory. (This replaces
+# the deprecated FetchContent_Populate(commander) — same effect, no CMP0169 warning.)
 include(FetchContent)
 FetchContent_Declare(commander
     GIT_REPOSITORY """ + REPO_URL + """
     GIT_TAG        main
+    SOURCE_SUBDIR  include
 )
 # Local commander source override — managed by `cmdr link` / `cmdr unlink`.
 include(${CMAKE_SOURCE_DIR}/commander_local.cmake OPTIONAL)
-FetchContent_Populate(commander)
+FetchContent_MakeAvailable(commander)
 
 set(COMMANDER_ROOT ${commander_SOURCE_DIR})
 list(APPEND EXTRA_COMPONENT_DIRS ${commander_SOURCE_DIR}/runners/esp32)
@@ -653,11 +656,13 @@ def make_sdkconfig(chip: str, flash_mb: int, psram_mb: int) -> str:
 UNOQ_CMAKE_TEMPLATE = """\
 cmake_minimum_required(VERSION 3.20.0)
 
-# Pull commander before Zephyr initializes (Populate downloads only — doesn't process
-# commander's own CMakeLists). Pin GIT_TAG to a release/sha to freeze the framework.
+# Pull commander before Zephyr initializes — download ONLY (don't process commander's own
+# Pico CMakeLists). SOURCE_SUBDIR=include has no CMakeLists.txt, so MakeAvailable populates
+# the source but skips add_subdirectory (the non-deprecated way to do FetchContent_Populate).
+# Pin GIT_TAG to a release/sha to freeze the framework.
 include(FetchContent)
-FetchContent_Declare(commander GIT_REPOSITORY """ + REPO_URL + """ GIT_TAG main)
-FetchContent_Populate(commander)
+FetchContent_Declare(commander GIT_REPOSITORY """ + REPO_URL + """ GIT_TAG main SOURCE_SUBDIR include)
+FetchContent_MakeAvailable(commander)
 set(COMMANDER ${commander_SOURCE_DIR})
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
@@ -2337,7 +2342,7 @@ def enable_littlefs(label: str = "storage", subdir: str = "storage",
     if not cmake.exists():
         die("no CMakeLists.txt — run from your project root")
     content = cmake.read_text()
-    if "FetchContent_Populate(commander)" not in content:
+    if "IDF_PATH" not in content:        # esp32 marker (pico/unoq CMakeLists have no IDF_PATH)
         die("`cmdr enable littlefs` currently supports esp32 projects only")
 
     flash_mb = _detect_flash_mb()
@@ -2467,10 +2472,12 @@ def enable_ota() -> None:
     if "COMMANDER_ENABLE_OTA" in content:
         print("OTA already enabled.")
         return
-    if "FetchContent_MakeAvailable(commander)" in content:
-        _enable_ota_pico(cmake, content)
-    elif "FetchContent_Populate(commander)" in content:
+    # esp32 (ESP-IDF) vs pico/pico2 (Pico SDK). Both now FetchContent_MakeAvailable
+    # commander, so discriminate on the IDF_PATH marker, not the FetchContent call.
+    if "IDF_PATH" in content:
         _enable_ota_esp32(cmake, content)
+    elif "FetchContent_MakeAvailable(commander)" in content:
+        _enable_ota_pico(cmake, content)
     else:
         die("CMakeLists.txt does not reference commander — is this a commander project?")
 
@@ -2605,10 +2612,11 @@ def disable_ota() -> None:
     if "COMMANDER_ENABLE_OTA" not in content:
         print("OTA already disabled.")
         return
-    if "FetchContent_MakeAvailable(commander)" in content:
-        _disable_ota_pico(cmake, content)
-    elif "FetchContent_Populate(commander)" in content:
+    # esp32 vs pico — discriminate on IDF_PATH (both use FetchContent_MakeAvailable now).
+    if "IDF_PATH" in content:
         _disable_ota_esp32(cmake, content)
+    elif "FetchContent_MakeAvailable(commander)" in content:
+        _disable_ota_pico(cmake, content)
     else:
         die("CMakeLists.txt does not reference commander — is this a commander project?")
 
