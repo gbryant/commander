@@ -101,6 +101,19 @@ float a project's commander version (rewrites the committed `CMakeLists.txt`);
 `cmdr link <path>` / `cmdr unlink` builds against a local checkout instead (a
 gitignored `commander_local.cmake` override) for framework development.
 
+**Project maintenance commands** (see `docs/cmdr-regen.md` for the model): a project has
+4 layers, 3 own one each — `cmdr pull` (re-fetch the framework dep + reconfigure),
+`cmdr clean` (wipe build artifacts: build dirs, `.pio/`, fetched `_deps`, `sdkconfig`),
+and `cmdr regen` (re-emit *generated* files — dev scripts, `commander_modules.h`, module
+`bin/` tools — from current templates, so a project adopts framework/tooling fixes without
+re-`init`; `--dry-run` available). `regen` deliberately does NOT touch hand-written source,
+`cmdr.toml`, or `CMakeLists.txt`/`platformio.ini` (those accumulate feature/version state →
+targeted migrations only). `init` and `regen` share `_emit_scripts` so they can't drift.
+The long-term direction is **thin shim scripts** that delegate to the fetched framework
+(logic lives in commander, refreshed by `pull`/`clean`) — `install-broker` is the first
+(its logic is `dev/unoq/install_broker.sh`; the project script is a stub) — which shrinks
+`regen`'s scope over time.
+
 **Composable partition table + filesystem (ESP32).** `cmdr` owns the ESP32
 `partitions.csv` as a composition of enabled features rather than each feature
 overwriting it (`parse_partitions` / `compose_partitions` in `cli.py`): `enable

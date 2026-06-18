@@ -815,38 +815,22 @@ adb forward --remove tcp:3333 2>/dev/null || true
 
 UNOQ_INSTALL_BROKER_SCRIPT = """\
 #!/bin/bash
-# Board-modifying: make commander-broker.service own the MCU link (ch0 console -> the Mac's
-# USB serial, chN -> /tmp/commander/chN.sock). Masks the Arduino router (frees ttyHS1) and
-# replaces commander-bridge. Reversible with ./restore-arduino. Needs the board sudo password.
-# The broker + unit ship with the commander source that ./build fetched — push from there, so
-# the board needs no GitHub auth (works for a private repo; the curl-from-raw approach didn't).
+# Thin shim: the real install-broker logic lives in the commander framework
+# (dev/unoq/install_broker.sh), fetched into build-unoq/ by ./build. This stub just locates
+# and runs it — so the logic updates with the framework (cmdr pull / clean + build) and never
+# goes stale in the project. (Board-modifying + reversible with ./restore-arduino; needs the
+# board sudo password. The impl pushes the broker from the fetched source — no GitHub auth on
+# the board, works for a private repo.)
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-BROKER=$(find build-unoq -name commander_broker.py 2>/dev/null | head -1)
-SERVICE=$(find build-unoq -name commander-broker.service 2>/dev/null | head -1)
-if [ -z "$BROKER" ] || [ -z "$SERVICE" ]; then
-  echo "broker not found under build-unoq/ — the commander framework hasn't been fetched yet."
-  echo "Run ./build first (it downloads commander + the broker via FetchContent), then re-run ./install-broker."
+IMPL=$(find build-unoq -path '*/dev/unoq/install_broker.sh' 2>/dev/null | head -1)
+if [ -z "$IMPL" ]; then
+  echo "commander framework not fetched yet — run ./build first (it downloads commander via"
+  echo "FetchContent), then re-run ./install-broker."
   exit 1
 fi
-
-# Ask for the board sudo password ONCE, then run every privileged step in a SINGLE sudo
-# invocation. (Separate sudo calls each re-prompt on a fresh adb tty, and the PTY churn
-# between them leaves the local terminal echoing — so your retyped password becomes visible.)
-# -p '' suppresses sudo's own prompt since we feed the password on stdin.
-read -s -p "Board (arduino@gandalf) sudo password: " PW; echo
-
-echo "==> pushing broker + service unit to the board"
-adb push "$BROKER"  /home/arduino/commander_broker.py     >/dev/null
-adb push "$SERVICE" /home/arduino/commander-broker.service >/dev/null
-
-echo "==> masking the Arduino router stack + installing commander-broker.service (one sudo)"
-adb shell "echo '$PW' | sudo -S -p '' bash -c '
-  cd /etc/systemd/system && for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do [ -f \\$u ] && [ ! -L \\$u ] && mv \\$u \\$u.commander-bak && ln -sf /dev/null \\$u; done; systemctl daemon-reload || true;
-  cp /home/arduino/commander-broker.service /etc/systemd/system/ && systemctl daemon-reload && systemctl disable --now commander-bridge.service 2>/dev/null; systemctl enable commander-broker.service; systemctl restart commander-broker.service'"
-adb shell "systemctl is-active commander-broker.service"     # status query — no sudo needed
-echo "done. open the Mac console with ./monitor"
+exec bash "$IMPL" "$@"
 """
 
 UNOQ_RESTORE_ARDUINO_SCRIPT = """\
@@ -1949,6 +1933,71 @@ def cmd_autostart(args: argparse.Namespace) -> None:
 
 # ── Scaffold functions ────────────────────────────────────────────────────────
 
+def _emit_scripts(target: str, name: str, out_dir: Path, chip: str = "esp32s3",
+                  dry: bool = False) -> "list[str]":
+    """Write the per-target dev scripts + scripts/ helper copies. The single source of
+    truth shared by `cmdr init` (scaffold_*) and `cmdr regen`, so the two can't drift.
+    Does NOT write source, cmdr.toml, CMakeLists.txt/platformio.ini, or commander_modules.h
+    — callers own those. Pico/pico2 emit nothing here (their dev scripts come from CMake's
+    commander_generate_scripts at configure time). Returns the relative paths it writes;
+    with dry=True it only collects them (no writes)."""
+    written: list = []
+
+    def _script(rel, content):
+        if not dry:
+            p = out_dir / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            write_script(p, content)
+        written.append(rel)
+
+    def _helper(rel, tmpl):
+        if not dry:
+            p = out_dir / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            copy_template(tmpl, p)
+            p.chmod(0o755)
+        written.append(rel)
+
+    if target in ("uno", "r4"):
+        _helper("scripts/find_port.py", "find_port.py")
+        _helper("scripts/version_stamp.py", "version_stamp.py")
+        if target == "uno":
+            _helper("scripts/patch_freertos.py", "patch_freertos.py")
+        _script("bum",     ARDUINO_BUM_SCRIPT)
+        _script("build",   render(ARDUINO_BUILD_SCRIPT,  name=name))
+        _script("upload",  render(ARDUINO_UPLOAD_SCRIPT, name=name, board_id=target))
+        _script("monitor", render(ARDUINO_MONITOR_SCRIPT, board_id=target))
+        if target == "r4":
+            _script("bum-ota", render(ARDUINO_R4_BUM_OTA_SCRIPT, name=name))
+    elif target == "bluepill":
+        _helper("scripts/find_port.py", "find_port.py")
+        _helper("scripts/stm32_build.py", "stm32_build.py")
+        _script("bum",     ARDUINO_BUM_SCRIPT)
+        _script("build",   render(BLUEPILL_BUILD_SCRIPT,  name=name))
+        _script("upload",  render(BLUEPILL_UPLOAD_SCRIPT, name=name))
+        _script("monitor", render(BLUEPILL_MONITOR_SCRIPT, name=name))
+    elif target == "esp32":
+        _helper("scripts/find_port.py", "find_port.py")
+        # bake the active IDF export.sh (if any) so build/upload self-source it
+        idf_path = os.environ.get("IDF_PATH", "")
+        idf_export = f"{idf_path}/export.sh" if idf_path else ""
+        _script("bum",     ESP32_BUM_SCRIPT)
+        _script("build",   render(ESP32_BUILD_SCRIPT,  chip=chip, idf_export=idf_export))
+        _script("upload",  render(ESP32_UPLOAD_SCRIPT, chip=chip, idf_export=idf_export))
+        _script("monitor", render(ESP32_MONITOR_SCRIPT, chip=chip))
+    elif target == "unoq":
+        _script("build",             UNOQ_BUILD_SCRIPT)
+        _script("flash",             UNOQ_FLASH_SCRIPT)
+        _script("monitor",           UNOQ_MONITOR_SCRIPT)
+        _script("bum",               UNOQ_BUM_SCRIPT)
+        _script("enable-flash-boot", UNOQ_ENABLE_FLASH_BOOT_SCRIPT)
+        _script("install-broker",    UNOQ_INSTALL_BROKER_SCRIPT)
+        _script("restore-arduino",   UNOQ_RESTORE_ARDUINO_SCRIPT)
+        _script("deploy-sbc",        UNOQ_DEPLOY_SBC_SCRIPT)
+    # pico/pico2: dev scripts come from CMake (commander_generate_scripts) → none here.
+    return written
+
+
 def scaffold_pico(target: str, name: str, out_dir: Path) -> None:
     board = PICO_TARGETS[target]
     ssid, password = wifi_credentials()
@@ -1977,7 +2026,6 @@ def scaffold_pico(target: str, name: str, out_dir: Path) -> None:
 
 
 def scaffold_arduino(target: str, name: str, out_dir: Path) -> None:
-    board_id = target  # "uno" or "r4"
     is_r4 = target == "r4"
 
     pio_tmpl = ARDUINO_R4_PIO_TEMPLATE if is_r4 else ARDUINO_UNO_PIO_TEMPLATE
@@ -1998,19 +2046,7 @@ def scaffold_arduino(target: str, name: str, out_dir: Path) -> None:
         generate_modules_file("uno", {}, src_dir / "commander_modules.h")
 
     _sync_max_commands({}, out_dir)
-    scripts_dir = out_dir / "scripts"
-    scripts_dir.mkdir()
-    copy_template("find_port.py", scripts_dir / "find_port.py")
-    copy_template("version_stamp.py", scripts_dir / "version_stamp.py")
-    if not is_r4:
-        copy_template("patch_freertos.py", scripts_dir / "patch_freertos.py")
-
-    write_script(out_dir / "bum",     ARDUINO_BUM_SCRIPT)
-    write_script(out_dir / "build",   render(ARDUINO_BUILD_SCRIPT,  name=name))
-    write_script(out_dir / "upload",  render(ARDUINO_UPLOAD_SCRIPT, name=name, board_id=board_id))
-    write_script(out_dir / "monitor", render(ARDUINO_MONITOR_SCRIPT, board_id=board_id))
-    if is_r4:
-        write_script(out_dir / "bum-ota", render(ARDUINO_R4_BUM_OTA_SCRIPT, name=name))
+    _emit_scripts(target, name, out_dir)
 
     print(f"Created {out_dir}/ for Arduino {'R4 WiFi' if is_r4 else 'Uno'}")
     if is_r4:
@@ -2104,15 +2140,7 @@ def scaffold_unoq(name: str, out_dir: Path) -> None:
     write_manifest(out_dir / "cmdr.toml", "unoq", {})
     generate_modules_file("unoq", {}, src_dir / "commander_modules.h")
     _sync_max_commands({}, out_dir)
-
-    write_script(out_dir / "build",   UNOQ_BUILD_SCRIPT)
-    write_script(out_dir / "flash",   UNOQ_FLASH_SCRIPT)
-    write_script(out_dir / "monitor", UNOQ_MONITOR_SCRIPT)
-    write_script(out_dir / "bum",     UNOQ_BUM_SCRIPT)
-    write_script(out_dir / "enable-flash-boot", UNOQ_ENABLE_FLASH_BOOT_SCRIPT)
-    write_script(out_dir / "install-broker",    UNOQ_INSTALL_BROKER_SCRIPT)
-    write_script(out_dir / "restore-arduino",   UNOQ_RESTORE_ARDUINO_SCRIPT)
-    write_script(out_dir / "deploy-sbc",        UNOQ_DEPLOY_SBC_SCRIPT)
+    _emit_scripts("unoq", name, out_dir)
 
     print(f"Created {out_dir}/ for Arduino Uno Q (Zephyr M33 + channel bus + Linux broker)")
     print(f"\nNext (see README.md):\n  cd {out_dir}")
@@ -2133,16 +2161,7 @@ def scaffold_bluepill(name: str, out_dir: Path) -> None:
     write_manifest(out_dir / "cmdr.toml", "bluepill", {})
     generate_modules_file("bluepill", {}, src_dir / "commander_modules.h")
     _sync_max_commands({}, out_dir)
-
-    scripts_dir = out_dir / "scripts"
-    scripts_dir.mkdir()
-    copy_template("find_port.py", scripts_dir / "find_port.py")
-    copy_template("stm32_build.py", scripts_dir / "stm32_build.py")
-
-    write_script(out_dir / "bum",     ARDUINO_BUM_SCRIPT)
-    write_script(out_dir / "build",   render(BLUEPILL_BUILD_SCRIPT,   name=name))
-    write_script(out_dir / "upload",  render(BLUEPILL_UPLOAD_SCRIPT,  name=name))
-    write_script(out_dir / "monitor", render(BLUEPILL_MONITOR_SCRIPT, name=name))
+    _emit_scripts("bluepill", name, out_dir)
 
     print(f"Created {out_dir}/ for STM32 Bluepill (USB-CDC console, ST-Link upload)")
     print("Build needs: $FREERTOS_KERNEL_PATH and a TinyUSB checkout")
@@ -2165,25 +2184,13 @@ def scaffold_esp32(name: str, out_dir: Path, chip: str, flash_mb: int, psram_mb:
     write_manifest(out_dir / "cmdr.toml", "esp32", {})
     generate_modules_file("esp32", {}, main_dir / "commander_modules.h")
     _sync_max_commands({}, out_dir)
-
-    scripts_dir = out_dir / "scripts"
-    scripts_dir.mkdir()
-    copy_template("find_port.py", scripts_dir / "find_port.py")
-
-    # If IDF is active in this shell (you ran `esp` before `cmdr init`), bake its
-    # export.sh as the build/upload scripts' default so they self-source it — you won't
-    # have to run `esp` first. Overridable at runtime via $IDF_EXPORT.
-    idf_path = os.environ.get("IDF_PATH", "")
-    idf_export = f"{idf_path}/export.sh" if idf_path else ""
-
-    write_script(out_dir / "bum",     ESP32_BUM_SCRIPT)
-    write_script(out_dir / "build",   render(ESP32_BUILD_SCRIPT,   chip=chip, idf_export=idf_export))
-    write_script(out_dir / "upload",  render(ESP32_UPLOAD_SCRIPT,  chip=chip, idf_export=idf_export))
-    write_script(out_dir / "monitor", render(ESP32_MONITOR_SCRIPT, chip=chip))
+    # _emit_scripts bakes the active IDF export.sh into build/upload (self-sourcing).
+    _emit_scripts("esp32", name, out_dir, chip=chip)
 
     psram_str = f"{psram_mb} MB PSRAM" if psram_mb else "no PSRAM"
     print(f"Created {out_dir}/ [{chip}, {flash_mb} MB flash, {psram_str}]")
     print(f"Edit {out_dir}/secrets.h with your WiFi credentials")
+    idf_export = f"{os.environ['IDF_PATH']}/export.sh" if os.environ.get("IDF_PATH") else ""
     if idf_export:
         print(f"(build/upload will source ESP-IDF from {idf_export} — override with $IDF_EXPORT)")
     else:
@@ -2784,6 +2791,105 @@ def cmd_pull() -> None:
     print("\nDone — commander updated.")
 
 
+def cmd_clean() -> None:
+    """Remove build artifacts for a fresh build: CMake build dirs (build/, build-<target>/,
+    incl. the FetchContent _deps under them), PlatformIO's .pio/, and esp32's generated
+    sdkconfig. Source and cmdr-generated project files (main.cpp, cmdr.toml, scripts,
+    CMakeLists.txt) are left alone. Because the per-build _deps go too, the next build
+    re-fetches commander fresh — curing a stale *fetched* framework (but not stale project
+    scripts, which are committed source; regenerate those separately)."""
+    import shutil
+    if not (Path("cmdr.toml").exists() or Path("platformio.ini").exists()
+            or Path("CMakeLists.txt").exists()):
+        die("not a commander project here (no cmdr.toml / platformio.ini / CMakeLists.txt) "
+            "— refusing to clean")
+
+    removed = []
+    # CMake build dirs: by cmdr's naming convention (build/, build-<target>/) plus any
+    # already-configured dir (has CMakeCache.txt), so unconfigured/failed dirs go too.
+    cmake_dirs = {d for d in Path(".").iterdir()
+                  if d.is_dir() and (d.name == "build" or d.name.startswith("build-"))}
+    cmake_dirs |= set(_cmake_build_dirs())
+    for d in sorted(cmake_dirs):
+        shutil.rmtree(d, ignore_errors=True)
+        removed.append(f"{d}/")
+
+    pio = Path(".pio")                      # PlatformIO (uno / r4 / bluepill)
+    if pio.is_dir():
+        shutil.rmtree(pio, ignore_errors=True)
+        removed.append(".pio/")
+
+    sdk = Path("sdkconfig")                  # esp32: regenerated from sdkconfig.defaults
+    if sdk.is_file() and Path("sdkconfig.defaults").exists():
+        sdk.unlink()
+        removed.append("sdkconfig")
+
+    if removed:
+        print("cleaned:")
+        for r in removed:
+            print(f"  {r}")
+        print("next build reconfigures + re-fetches commander from scratch.")
+    else:
+        print("nothing to clean — no build artifacts found.")
+
+
+def cmd_regen(args: argparse.Namespace) -> None:
+    """Re-emit this project's cmdr-GENERATED files from the current templates — dev scripts,
+    commander_modules.h (from cmdr.toml), and enabled modules' host tools — so a project
+    adopts framework/tooling fixes without a re-init. Leaves hand-written source, cmdr.toml,
+    and CMakeLists.txt / platformio.ini alone (those accumulate feature/version state and
+    need targeted migrations, not regeneration). --dry-run lists changes without writing."""
+    manifest = Path("cmdr.toml")
+    if not manifest.exists():
+        die("no cmdr.toml here — run from a commander project root")
+    target, modules, autostart = read_manifest(manifest)
+    target = target or detect_target()
+    if not target:
+        die("could not determine target from cmdr.toml")
+    dry = getattr(args, "dry_run", False)
+
+    # Recover the params init had as args: project name (pio env name, else dir name) and,
+    # for esp32, the chip (from the existing build script's `set-target <chip>`).
+    name = Path.cwd().name
+    pio = Path("platformio.ini")
+    if pio.exists():
+        name = _env_name_from_pio(pio.read_text()) or name
+    chip = "esp32s3"
+    if target == "esp32" and Path("build").is_file():
+        m = re.search(r"set-target\s+(\S+)", Path("build").read_text())
+        if m:
+            chip = m.group(1)
+
+    written = _emit_scripts(target, name, Path("."), chip=chip, dry=dry)
+
+    # commander_modules.h — regenerate from the manifest (+ autostart) in the board's layout.
+    mod_rel = _modules_file_path(target)
+    if not dry:
+        generate_modules_file(target, modules, mod_rel, autostart)
+    written.append(str(mod_rel))
+
+    # Refresh enabled modules' host tools (e.g. the IR tools) — re-install from templates;
+    # seeded data dirs (maps/) are preserved (existing files win).
+    refreshed_tools = []
+    for mname in modules:
+        spec = MODULE_SPECS.get(mname, {})
+        if spec.get("tools") or spec.get("unoq_tools"):
+            if not dry:
+                _install_tools(spec, target)
+            refreshed_tools.append(mname)
+
+    verb = "would regenerate" if dry else "regenerated"
+    print(f"{verb}:")
+    for w in written:
+        print(f"  {w}")
+    if refreshed_tools:
+        print(f"  bin/ tools for: {', '.join(refreshed_tools)}")
+    if target in ("pico", "pico2"):
+        print("note: pico dev scripts come from CMake (commander_generate_scripts) — "
+              "run `cmdr pull` or reconfigure to refresh them.")
+    print("left untouched: your source, cmdr.toml, CMakeLists.txt / platformio.ini.")
+
+
 def cmd_config(args: argparse.Namespace) -> None:
     cfg = load_config()
     if not cfg.has_section("wifi"):
@@ -3008,9 +3114,13 @@ def main() -> None:
     disable_p.add_argument("--label", default="storage",
                            help="littlefs: partition label to remove (default: storage)")
 
-    # ── update / pull ─────────────────────────────────────────────────────────
+    # ── update / pull / clean ─────────────────────────────────────────────────
     sub.add_parser("update", help="update cmdr itself to latest")
     sub.add_parser("pull",   help="update commander library in current project and reconfigure")
+    sub.add_parser("clean",  help="remove build artifacts (build dirs, .pio, fetched deps) for a fresh build")
+    regen_p = sub.add_parser("regen", help="re-emit generated files (dev scripts, commander_modules.h, tools) from current templates")
+    regen_p.add_argument("--dry-run", action="store_true", dest="dry_run",
+                         help="list what would change without writing")
 
     # ── link / unlink ─────────────────────────────────────────────────────────
     link_p = sub.add_parser("link", help="build against a local commander checkout (bare: show status)")
@@ -3068,6 +3178,10 @@ def main() -> None:
             cmd_update()
         elif args.command == "pull":
             cmd_pull()
+        elif args.command == "clean":
+            cmd_clean()
+        elif args.command == "regen":
+            cmd_regen(args)
         elif args.command == "link":
             cmd_link(args)
         elif args.command == "unlink":
