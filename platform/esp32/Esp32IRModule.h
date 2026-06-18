@@ -49,7 +49,6 @@ private:
     int   _gpio;
     bool  _active    = false;
     bool  _wallMode  = false;
-    uint8_t _wallMarks = 0;
     mutable bool     _available = false;
     mutable uint32_t _code      = 0;
     mutable uint8_t  _protocol  = 0;
@@ -63,6 +62,4 @@ private:
     // Symbol buffer: rmt_symbol_word_t is 4 bytes; 64 slots covers NEC 32-bit frame.
     static constexpr size_t SYM_CAP = 64;
     uint32_t _sym_buf[SYM_CAP];
-
-    static Esp32IRModule *s_instance;
 };

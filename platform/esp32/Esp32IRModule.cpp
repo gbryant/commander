@@ -2,13 +2,15 @@
 #include "modules/ir/IrEvent.h"
 #include "hal/hal.h"
 #include "driver/rmt_rx.h"
-#include "esp_attr.h"
 
-Esp32IRModule *Esp32IRModule::s_instance = nullptr;
+// ── RMT done-callback helpers ────────────────────────────────────────────────
+// These run in the RMT done-callback (normal ISR context — CONFIG_RMT_ISR_IRAM_SAFE
+// is off), so they may touch flash: rmt_receive(), the NEC/Sony header decoders, and
+// flash .rodata are all fair game. No IRAM_ATTR — an IR receiver doesn't need to keep
+// decoding while the flash cache is disabled (OTA/NVS writes), and an IRAM-safe ISR
+// could not call rmt_receive() to re-arm anyway.
 
-// ── ISR helpers (IRAM) ───────────────────────────────────────────────────────
-
-void IRAM_ATTR Esp32IRModule::pushEvent(uint32_t code, uint8_t proto, uint8_t nbits) {
+void Esp32IRModule::pushEvent(uint32_t code, uint8_t proto, uint8_t nbits) {
     uint8_t next = (_ring.tail + 1) % RING_CAP;
     if (next == _ring.head) return;
     _ring.proto[_ring.tail] = proto;
@@ -17,7 +19,7 @@ void IRAM_ATTR Esp32IRModule::pushEvent(uint32_t code, uint8_t proto, uint8_t nb
     _ring.tail = next;
 }
 
-void IRAM_ATTR Esp32IRModule::rearm() {
+void Esp32IRModule::rearm() {
     static const rmt_receive_config_t cfg = {
         .signal_range_min_ns = 1250,       // 1.25 µs glitch filter
         .signal_range_max_ns = 12000000,   // 12 ms max — captures 9 ms NEC leader; idle beyond this ends the frame
@@ -25,7 +27,7 @@ void IRAM_ATTR Esp32IRModule::rearm() {
     rmt_receive((rmt_channel_handle_t)_rx_chan, _sym_buf, sizeof(_sym_buf), &cfg);
 }
 
-bool IRAM_ATTR Esp32IRModule::onFrame(const void *raw) {
+bool Esp32IRModule::onFrame(const void *raw) {
     const auto *edata = static_cast<const rmt_rx_done_event_data_t *>(raw);
     const rmt_symbol_word_t *syms = edata->received_symbols;
     size_t n = edata->num_symbols;
@@ -80,7 +82,7 @@ bool IRAM_ATTR Esp32IRModule::onFrame(const void *raw) {
     return false;
 }
 
-static bool IRAM_ATTR rmt_done_cb(rmt_channel_handle_t, const rmt_rx_done_event_data_t *edata, void *ctx) {
+static bool rmt_done_cb(rmt_channel_handle_t, const rmt_rx_done_event_data_t *edata, void *ctx) {
     return static_cast<Esp32IRModule *>(ctx)->onFrame(edata);
 }
 
@@ -100,7 +102,6 @@ void Esp32IRModule::init() {
 
     rmt_enable((rmt_channel_handle_t)_rx_chan);
     rearm();
-    s_instance = this;
 }
 
 void Esp32IRModule::registerCommands(CommandRegistry &reg) {
