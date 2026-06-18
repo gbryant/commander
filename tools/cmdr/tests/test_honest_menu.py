@@ -53,7 +53,6 @@ def test_platform_gated_modules_match_their_spec(cli_mod):
     ("ipstube", "pico"), ("ws2812", "pico"), ("aicam", "r4"),   # esp32-only
     ("controller", "esp32"), ("locomotion", "r4"),               # pico-only
     ("loco-bridge", "pico"), ("roomba", "pico"),                 # r4-only
-    ("ir", "esp32"), ("ir", "bluepill"),                         # ir not on esp32/bluepill
     ("wifi", "uno"), ("wifi", "bluepill"),                       # wifi needs a runner hook
 ])
 def test_unsupported_combinations_are_gated(cli_mod, name, target):

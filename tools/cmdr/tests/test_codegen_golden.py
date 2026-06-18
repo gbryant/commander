@@ -45,6 +45,8 @@ MATRIX = [
     ("esp32",    "aicam_i2c",       ["aicam"], {"aicam": {"transport": "i2c"}}),
     ("bluepill", "base",            [], {}),
     ("bluepill", "compass_ds1302",  ["compass", "ds1302"], {}),
+    ("esp32",    "ir",              ["ir"], {}),
+    ("bluepill", "ir",              ["ir"], {}),
     ("unoq",     "base",            [], {}),
     ("unoq",     "ir",              ["ir"], {}),
 ]

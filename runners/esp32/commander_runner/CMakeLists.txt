@@ -59,6 +59,9 @@ endif()
 if(COMMANDER_ENABLE_AICAM)
     list(APPEND CMDR_SRCS "${COMMANDER_ROOT}/platform/esp32/AiCamUartTransport.cpp")
 endif()
+if(COMMANDER_ENABLE_IR)
+    list(APPEND CMDR_SRCS "${COMMANDER_ROOT}/platform/esp32/Esp32IRModule.cpp")
+endif()
 
 idf_component_register(
     SRCS ${CMDR_SRCS}
@@ -71,6 +74,9 @@ idf_component_register(
 
 if(COMMANDER_ENABLE_OTA)
     target_compile_definitions(${COMPONENT_LIB} PUBLIC COMMANDER_ENABLE_OTA=1)
+endif()
+if(COMMANDER_ENABLE_IR)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC COMMANDER_ENABLE_IR=1)
 endif()
 
 # Version stamping (commander_build.h → BUILD_NAME/NUMBER, see cmake/VersionStamp.cmake)
