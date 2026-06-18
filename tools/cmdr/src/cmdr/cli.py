@@ -972,9 +972,9 @@ MODULE_SPECS = {
     # WiFi status/control (wifi status|off|on). Runner implements the hooks, so
     # only WiFi platforms whose runner provides them.
     "wifi":    {"always": False, "platforms": ["pico", "pico2", "r4", "esp32"], "questions": []},
-    "ir":      {"always": False, "platforms": ["pico", "pico2", "uno", "r4", "unoq"], "questions": [
+    "ir":      {"always": False, "platforms": ["pico", "pico2", "uno", "r4", "unoq", "esp32", "bluepill"], "questions": [
         # unoq sets the pin in app.overlay (ir-gpios), so its value here is informational.
-        ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5", "r4": "5", "unoq": "5"}),
+        ("gpio", "IR receive pin", {"pico": "22", "pico2": "22", "uno": "5", "r4": "5", "unoq": "5", "esp32": "38", "bluepill": "0x10"}),
     ], "features": [
         ("wall", "Roomba virtual-wall detection?", False, "COMMANDER_IR_WALL"),
     ], "tools": ["irmap.py", "irlookup.py"],
@@ -1223,6 +1223,25 @@ def _emit_module(name: str, opts: dict, target: str):
                     ["_pub_ir = bus.channels().publisher(CH_IR);",
                      "_m_ir.setOutput(&_pub_ir);",
                      "bus.addTicker(_m_ir);"])
+        if target == "esp32":
+            # ESP32 RMT-based receiver. Compiled in the runner under COMMANDER_ENABLE_IR
+            # (set by _ir_esp32_cmake_enable on enable). esp_driver_rmt is already required
+            # unconditionally by the runner so no REQUIRES change is needed.
+            gpio = opts.get("gpio", 38)
+            return (['#include "platform/esp32/Esp32IRModule.h"'],
+                    [f"static Esp32IRModule _m_ir({gpio});"],
+                    ["reg.registerModule(_m_ir);"],
+                    ["uart.addTicker(_m_ir);"])
+        if target == "bluepill":
+            # STM32F103 EXTI edge interrupt + DWT timing. Unity-included like the Arduino
+            # IRModule so the ISR handlers compile into the app TU without a separate build
+            # entry — the Bluepill PlatformIO build lists sources explicitly.
+            gpio = opts.get("gpio", 16)
+            return (['#include "platform/stm32-bluepill/Stm32IRModule.h"',
+                     '#include "platform/stm32-bluepill/Stm32IRModule.cpp"'],
+                    [f"static Stm32IRModule _m_ir({gpio});"],
+                    ["reg.registerModule(_m_ir);"],
+                    ["uart.addTicker(_m_ir);"])
         die(f"ir module is not yet supported on target '{target}'")
     if name == "roomba":
         baud = opts.get("baud", 115200)
@@ -1788,6 +1807,36 @@ def _aicam_cmake_disable() -> None:
     print("  • CMakeLists.txt: removed COMMANDER_ENABLE_AICAM (wipe build dir to reconfigure)")
 
 
+# ESP32 CMake injection for the ir module — same mechanism as ws2812: the
+# COMMANDER_ENABLE_IR cache var (set before the IDF include) makes the runner
+# compile Esp32IRModule.cpp (esp_driver_rmt is already required unconditionally).
+_IR_ESP32_OPT = 'set(COMMANDER_ENABLE_IR ON CACHE BOOL "" FORCE)  # commander ir (RMT)'
+
+
+def _ir_esp32_cmake_enable() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        print("  ! no CMakeLists.txt — set COMMANDER_ENABLE_IR ON before the IDF include manually")
+        return
+    text = cmake.read_text()
+    if "COMMANDER_ENABLE_IR" not in text and _IPSTUBE_ANCHOR in text:
+        text = text.replace(_IPSTUBE_ANCHOR, _IR_ESP32_OPT + "\n" + _IPSTUBE_ANCHOR, 1)
+        cmake.write_text(text)
+        print("  • CMakeLists.txt: COMMANDER_ENABLE_IR=ON (runner builds the RMT IR receiver)")
+    print("  • connect a TSOP38238 (or similar) to the configured GPIO")
+    print("  • wipe the build dir (build-esp32/) to reconfigure")
+
+
+def _ir_esp32_cmake_disable() -> None:
+    cmake = Path("CMakeLists.txt")
+    if not cmake.exists():
+        return
+    text = cmake.read_text()
+    text = text.replace(_IR_ESP32_OPT + "\n", "")
+    cmake.write_text(text)
+    print("  • CMakeLists.txt: removed COMMANDER_ENABLE_IR (wipe build dir to reconfigure)")
+
+
 def cmd_module(args: argparse.Namespace) -> None:
     manifest = Path("cmdr.toml")
 
@@ -1867,6 +1916,8 @@ def cmd_module(args: argparse.Namespace) -> None:
             _ws2812_cmake_enable()
         if name == "aicam" and modules[name].get("transport", "uart") != "i2c":
             _aicam_cmake_enable()
+        if name == "ir" and target == "esp32":
+            _ir_esp32_cmake_enable()
         print(f"enabled module: {name}")
     elif args.action == "disable":
         if name not in modules:
@@ -1887,6 +1938,8 @@ def cmd_module(args: argparse.Namespace) -> None:
             _ws2812_cmake_disable()
         if name == "aicam":
             _aicam_cmake_disable()
+        if name == "ir" and target == "esp32":
+            _ir_esp32_cmake_disable()
         print(f"disabled module: {name}")
 
 
