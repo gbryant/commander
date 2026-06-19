@@ -63,6 +63,26 @@ near-zero work; C = speak Arduino RPC. This note is the principled evolution bey
   telnet both hint at a latent **"session" abstraction = (addressable writer + input
   source)**. There's a clean unifying concept here; a channel and a session may be the same
   thing. Worth designing once, not bolting on twice.
+- **Request/response correlation (message ids) — DEFERRED, requirements-driven.** Today's
+  workload (stream IR output, fire-and-forget publishes) needs none of this, and a serial
+  in-order MCU + one command channel lets the host pair replies to requesters by FIFO with
+  zero ids. Ordering alone never justifies ids. The thing ids actually buy is **resync after
+  a dropped/timed-out/reset-lost reply**: a pure FIFO matcher silently mis-pairs *every*
+  reply after one loss (off-by-one, permanent); an id re-syncs. Forcing function = the
+  Roomba-on-Uno-Q robot, where a drive command may want an ack over a link that can glitch
+  (M33 brownout on a motor stall, a reset). Sketch (if/when it's earned): a new `rpc_session`
+  channel **role** alongside `command_session` (ch0 console stays raw — a PTY can't supply
+  ids); id lives **inside** the payload (`[id][REQ]cmd` → `[id][DATA]…` / `[id][END]status`),
+  so the COBS `[channel][payload]` frame format is untouched; the **MCU stays stateless**
+  (echoes the id, an `RpcWriter` like `ChannelWriter` that prepends the header + emits a
+  terminal `END`); **all correlation/timeout/resync lives in the host broker** (an id→socket
+  pending map — a one-channel host-only slice of arduino-router's id remapping, without
+  msgpack on the MCU). **Do NOT build it ahead of need:** every constant (id width, status
+  semantics, END-vs-stream model) is a guess only the real requirement can settle, and a
+  shipped wire format is the most expensive thing to change. **Open sub-question — is it even
+  the right layer?** The ack the robot wants ("base accepted it / wheels engaged / odometry
+  delta") may be a *domain* fact better carried as a normal published event on a data channel
+  than a transport-level status byte. Decide the layer when the robot names the need.
 
 ## Sequencing
 1. **B first** — raw single stream over the bridge UART; validate the whole
