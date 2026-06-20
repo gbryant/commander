@@ -155,12 +155,14 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source the ESP-IDF env so build/upload are self-contained — you don't have to run
 # `esp` / `. $IDF_PATH/export.sh` first. No-op if idf.py is already on PATH. Tries
-# $IDF_EXPORT, the path captured at `cmdr init`, $IDF_PATH/export.sh, then the standard
-# install locations. Override IDF_EXPORT to point at your own export.sh. (__IDF_EXPORT__
+# $IDF_EXPORT, the path captured at `cmdr init`, $IDF_PATH/export.sh, the setup-sdks.sh
+# install dir (~/u-developer/esp-idf), then the standard install locations. Override
+# IDF_EXPORT to point at your own export.sh. (__IDF_EXPORT__
 # is filled in at init from the environment's $IDF_PATH, blank if IDF wasn't active.)
 ESP32_ENV_PREAMBLE = """\
 if ! command -v idf.py >/dev/null 2>&1; then
     for _exp in "${IDF_EXPORT:-}" "__IDF_EXPORT__" "${IDF_PATH:-}/export.sh" \\
+                "$HOME/u-developer/esp-idf/export.sh" \\
                 "$HOME/esp/esp-idf/export.sh" "$HOME/esp-idf/export.sh"; do
         [ -n "$_exp" ] && [ -f "$_exp" ] && { . "$_exp" >/dev/null 2>&1; break; }
     done

@@ -53,6 +53,22 @@ What it installs: `pico-sdk`, `FreeRTOS-Kernel`, `pico_fota_bootloader` (Pico OT
 `bluepad32` (Pico controller module), `stm32-dfu-bootloader` (Bluepill DFU),
 `pngle` (ESP32 ipstube image tooling), and `esp-idf` (+ esp32s3 toolchain).
 
+The two heavy toolchains are opt-out / opt-in so you don't clone a copy you won't
+use:
+
+```bash
+scripts/setup-sdks.sh --no-esp-idf   # skip ESP-IDF + its toolchain
+scripts/setup-sdks.sh --zephyr       # ALSO set up the Uno Q M33 Zephyr workspace
+```
+
+`--zephyr` creates a west workspace (`$COMMANDER_SDK_DIR/zephyrproject`, or set
+`ZEPHYRPROJECT`) and reuses an existing ARM GNU toolchain (gnuarmemb) — no second
+compiler copy. It needs `arm-none-eabi-gcc` available (macOS: `brew install --cask
+gcc-arm-embedded`; Debian: `apt install gcc-arm-none-eabi`). This is the
+prerequisite for **`cmdr init unoq`** projects — the Uno Q is a full target (builds
+via west, flashes over the on-board OpenOCD). See
+[getting-started-unoq.md](./getting-started-unoq.md).
+
 ## 3. Env-var contract
 
 After cloning, point the scripts at the SDKs. If you used the default
@@ -116,7 +132,7 @@ PlatformIO dependency and generates the `dev/<board>/` scripts for that board.
 | **bluepill** | PlatformIO | FreeRTOS-Kernel, TinyUSB, (stm32-dfu-bootloader for DFU) | openocd (ST-Link), dfu-util (USB), tio | pio provides the ARM compiler; flashing needs openocd or dfu-util |
 | **pico / pico2** | CMake | pico-sdk, FreeRTOS-Kernel, (bluepad32 for controller, pico_fota_bootloader for OTA) | arm-none-eabi-gcc, ninja, picotool | pico2 overrides `PICO_BOARD=pico2_w` |
 | **esp32** | ESP-IDF | esp-idf (brings its own toolchain) | tio | dev scripts self-source `export.sh` |
-| **unoq** | (M33 firmware + Debian services) | — | adb, openocd | Dual-brain board; see below |
+| **unoq** | Zephyr / west | zephyr workspace (`setup-sdks.sh --zephyr`) | arm-none-eabi-gcc, adb, openocd | Dual-brain (M33 firmware + Debian services); see below |
 
 ## Going deeper
 

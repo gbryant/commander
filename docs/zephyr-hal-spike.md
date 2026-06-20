@@ -26,8 +26,11 @@ creation already lives in the runner, so modules don't notice.
       `ChannelBusRunner` + SBC broker + a from-scratch IR receiver (NEC **and** Sony). A Sony
       remote press on D5 decoded on the M33 and streamed to Debian on ch1 (`0x795 p4`) while the
       ch0 console stayed live. Full recipe: `docs/commander-channels-bringup.md`.
-- [ ] **NEXT: promote into commander** — `hal/zephyr/hal.cpp` + `runners/zephyr/` are in-repo;
-      add a `cmdr` Zephyr target. Fold the option-byte step into the flash tooling.
+- [x] **DONE: promoted into commander** — `hal/zephyr/hal.cpp` + `runners/zephyr/runner.cpp`
+      + `platform/zephyr/ZephyrIRModule.cpp` are in-repo, and **`cmdr init unoq` is a
+      first-class target** (Zephyr/west build, gdb-load flash over on-board OpenOCD, the
+      option-byte step folded into the generated `enable-flash-boot` script). The Uno Q is
+      no longer a spike — see [[project_unoq_commander]] and `docs/getting-started-unoq.md`.
 
 ### Step-2 artifacts + the key lesson
 - Scratch app: `~/zephyrproject/cmdr-unoq-spike/` (CMakeLists pulls commander core + the new
