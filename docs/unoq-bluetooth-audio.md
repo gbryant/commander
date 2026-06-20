@@ -29,6 +29,10 @@ The two things that cost the most time, in order:
 A fresh-image checklist (details below): §1 packages + groups + linger → §2 env vars in `.bashrc`
 → §3 seat-monitoring fix → §4 pair the speaker → done.
 
+**Or just run the wizard:** `dev/unoq/setup-bt-audio.py` drives all of this from your host over
+adb — inspects each step, asks before changing anything, idempotent (re-runnable). The manual
+steps below are the reference / for understanding what it does.
+
 ---
 
 ## 1. One-time install (fresh image)
@@ -38,8 +42,12 @@ Stock Debian on the Uno Q ships PipeWire + WirePlumber. You need the PipeWire **
 
 ```bash
 sudo apt update
-sudo apt install -y bluez libspa-0.2-bluetooth espeak-ng
+sudo apt install -y bluez libspa-0.2-bluetooth pulseaudio-utils espeak-ng
 ```
+
+(`pulseaudio-utils` provides the `pactl` CLI used below — it's the pipewire-pulse compat tool,
+**not** classic pulseaudio. The stock image ships without `pactl`; `wpctl` is the native
+PipeWire alternative if you prefer.)
 
 `pipewire`, `pipewire-pulse`, and `wireplumber` are normally preinstalled — verify:
 
@@ -49,6 +57,14 @@ pactl info | grep "Server Name"     # -> PulseAudio (on PipeWire <ver>)
 
 **Do NOT install or run classic `pulseaudio` alongside PipeWire** — two stacks fight over the same
 socket and you get erratic, hard-to-debug audio (§7).
+
+**If you ran the headless slim** (`setup-board.py` / `unoq-linux-setup.md`), it **disabled
+`bluetooth.service`** as an unused daemon — BT audio needs it back on, or `bluetoothctl` just
+hangs (the daemon is down):
+
+```bash
+sudo systemctl enable --now bluetooth
+```
 
 Add your user to the BT/audio groups and enable **linger** (so your user's audio/BT services run
 with no active login — you're on `adb`, not a desktop):
@@ -79,6 +95,18 @@ Why `.bashrc` and not "just run a reconnect script": a script `export`s these on
 subprocess — they're gone the moment you type `espeak` back in your shell. `.bashrc` fixes every
 shell once. (`enable-linger` from §1 is what keeps `/run/user/<uid>` and the user services alive
 with no login, so these sockets exist for the shell to point at.)
+
+**Important subtlety — `.bashrc` only covers *interactive* shells.** A one-shot
+`adb shell espeak-ng "hi"` (or any script driving the board) is **non-interactive** and does NOT
+source `.bashrc`, so the vars are empty and you get silence even after the §2 edit. For one-shot
+commands, prefix the env explicitly:
+
+```bash
+adb shell 'XDG_RUNTIME_DIR=/run/user/$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus espeak-ng "hi"'
+```
+
+(An interactive `adb shell` — no command — *does* source `.bashrc`, as does `ssh arduino@host 'espeak…'`.
+The host-side `dev/unoq/*.py` tools always prefix this env for exactly this reason.)
 
 ---
 
@@ -151,6 +179,12 @@ espeak-ng "hello"              # or: paplay file.wav, aplay, Piper TTS, ...
 
 Native PipeWire equivalents (handy): `wpctl status` (list with IDs), `wpctl set-default <id>`,
 `wpctl set-volume <id> 0.8`.
+
+**From your host (over adb):** `dev/unoq/bt.py` connects/reports the speaker — `bt.py` (status),
+`bt.py connect` (reconnect after an idle disconnect), `bt.py pair`, `bt.py disconnect`.
+`dev/unoq/volume.py` reports/sets the default sink's volume — `volume.py`, `volume.py 70`,
+`volume.py +10`/`-10`, `volume.py mute|toggle`. (`setup-bt-audio.py` calls `bt.py`'s pair flow
+for its last step.)
 
 ---
 
