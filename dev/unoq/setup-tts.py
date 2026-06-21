@@ -15,23 +15,16 @@ real value-add (a CPU/GPU/NPU provider abstraction) is moot here and the NPU pat
   setup-tts.py --voice en_US-amy-low   # just one voice (any piper voice name)
 """
 import getpass
-import os
 import shlex
 import subprocess
 import sys
 import threading
 
 USER = "arduino"
-HERE = os.path.dirname(os.path.abspath(__file__))   # dev/unoq/ — where the daemon + unit live
 UENV = 'XDG_RUNTIME_DIR=/run/user/$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus'
 VOICE_DIR = "$HOME/.local/share/piper"
 # pipx puts the `piper` command symlink in ~/.local/bin; prefix it for non-interactive shells.
 PATHPFX = "export PATH=$HOME/.local/bin:$PATH;"
-FIFO = "/run/user/$(id -u)/tts.fifo"
-
-
-def adb_push(local, remote):
-    return _run(["adb", "push", local, remote], timeout=60)
 
 
 def _run(args, inp=None, timeout=60):
@@ -207,30 +200,18 @@ def step_verify(voice):
 
 
 def step_daemon():
-    # The warm daemon (tts_daemon.py) keeps a voice loaded so tts.py is instant instead of paying
-    # ~10 s/call. systemd --user runs it (no sudo); the user manager supplies the PipeWire env.
-    # systemctl --user needs the XDG/DBUS env to reach the user systemd manager — use usr().
-    if usr("systemctl --user is-active tts-daemon 2>/dev/null") == "active":
-        print("daemon     : tts-daemon.service active ✓")
+    # The warm daemon keeps a voice loaded so tts.py is instant instead of paying ~10 s/call.
+    # Install logic lives in tts.py (also exposed as `tts.py daemon install`) — reuse it here.
+    import tts
+    if tts.daemon_running():
+        print("daemon     : tts-daemon active ✓")
         if not ask("  reinstall + restart it (e.g. to pick up a change)?", default=False):
             return
     else:
         print("daemon     : not installed (keeps a voice warm → instant tts.py)")
         if not ask("  install the warm TTS daemon (systemd --user service)?"):
             return
-    sh("mkdir -p ~/.local/bin ~/.config/systemd/user")
-    adb_push(os.path.join(HERE, "tts_daemon.py"), "/home/arduino/.local/bin/tts_daemon.py")
-    adb_push(os.path.join(HERE, "tts-daemon.service"),
-             "/home/arduino/.config/systemd/user/tts-daemon.service")
-    sh("chmod +x ~/.local/bin/tts_daemon.py")
-    usr("systemctl --user daemon-reload")
-    usr("systemctl --user enable tts-daemon.service >/dev/null 2>&1")
-    usr("systemctl --user restart tts-daemon.service")
-    print("  loading voice (~10 s)...")
-    # Ready = the daemon created its FIFO (it does so after the model is warm). Poll board-side.
-    ready = sh(f"for i in $(seq 1 25); do test -p {FIFO} && {{ echo yes; break; }}; sleep 1; done")
-    print("  daemon ready ✓ — tts.py is now instant" if ready == "yes"
-          else "  daemon didn't come ready (journalctl --user -u tts-daemon)")
+    tts.daemon_install()
 
 
 def main():

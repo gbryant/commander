@@ -17,7 +17,9 @@ Driven by a FIFO (fire-and-forget): write a line to $XDG_RUNTIME_DIR/tts.fifo �
 Normally launched by the tts-daemon.service systemd --user unit (which provides XDG_RUNTIME_DIR +
 the dbus session so paplay reaches the default sink). Run it with the pipx venv python (has piper).
 """
+import atexit
 import os
+import signal
 import subprocess
 import sys
 
@@ -58,7 +60,21 @@ def speak(voices, voice, text):
         player.wait()
 
 
+def rm_fifo():
+    try:
+        os.unlink(FIFO)
+    except FileNotFoundError:
+        pass
+
+
 def main():
+    # The FIFO's existence is the readiness signal, so clear any stale one from a previous
+    # instance BEFORE the (~10 s) load, and remove ours on exit — so `test -p FIFO` is true only
+    # while a warm daemon is actually serving.
+    rm_fifo()
+    atexit.register(rm_fifo)
+    signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))   # systemd stop → triggers atexit
+
     voices = load_voices()
     if not voices:
         sys.exit(f"no voices in {VOICE_DIR} — run setup-tts.py")
@@ -66,10 +82,7 @@ def main():
     # even if that voice isn't warm (we fall back to the default); a colon in real text is left
     # alone because its prefix won't match a voice name.
     known = {f[:-5] for f in os.listdir(VOICE_DIR) if f.endswith(".onnx")}
-    try:
-        os.mkfifo(FIFO)
-    except FileExistsError:
-        pass
+    os.mkfifo(FIFO)                              # only now, after warm
     print(f"ready: {', '.join(voices)}  (default {DEFAULT_VOICE})  fifo={FIFO}", flush=True)
 
     while True:                                 # reopen on each writer EOF (FIFO server loop)
