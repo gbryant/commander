@@ -36,17 +36,26 @@ inline size_t cobs_encode(const uint8_t *src, size_t len, uint8_t *dst) {
     return wr;
 }
 
-// Decode `len` COBS bytes (no delimiter) into dst. Returns decoded length, 0 if malformed.
-inline size_t cobs_decode(const uint8_t *src, size_t len, uint8_t *dst) {
+// Decode `len` COBS bytes (no delimiter) into dst (capacity dstCap). Returns decoded
+// length, 0 if malformed OR if it would exceed dstCap. Bounding on dstCap matters: the
+// decoded length can be as large as `len`, and `len` (a raw in-flight frame off the wire)
+// can run a few bytes past the decoded-frame ceiling, so an unbounded decode would write
+// past a dst sized to the decoded max. A would-be overflow is treated as malformed (drop
+// + resync), keeping the codec memory-safe against any bytes a peer/corruption produces.
+inline size_t cobs_decode(const uint8_t *src, size_t len, uint8_t *dst, size_t dstCap) {
     size_t rd = 0, wr = 0;
     while (rd < len) {
         uint8_t code = src[rd++];
         if (code == 0) return 0;                 // no zeros allowed inside COBS data
         for (uint8_t i = 1; i < code; i++) {
-            if (rd >= len) return 0;              // truncated run
+            if (rd >= len)  return 0;             // truncated run
+            if (wr >= dstCap) return 0;           // would overflow dst → drop
             dst[wr++] = src[rd++];
         }
-        if (code != 0xFF && rd < len) dst[wr++] = 0;  // implicit zero (not after a full run / at end)
+        if (code != 0xFF && rd < len) {          // implicit zero (not after a full run / at end)
+            if (wr >= dstCap) return 0;           // would overflow dst → drop
+            dst[wr++] = 0;
+        }
     }
     return wr;
 }
@@ -79,7 +88,7 @@ public:
     bool feed(uint8_t b) {
         if (b == CH_DELIM) {
             if (_n == 0) return false;            // empty/resync gap
-            size_t dl = cobs_decode(_raw, _n, _decoded);
+            size_t dl = cobs_decode(_raw, _n, _decoded, sizeof(_decoded));
             _n = 0;
             if (dl == 0) return false;            // malformed → drop
             _channel = _decoded[0];

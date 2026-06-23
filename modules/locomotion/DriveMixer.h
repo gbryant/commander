@@ -95,6 +95,7 @@ private:
     bool     _wasSpin = false;// spin state last call — reset the ramp on a change
 
     static int16_t map16(int16_t x, int16_t inLo, int16_t inHi, int16_t outLo, int16_t outHi) {
+        if (inHi == inLo) return outLo;          // degenerate range (e.g. fastKneePct==0) → no /0
         return (int16_t)((int32_t)(x - inLo) * (outHi - outLo) / (inHi - inLo) + outLo);
     }
 

@@ -33,10 +33,11 @@ void TelnetTransport::handleByte(int fd, char c) {
     if (_skip_opt) { _skip_opt = false; return; }
     if (_saw_iac) {
         _saw_iac = false;
-        if ((uint8_t)c >= 0xFB) _skip_opt = true;
-        return;
-    }
-    if ((uint8_t)c == 0xFF) { _saw_iac = true; return; }
+        // IAC IAC (0xFF 0xFF) escapes a literal 0xFF data byte — keep it, don't
+        // treat it as a command. WILL/WONT/DO/DONT (0xFB-0xFE) take a 3rd option byte.
+        if ((uint8_t)c == 0xFF) { /* literal 0xFF; fall through as data */ }
+        else { if ((uint8_t)c >= 0xFB) _skip_opt = true; return; }
+    } else if ((uint8_t)c == 0xFF) { _saw_iac = true; return; }
 
     if (c == '\n') return;
     if (c == '\r') {

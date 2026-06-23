@@ -12,9 +12,7 @@ extern "C" __attribute__((weak)) void commander_run_autostart(CommandRegistry &)
 void CommandRegistry::registerCommand(const Command &cmd) {
     if (_count >= kMaxCommands) {       // registry full — don't drop it silently
         _dropped++;
-#ifndef LOW_MEMORY_MODE
         if (!_firstDropped) _firstDropped = cmd.name;
-#endif
         return;
     }
     _commands[_count++] = cmd;
@@ -26,15 +24,6 @@ void CommandRegistry::registerModule(IModule &module) {
 }
 
 void CommandRegistry::dispatch(const char *line, Writer &out) const {
-#ifdef LOW_MEMORY_MODE
-    uint8_t id = static_cast<uint8_t>(*line);
-    for (size_t i = 0; i < _count; i++) {
-        if (_commands[i].i2c_id == id) {
-            _commands[i].handler(line + 1, out, _commands[i].ctx);
-            return;
-        }
-    }
-#else
     while (*line == ' ') line++;
     if (*line == '\0') return;
 
@@ -50,18 +39,12 @@ void CommandRegistry::dispatch(const char *line, Writer &out) const {
     }
     out.write("unknown: ");
     out.writeln(line);
-#endif
 }
 
 void CommandRegistry::validateIds() const {
     if (_dropped) {                     // loud at boot on the serial log
-#ifndef LOW_MEMORY_MODE
         printf("[WARN] %u command(s) dropped (e.g. '%s') — MAX_COMMANDS=%u too small\n",
                (unsigned)_dropped, _firstDropped ? _firstDropped : "?", (unsigned)kMaxCommands);
-#else
-        printf("[WARN] %u command(s) dropped — MAX_COMMANDS=%u too small\n",
-               (unsigned)_dropped, (unsigned)kMaxCommands);
-#endif
     }
     for (size_t i = 0; i < _count; i++) {
         if (_commands[i].i2c_id == I2C_NONE) continue;
@@ -75,7 +58,6 @@ void CommandRegistry::validateIds() const {
     }
 }
 
-#ifndef LOW_MEMORY_MODE
 void CommandRegistry::printHelp(Writer &out) const {
     for (size_t i = 0; i < _count; i++) {
         out.write("  ");
@@ -89,4 +71,3 @@ void CommandRegistry::printHelp(Writer &out) const {
         out.writeln("') — MAX_COMMANDS too small; raise it and rebuild");
     }
 }
-#endif

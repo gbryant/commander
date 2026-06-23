@@ -130,7 +130,9 @@ inline void LocomotionModule::driveCmd(const char *args, Writer &out, void *ctx)
         char *end;
         long vel = strtol(p, &end, 10);
         if (end == p) { usage(out); return; }
-        long rad = strtol(end, &end, 10);
+        const char *rp = end;
+        long rad = strtol(rp, &end, 10);
+        if (end == rp) rad = LOCO_RADIUS_STRAIGHT;   // vel only → drive straight (not a 0-radius spin)
         out.writeln(self->sendDrive((int16_t)vel, (int16_t)rad) ? "ok: drive (raw)"
                                                                 : "i2c write failed");
         return;
