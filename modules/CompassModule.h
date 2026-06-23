@@ -57,7 +57,7 @@ inline void CompassModule::registerCommands(CommandRegistry &reg) {
         [](const char *, Writer &out, void *) {
             int16_t x; int16_t y; int16_t z;
             if (!CompassModule::readAxes(x, y, z)) { out.writeln("err"); return; }
-            char buf[24];
+            char buf[32];   // worst case "X=-32768 Y=-32768 Z=-32768" = 27 incl NUL
             uint8_t i = 0;
             auto appendI16 = [&](int16_t v) {
                 if (v < 0) { buf[i++] = '-'; v = -v; }

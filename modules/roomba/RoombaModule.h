@@ -108,7 +108,9 @@ inline void RoombaModule::driveCmd(RoombaModule *self, const char *p, Writer &ou
         char *end;
         long vel = strtol(p, &end, 10);
         if (end == p) { usage(out); return; }
-        long rad = strtol(end, &end, 10);
+        const char *rp = end;
+        long rad = strtol(rp, &end, 10);
+        if (end == rp) rad = STRAIGHT;   // vel only → drive straight, not a 0-radius spin
         r.drive((int16_t)vel, (int16_t)rad);
         out.writeln("ok: drive (raw)");
         return;
