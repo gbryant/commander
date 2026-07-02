@@ -62,7 +62,8 @@ monitor), `upload`, `monitor`, and `bum-ota` where supported (e.g. `dev/pico/bum
 dev/uno/bum          # build + upload + monitor in one command
 pio run -e uno     # build only
 ```
-Port is hardcoded to `/dev/cu.usbmodem1413301` in `platformio.ini`.
+The serial port is auto-detected by USB VID/PID (`scripts/find_port.py`, used
+by the `dev/uno/*` scripts); raw `pio` commands use PlatformIO's own detection.
 `scripts/patch_freertos.py` runs pre-build to disable the FreeRTOS timer task
 (saves ~480 bytes of heap) and reduce `configMINIMAL_STACK_SIZE` to 128.
 
