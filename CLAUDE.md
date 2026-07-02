@@ -42,6 +42,15 @@ int16_t x; int16_t y; int16_t z;
 **`commander_on_panic()`** is a weak symbol in `core/CommandRegistry.cpp`.
 Override it in platform main for board-specific diagnostics (LED blink, etc.).
 
+**`library.json`'s `frameworks: ["arduino"]` is deliberate — don't widen it.**
+PlatformIO's LDF (default `lib_compat_mode = soft`) checks that field: on
+Uno/R4 (`framework = arduino`) it makes the LDF compile the `srcFilter` sources
+normally, and on Bluepill (`framework = cmsis`) it marks the library
+*incompatible* so the LDF downloads it (`lib_deps` installs before compat
+filtering) but doesn't build it — `stm32_build.py` cherry-picks the portable
+sources from `.pio/libdeps` itself. Declaring no frameworks would mean
+"compatible with everything" and break Bluepill on `hal/arduino/hal.cpp`.
+
 ## Building
 
 Per-board dev scripts live under `dev/<board>/` — `build`, `bum` (build+upload+

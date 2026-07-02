@@ -139,6 +139,9 @@ that `cmdr init` prints once it is.)
 
 ## Going deeper
 
+- **Modules** — [modules.md](modules.md) is the reference for everything
+  `cmdr module enable` offers; [writing-a-module.md](writing-a-module.md) shows
+  how to build your own; [cmdr.md](cmdr.md) documents the tool itself.
 - **Per-board build details** live in `CLAUDE.md` ("Building") — ports, flags, the
   patch scripts, OTA models.
 - **Arduino Uno Q** is a dual-brain board (Debian + STM32U585 M33) and has its own

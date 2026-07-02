@@ -63,6 +63,9 @@ prerequisite matrix — is in **[docs/getting-started.md](docs/getting-started.m
 ## Documentation
 
 - **[docs/getting-started.md](docs/getting-started.md)** — install, SDKs, first project.
+- **[docs/modules.md](docs/modules.md)** — what every stock module does, per board.
+- **[docs/writing-a-module.md](docs/writing-a-module.md)** — write your own module.
+- **[docs/cmdr.md](docs/cmdr.md)** — the `cmdr` tool, command by command.
 - **[CLAUDE.md](CLAUDE.md)** — deep per-board build details, modules, conventions.
 - **[PLAN.md](PLAN.md)** — roadmap and status.
 - **Arduino Uno Q** — [docs/unoq-access.md](docs/unoq-access.md) (board access),
