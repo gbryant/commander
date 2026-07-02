@@ -114,11 +114,14 @@ remote.
 cmdr init pico myrobot     # scaffold a Pico W project (board + name)
 cd myrobot
 cmdr module enable sonar   # answer the module's config questions
-dev/pico/bum               # build + upload + monitor
+./bum                      # build + upload + monitor
 ```
 
 `cmdr init <board> <name>` writes a project that fetches commander as a CMake/
-PlatformIO dependency and generates the `dev/<board>/` scripts for that board.
+PlatformIO dependency and generates its dev scripts (`bum`, `build`, `upload`,
+`monitor`) at the project root. (On pico/pico2 the CMake configure step writes
+them — if `PICO_SDK_PATH` wasn't set at init time, run the `cmake -B ...` line
+that `cmdr init` prints once it is.)
 `cmdr module enable <name>` records your answers in `cmdr.toml` and regenerates
 `commander_modules.h`; `cmdr module list` shows what's available per target. Boards:
 `uno`, `r4`, `pico`, `pico2`, `esp32`, `bluepill` (and `unoq`, see below).

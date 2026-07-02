@@ -14,20 +14,20 @@ def init_args(target, name="proj", **kw):
 
 # (target, [files relative to project dir that must exist], modules.h relative path)
 EXPECTED = {
-    "pico":     (["CMakeLists.txt", "main.cpp", "secrets.h", "cmdr.toml",
+    "pico":     ([".gitignore", "CMakeLists.txt", "main.cpp", "secrets.h", "cmdr.toml",
                   "FreeRTOS_Kernel_import.cmake"], "commander_modules.h"),
-    "pico2":    (["CMakeLists.txt", "main.cpp", "secrets.h", "cmdr.toml"], "commander_modules.h"),
-    "uno":      (["platformio.ini", "src/main.cpp", "cmdr.toml", "scripts/find_port.py",
+    "pico2":    ([".gitignore", "CMakeLists.txt", "main.cpp", "secrets.h", "cmdr.toml"], "commander_modules.h"),
+    "uno":      ([".gitignore", "platformio.ini", "src/main.cpp", "cmdr.toml", "scripts/find_port.py",
                   "bum", "build", "upload", "monitor"], "src/commander_modules.h"),
-    "r4":       (["platformio.ini", "secrets.h", "src/main.cpp", "cmdr.toml",
+    "r4":       ([".gitignore", "platformio.ini", "secrets.h", "src/main.cpp", "cmdr.toml",
                   "scripts/find_port.py", "bum", "build", "upload", "monitor", "bum-ota"],
                  "src/commander_modules.h"),
-    "bluepill": (["platformio.ini", "src/main.cpp", "cmdr.toml", "scripts/stm32_build.py",
+    "bluepill": ([".gitignore", "platformio.ini", "src/main.cpp", "cmdr.toml", "scripts/stm32_build.py",
                   "bum", "build", "upload", "monitor"], "src/commander_modules.h"),
-    "unoq":     (["CMakeLists.txt", "prj.conf", "app.overlay", "README.md", "src/main.cpp",
+    "unoq":     ([".gitignore", "CMakeLists.txt", "prj.conf", "app.overlay", "README.md", "src/main.cpp",
                   "cmdr.toml", "build", "flash", "monitor", "bum", "enable-flash-boot",
                   "install-broker", "restore-arduino", "deploy-sbc"], "src/commander_modules.h"),
-    "esp32":    (["CMakeLists.txt", "sdkconfig.defaults", "secrets.h", "main/CMakeLists.txt",
+    "esp32":    ([".gitignore", "CMakeLists.txt", "sdkconfig.defaults", "secrets.h", "main/CMakeLists.txt",
                   "main/main.cpp", "cmdr.toml", "scripts/find_port.py",
                   "bum", "build", "upload", "monitor"], "main/commander_modules.h"),
 }
@@ -65,10 +65,23 @@ def test_init_rejects_bad_name(cli_mod, project_dir):
         cli_mod.cmd_init(init_args("pico", name="bad/name"))
 
 
-def test_pico_init_configures_cmake(cli_mod, project_dir):
+def test_pico_init_configures_cmake(cli_mod, project_dir, monkeypatch):
     """Pico scaffold kicks off a cmake configure (the only target that does)."""
+    monkeypatch.setenv("PICO_SDK_PATH", "/opt/pico-sdk")
+    monkeypatch.setenv("FREERTOS_KERNEL_PATH", "/opt/FreeRTOS-Kernel")
     cli_mod.cmd_init(init_args("pico"))
     assert any(c[0] == "cmake" for c in project_dir.calls), "pico init should run cmake -B"
+
+
+def test_pico_init_skips_cmake_without_sdks(cli_mod, project_dir, monkeypatch, capsys):
+    """Without the SDK env vars the pico scaffold still succeeds — it skips the
+    configure step with instructions instead of dying on a raw CMake error."""
+    monkeypatch.delenv("PICO_SDK_PATH", raising=False)
+    monkeypatch.delenv("FREERTOS_KERNEL_PATH", raising=False)
+    cli_mod.cmd_init(init_args("pico"))
+    assert not any(c[0] == "cmake" for c in project_dir.calls)
+    assert "Skipping cmake configure" in capsys.readouterr().out
+    assert (project_dir.path / "proj" / "CMakeLists.txt").exists()
 
 
 def test_esp32_layout_has_main_component(cli_mod, project_dir):

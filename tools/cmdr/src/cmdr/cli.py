@@ -1844,7 +1844,10 @@ def cmd_module(args: argparse.Namespace) -> None:
 
     if args.action == "list":
         target, modules, _autostart = read_manifest(manifest) if manifest.exists() else (detect_target(), {}, [])
-        print(f"target: {target or '(unknown)'}")
+        if not target:
+            die("could not determine target — run from a commander project root (no cmdr.toml or platformio.ini)")
+        print(f"target: {target}")
+        width = max(len(n) for n in MODULE_SPECS)
         for name, spec in MODULE_SPECS.items():
             if spec["always"]:
                 state = "always on"
@@ -1856,7 +1859,7 @@ def cmd_module(args: argparse.Namespace) -> None:
                          else f"n/a (needs {'/'.join(spec['platforms'])})")
             else:
                 state = "off"
-            print(f"  {name:10s} {state}")
+            print(f"  {name:{width}s} {state}")
         return
 
     name = args.name
@@ -2071,6 +2074,19 @@ def scaffold_pico(target: str, name: str, out_dir: Path) -> None:
         print(f"Edit {out_dir}/secrets.h with your WiFi credentials\n")
     else:
         print(f"WiFi credentials pre-filled from ~/.cmdr/config\n")
+
+    # Pre-flight: the configure step needs the Pico SDK + FreeRTOS kernel. A
+    # missing env var would surface as a raw CMake include() failure, so check
+    # first — the project is complete either way; configure finishes it later.
+    missing = [v for v in ("PICO_SDK_PATH", "FREERTOS_KERNEL_PATH")
+               if not os.environ.get(v)]
+    if missing:
+        print(f"Skipping cmake configure — {' and '.join(missing)} not set.")
+        print("Install the SDKs (scripts/setup-sdks.sh in the commander repo) and export")
+        print("the env vars (docs/getting-started.md), then configure the project:")
+        print(f"  cd {out_dir} && cmake -B build-{target} -S . -DPICO_BOARD={board}")
+        print("(the configure step also writes the ./bum build/upload/monitor scripts)")
+        return
 
     subprocess.run(
         ["cmake", "-B", f"build-{target}", "-S", ".", f"-DPICO_BOARD={board}"],
@@ -2759,6 +2775,22 @@ def disable_dfu() -> None:
 
 # ── CLI entry points ──────────────────────────────────────────────────────────
 
+# Seeded into every new project so credentials and build output never land in
+# git by accident (secrets.h holds WiFi credentials). Written once at init —
+# the user owns it afterwards (regen never touches it).
+PROJECT_GITIGNORE = """\
+# credentials — never commit
+secrets.h
+
+# build output
+build/
+build-*/
+.pio/
+managed_components/
+__pycache__/
+"""
+
+
 def cmd_init(args: argparse.Namespace) -> None:
     if not args.name.replace("-", "_").replace("_", "").isalnum():
         die(f"project name '{args.name}' contains invalid characters")
@@ -2768,6 +2800,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         die(f"'{out_dir}' already exists")
 
     out_dir.mkdir(parents=True)
+    (out_dir / ".gitignore").write_text(PROJECT_GITIGNORE)
     if args.target == "esp32":
         scaffold_esp32(args.name, out_dir, chip=args.chip, flash_mb=args.flash, psram_mb=args.psram)
     elif args.target in ARDUINO_TARGETS:

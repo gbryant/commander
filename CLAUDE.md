@@ -463,9 +463,11 @@ commander/
   Roomba through the R4 I2C bridge. `modules/locomotion/` (Pico `LocomotionModule`
   `drive`/`stop`/`loco sensors` over `hal_i2c_*` ↔ R4 `loco-bridge` I2C slave →
   shared `Roomba`), plus the `i2c` scan/read/write diagnostic module.
-- Pico W: builds clean, `help` confirmed over USB CDC serial.
-- Pico 2 W (RP2350): builds clean via `dev/pico2/build`. Needs hardware test.
-- ESP32-S3-N16R8: builds clean, `help` confirmed over native USB CDC (USB Serial/JTAG).
+- Pico W: `help` confirmed over USB CDC serial; WiFi + Telnet live.
+- Pico 2 W (RP2350): hardware-confirmed — `help` + WiFi + Telnet, and it's the
+  locomotion master that drives the robot through the R4 bridge.
+- ESP32-S3-N16R8: `help` confirmed over native USB CDC (USB Serial/JTAG); the
+  runner's UART + WiFi + Telnet confirmed on a XIAO ESP32-S3.
 - STM32 Bluepill (STM32F103C8): hardware-confirmed — blink, `help` over USART1, `help`
   over USB CDC, and USB-DFU upload with no ST-Link. I2C/compass pending. `cmdr init
   bluepill <name>` scaffolds projects; `cmdr enable dfu` / `disable dfu` toggle the
@@ -473,14 +475,8 @@ commander/
 
 ## What's next
 
-Phase R0 — flash and confirm the two new platforms:
-- ~~Flash Arduino R4 and confirm `help` + WiFi + Telnet~~ ✅ done (2026-05-29)
-- Flash Pico 2 W and confirm `help` + WiFi
-
-Phase R1 — Roomba driver module: ✅ done (2026-05-29)
-- `modules/roomba/Roomba.h` (portable OI driver) + `RoombaModule.h` (`oi` command)
-  drove a real Roomba from the R4 over `Serial1` (D0/D1).
-
-Phase R2 — Pico 2 W as main controller (next):
-- Define I2C bridge registers in `i2c_ids.h` (revisit `MOD_LOCOMOTION` fit)
-- Arduino R4 becomes Roomba I2C bridge (I2C slave → Roomba OI)
+See PLAN.md ("What's next") for the live list. Headlines: re-confirm the rolled-in
+`controller` module on hardware (Phase R3), the Pico pull-OTA hardware test, an IR
+hardware pass on the new ESP32 (RMT) / Bluepill (EXTI) implementations, and
+Bluepill I2C (`hal_i2c_*` is stubbed there). Phases R0–R2 (platform proofs, Roomba
+driver, Pico-as-controller via the R4 I2C bridge) are done and hardware-confirmed.

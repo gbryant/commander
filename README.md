@@ -25,9 +25,9 @@ HAL (`hal/hal.h`). Platform specifics are confined to `hal/`, `transport/`, and
 |-------|-------|--------|
 | Arduino Uno (AVR) | PlatformIO | ✅ shell over serial |
 | Arduino R4 WiFi | PlatformIO | ✅ shell + WiFi + Telnet + mDNS (hardware-confirmed) |
-| Raspberry Pi Pico W (RP2040) | CMake + Pico SDK | ✅ shell over USB CDC |
-| Raspberry Pi Pico 2 W (RP2350) | CMake + Pico SDK | ✅ builds; SMP/M33 config |
-| ESP32-S3 | ESP-IDF v5 | ✅ shell over native USB |
+| Raspberry Pi Pico W (RP2040) | CMake + Pico SDK | ✅ shell over USB CDC + WiFi + Telnet |
+| Raspberry Pi Pico 2 W (RP2350) | CMake + Pico SDK | ✅ shell + WiFi + Telnet (hardware-confirmed); SMP/M33 |
+| ESP32-S3 | ESP-IDF v5 | ✅ shell over native USB + WiFi + Telnet |
 | STM32 Bluepill (F103) | PlatformIO (CMSIS) | ✅ shell over USART/USB CDC; USB-DFU upload (I2C pending) |
 | Arduino Uno Q (Debian + M33) | M33 firmware + Debian services | ⚙️ channel bus hardware-proven; tutorial in progress |
 
@@ -41,7 +41,7 @@ pip install "git+https://github.com/gbryant/commander.git#subdirectory=tools/cmd
 cmdr init pico myrobot
 cd myrobot
 cmdr module enable sonar
-dev/pico/bum
+./bum
 ```
 
 Full setup — host tools, SDK bootstrap, the env-var contract, and a per-board

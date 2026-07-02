@@ -32,8 +32,8 @@ get working firmware without touching WiFi, FreeRTOS, or panic-hook boilerplate.
 │  commander_config() + commander_setup() + hooks       │   commander_setup()
 ├──────────────────────────────────────────────────────┤
 │  runners/pico/runner.cpp  (commander::pico_runner)    │ ← main(), WiFi+mDNS,
-│  runners/esp32/  (todo)                               │   FreeRTOS tasks,
-│                                                        │   panic hooks
+│  runners/esp32/  arduino-uno/  arduino-r4/            │   FreeRTOS tasks,
+│  stm32-bluepill/  zephyr/ (one per target family)     │   panic hooks
 ├──────────────────────────────────────────────────────┤
 │  transport/uart/          transport/telnet/            │ ← how commands arrive
 │  (commander::transport_uart/telnet)                   │   (serial / WiFi)
@@ -120,10 +120,11 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | `modules/ir/IIRModule.h`          | ✅ done      | interface only                                      |
 | `platform/pico/IRModule` (PIO)    | ✅ done      | PicoIRModule (PIO+core1); in cmdr module system (`cmdr module enable ir`) |
 | `platform/arduino/IRModule`       | ✅ done      | IRremote-based; in cmdr module system on Uno + R4 (`cmdr module enable ir`) |
-| `platform/esp32/IRModule` (RMT)   | ⬜ todo      |                                                     |
+| `platform/esp32/Esp32IRModule` (RMT) | ✅ done   | in cmdr module system (2026-06-18); needs hardware test |
+| `platform/stm32-bluepill/Stm32IRModule` | ✅ done | EXTI/DWT capture (2026-06-18); needs hardware test  |
 | `modules/roomba/Roomba`           | ✅ done      | portable OI driver via abstract `RoombaPort`        |
 | `modules/roomba/RoombaModule`     | ✅ done      | `oi` shell command; drove a real Roomba from R4     |
-| Bluetooth module                  | ⬜ todo      |                                                     |
+| Bluetooth controller module       | ✅ done      | `modules/controller/` + Bluepad32 Pico backend (`cmdr module enable controller`); see Phase R3 |
 
 ## Roadmap
 
@@ -161,7 +162,8 @@ Modules are composed by `cmdr`, not by hand-editing `commander_setup()`.
       first: IR `ir wall`, default off.
 - [x] Companion host tooling installed to `bin/` (IR `irmap.py`/`irlookup.py`),
       seed dirs (IR `maps/` library), shared VID/PID port detection (`find_port.py`).
-- [ ] Extend the module system + IR (RMT) to ESP32.
+- [x] Extend the module system + IR to ESP32 (RMT) and Bluepill (EXTI/DWT) —
+      landed 2026-06-18; both need a hardware pass.
 
 ### Phase R — robot integration
 
@@ -258,17 +260,18 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
 
 ### What's next
 
-1. **Phase R3 — Bluetooth controller** — generic `modules/controller/` plumbing is
-   in, and the BT-only Bluepad32 backend is hardware-confirmed (a pad drove the
-   robot via the R4 bridge). Next: WiFi+BT combined on the one CYW43, then roll the
-   Pico backend into `platform/pico/` + a `cmdr` `controller` module.
+1. **Phase R3 — Bluetooth controller** — everything is rolled in (`cmdr module
+   enable controller`, Pico Bluepad32 backend, WiFi+BT on the one CYW43); the
+   BT-only proving ground was hardware-confirmed. Remaining: re-confirm on
+   hardware that a pad drives the robot from the rolled-in module (and that
+   telnet still works alongside BT).
 2. **OTA hardware test** — pico & esp32 runners already register the pull-based
    `ota <url>` command (gated by COMMANDER_ENABLE_OTA via `cmdr enable ota`);
    exercise it end-to-end on Pico W / Pico 2 W / ESP32 hardware.
 3. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
    on ESP32 (esp_restart into download mode or DFU).
-4. **ESP32 module system + IR** — wire ESP32 into the `cmdr module` system (hook
-   main + target detection) and add an RMT-based IR impl.
+4. **IR hardware pass** — the ESP32 (RMT) and Bluepill (EXTI/DWT) IR modules
+   landed 2026-06-18 in the module system; exercise both on hardware.
 5. **Bluepill I2C** — implement `hal_i2c_*` for the STM32 (I2C1 peripheral or
    bit-bang) to bring up `compass`; currently stubbed in `hal/stm32/hal.cpp`.
 6. **Grove Vision AI V2 (`aicam`)** — esp32 module landed: SSCMA AT protocol over a
@@ -285,6 +288,6 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
 | I2C SDA   | A4          | GP4            | GP4              | GPIO4          |
 | I2C SCL   | A5          | GP5            | GP5              | GPIO5          |
 | Sonar     | D4          | GP6            | GP6              | —              |
-| IR recv   | D5          | GP22 (PIO)     | GP22 (PIO)       | — (RMT todo)   |
+| IR recv   | D5          | GP22 (PIO)     | GP22 (PIO)       | GPIO38 (RMT)   |
 | UART TX   | —           | GP20 (stdio)   | GP20 (stdio)     | GPIO43         |
 | UART RX   | —           | GP21 (stdio)   | GP21 (stdio)     | GPIO44         |

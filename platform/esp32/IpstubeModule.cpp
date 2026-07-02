@@ -48,9 +48,8 @@ static void *ips_stb_malloc(size_t n) {
 #endif
 // The TFT displays' backlight is TFT_ENABLE_PIN = GPIO4, an active-low,
 // PWM-dimmable transistor (IPSTube dims it "inverted", CALCDIMVALUE = 255 - x).
-// NOT GPIO5 — that's the WS2812 ambient LED chain (BACKLIGHTS_PIN), a separate
-// addressable-LED feature (see `ipstube led`, TODO) that needs the WS2812
-// protocol, not PWM.
+// NOT GPIO5 — that's the WS2812 ambient LED chain (BACKLIGHTS_PIN), driven by
+// the separate `ws2812` module (addressable protocol, not PWM).
 #ifndef IPSTUBE_PIN_BL
 #define IPSTUBE_PIN_BL    4
 #endif
