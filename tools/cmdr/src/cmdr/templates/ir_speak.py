@@ -3,26 +3,31 @@
 
 A pure subscriber to the broker's ch1 socket — it starts nothing (the board streams IR on
 ch1 as a standing capability; one-time setup `cmdr autostart add "ir recv"`). Matches each
-press against the JSON maps in maps/, prints the match, and SPEAKS the button's name through Piper
-TTS. It reuses your existing TTS method by driving ~/piper_project/tts_stream.py as a
-persistent co-process: that script loads the voice once and speaks each line piped to its
-`tts>` stdin loop, so the model stays warm between presses and ir_speak.py itself stays on the
-plain system python3 like the other channel tools (the TTS deps live in the piper venv, which
-only the co-process needs). If piper isn't available (or dies), it falls back to **espeak-ng**
-so it still speaks. Run it on the SBC next to the broker. A test/demo tool.
+press against the JSON maps in maps/, prints the match, and SPEAKS the button's name.
+
+TTS backends, best-first: (1) the Piper **TTS daemon** from the unoq-tools repo
+(https://github.com/gbryant/unoq-tools — `setup-tts.py`, then `tts.py daemon install`), which
+keeps the voice warm and takes fire-and-forget lines on a FIFO (`/run/user/<uid>/tts.fifo`;
+its existence is the readiness signal); (2) **espeak-ng**, one fast-starting process per
+utterance; (3) print-only. The fallback is per-utterance, so a daemon restart mid-run just
+means a few robotic announcements. ir_speak.py itself stays on the plain system python3 like
+the other channel tools (the Piper deps live in the daemon's venv, on the board).
+Run it on the SBC next to the broker. A test/demo tool.
 
 Usage:
-    python3 ir_speak.py [--maps DIR] [--rundir DIR] [--piper-dir DIR]
+    python3 ir_speak.py [--maps DIR] [--rundir DIR] [--tts-fifo PATH]
 
-    --maps      DIR   directory of JSON map files (default: maps/)
-    --rundir    DIR   broker rundir holding ch1.sock (default: /tmp/commander)
-    --piper-dir DIR   piper TTS project dir (default: ~/piper_project) — holds venv/ + tts_stream.py
+    --maps      DIR    directory of JSON map files (default: maps/)
+    --rundir    DIR    broker rundir holding ch1.sock (default: /tmp/commander)
+    --tts-fifo  PATH   TTS daemon FIFO (default: $XDG_RUNTIME_DIR/tts.fifo,
+                       else /run/user/<uid>/tts.fifo)
 """
 import argparse
 import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -73,55 +78,54 @@ def fmt_match(remote, entry):
     return s + (f" / {sel}" if sel is not None else '')
 
 
+def default_tts_fifo():
+    """The unoq-tools TTS daemon's FIFO. The daemon (a systemd --user unit) resolves
+    $XDG_RUNTIME_DIR itself; a client in a bare adb shell may not have it set, so fall
+    back to the conventional /run/user/<uid> location."""
+    rundir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    return os.path.join(rundir, "tts.fifo")
+
+
 class Speaker:
-    """Speaks button names. Primary backend: the user's tts_stream.py driven as a warm
-    co-process (reusing their script verbatim — its `tts>` input loop — keeps this in lockstep
-    with whatever Piper voice/method it uses, and loads the model once). Backup: espeak-ng,
-    one process per utterance (it starts fast, no warm-up). Falls back if piper is missing at
-    start or dies mid-run, so a degraded run still speaks."""
-    def __init__(self, piper_dir):
-        self.proc = None                                    # piper co-process, when live
+    """Speaks button names. Primary backend: the unoq-tools Piper TTS daemon — a warm
+    voice behind a FIFO; one written line = one fire-and-forget utterance, and the FIFO
+    only exists while the daemon is serving. Backup: espeak-ng, one process per utterance
+    (it starts fast, no warm-up). The FIFO is retried per utterance, so a daemon
+    restarting mid-run degrades and recovers on its own."""
+    def __init__(self, fifo):
+        self.fifo = fifo
         self.espeak = shutil.which("espeak-ng")             # backup CLI, or None
-        py = os.path.join(piper_dir, "venv", "bin", "python")
-        script = os.path.join(piper_dir, "tts_stream.py")
-        missing = py if not os.path.exists(py) else (script if not os.path.exists(script) else None)
-        if not missing:
-            try:
-                self.proc = subprocess.Popen(
-                    [py, script],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,   # hide its "Loading voice"/`tts>` chatter; we print our own
-                    text=True,
-                )
-            except OSError as exc:
-                missing = f"tts_stream.py ({exc})"
-        if self.proc:
-            return                                          # piper is primary
+        if self.backend == "piper":
+            return
         if self.espeak:
-            print(f"[ir_speak] piper TTS unavailable ({missing} not found) — using espeak-ng "
-                  f"backup.", file=sys.stderr)
+            print(f"[ir_speak] TTS daemon not running ({fifo} absent — see unoq-tools "
+                  f"setup-tts.py) — using espeak-ng backup.", file=sys.stderr)
         else:
-            print(f"[ir_speak] TTS disabled — {missing} not found and no espeak-ng; matches "
-                  f"print only.", file=sys.stderr)
+            print(f"[ir_speak] TTS disabled — no daemon FIFO at {fifo} and no espeak-ng; "
+                  f"matches print only.", file=sys.stderr)
 
     @property
     def backend(self):
-        if self.proc is not None and self.proc.poll() is None:
-            return "piper"
+        try:
+            if stat.S_ISFIFO(os.stat(self.fifo).st_mode):
+                return "piper"
+        except OSError:
+            pass
         return "espeak" if self.espeak else None
 
     def say(self, text):
         text = text.replace("\n", " ")
-        if self.proc is not None:                           # primary: warm piper co-process
-            if self.proc.poll() is None:
-                try:
-                    self.proc.stdin.write(text + "\n")      # one line = one utterance
-                    self.proc.stdin.flush()
-                    return True
-                except (BrokenPipeError, ValueError):
-                    self.proc = None
-            else:
-                self.proc = None                            # piper died -> fall through to espeak
+        try:
+            # O_NONBLOCK: fail with ENXIO instead of blocking forever if the daemon
+            # isn't at the read end (e.g. it exited without cleaning up its FIFO).
+            fd = os.open(self.fifo, os.O_WRONLY | os.O_NONBLOCK)
+            try:
+                os.write(fd, (text + "\n").encode())
+                return True
+            finally:
+                os.close(fd)
+        except OSError:
+            pass                                            # daemon down -> espeak
         if self.espeak:                                     # backup: fire-and-forget espeak-ng
             try:
                 subprocess.Popen([self.espeak, text],
@@ -132,15 +136,7 @@ class Speaker:
         return False
 
     def close(self):
-        if self.proc is not None and self.proc.poll() is None:
-            try:
-                self.proc.stdin.close()      # EOF -> tts_stream prints "bye" and exits cleanly
-            except Exception:
-                pass
-            try:
-                self.proc.wait(timeout=5)
-            except Exception:
-                self.proc.terminate()
+        pass                                                # nothing held open between utterances
 
 
 def show(protocol, address, command, bits, matches, spoke):
@@ -165,8 +161,8 @@ def main():
     p = argparse.ArgumentParser(description="Speak the matched IR button name over the channel bus")
     p.add_argument('--maps', '-m', default=DEFAULT_MAPS, metavar='DIR', help='map files directory')
     p.add_argument('--rundir', default='/tmp/commander', help='broker rundir (ch1.sock)')
-    p.add_argument('--piper-dir', default=os.path.expanduser('~/piper_project'),
-                   help='piper TTS project dir (holds venv/ + tts_stream.py)')
+    p.add_argument('--tts-fifo', default=default_tts_fifo(),
+                   help='TTS daemon FIFO (unoq-tools tts_daemon.py)')
     args = p.parse_args()
 
     maps = load_maps(args.maps)
@@ -177,9 +173,9 @@ def main():
     else:
         print(f"No map files in '{args.maps}/' — nothing to match/speak. Build one with ir_map.py.\n")
 
-    speaker = Speaker(args.piper_dir)
+    speaker = Speaker(args.tts_fifo)
     if speaker.backend == "piper":
-        print("Piper voice warming up — the first press may lag until it loads.\n")
+        print("Speaking matched names via the Piper TTS daemon (voice already warm).\n")
     elif speaker.backend == "espeak":
         print("Speaking matched names via espeak-ng.\n")
 

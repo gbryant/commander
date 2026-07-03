@@ -40,7 +40,11 @@ machine." Precondition for everything below.
 
 ---
 
-## 2. Console as just another channel — the session/channel unification — *proposed*
+## 2. Console as just another channel — the session/channel unification — *partially shipped 2026-06-17*
+
+> Phases A (channel identity, `channel_ids.h`) + B1 (per-channel command sessions)
+> shipped — see `docs/channels-first-class.md` and PLAN.md ("Channel bus"). B2 (ch0
+> console collapse), C (more boards), D (cmdr modeling), E (handshake) remain proposed.
 
 > **Implementation home: `docs/channels-first-class.md`** (Phase B). That note frames this unification
 > as the keystone of a broader plan to make the channel bus first-class — channel identity

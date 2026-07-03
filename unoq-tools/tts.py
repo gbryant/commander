@@ -30,7 +30,7 @@ UENV = 'XDG_RUNTIME_DIR=/run/user/$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/r
 VOICE_DIR = "$HOME/.local/share/piper"
 FIFO = "/run/user/$(id -u)/tts.fifo"
 WAKE_WAV = "/usr/share/sounds/alsa/Front_Center.wav"
-HERE = os.path.dirname(os.path.abspath(__file__))     # dev/unoq/ — daemon + unit live here
+HERE = os.path.dirname(os.path.abspath(__file__))     # repo root — daemon + unit live here
 UNIT = "tts-daemon.service"
 DROPIN_DIR = "$HOME/.config/systemd/user/tts-daemon.service.d"
 DEFAULT_VOICE = "en_US-amy-medium"

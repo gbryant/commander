@@ -14,10 +14,14 @@ Wi-Fi and device naming** (per Arduino's UNO Q User Manual), and the Linux user 
 There is **no auto-setup triggered by `adb shell`** and no first-boot wizard on the board;
 App Lab pushes the provisioning over USB. So a fresh image is reachable but unprovisioned.
 
-Companion docs (assume the post-provisioning state this guide reaches):
+The generic board tooling lives in the companion
+**[unoq-tools](https://github.com/gbryant/unoq-tools)** repo: `setup-board.py` is the
+interactive wizard for the provisioning this guide covers (password, hostname, ssh,
+mDNS, Wi-Fi, headless slim), plus TTS and Bluetooth-audio setup and their docs
+(headless trim, factory restore, ML backend, BT audio).
+
+Companion docs in this repo (assume the post-provisioning state this guide reaches):
 [`unoq-access.md`](./unoq-access.md) (access map + console bridge),
-[`unoq-linux-setup.md`](./unoq-linux-setup.md) (headless trim),
-[`unoq-factory-restore.md`](./unoq-factory-restore.md) (getting back to stock),
 [`zephyr-hal-spike.md`](./zephyr-hal-spike.md) (M33 boot-byte write),
 [`dev/unoq/README.md`](../dev/unoq/README.md) (Debian-side bridge/broker services).
 
@@ -88,11 +92,11 @@ What a freshly flashed stock image actually gives you:
 
 ## 2. Provisioning + slim — one host-side wizard
 
-`dev/unoq/setup-board.py` does the whole setup **from your machine over adb** — no hand-piping
+`setup-board.py` (from [unoq-tools](https://github.com/gbryant/unoq-tools)) does the whole setup **from your machine over adb** — no hand-piping
 commands to the board. Just run it; it's an interactive wizard, no flags needed:
 
 ```bash
-dev/unoq/setup-board.py
+unoq-tools/setup-board.py
 ```
 
 It inspects each thing, shows the current state, and asks permission before changing anything —
@@ -104,7 +108,7 @@ so it's **idempotent and safe to re-run** (already-done steps show ✓ and are s
 3. **ssh** + **mDNS (avahi)** — enables each only if not already active.
 4. **Wi-Fi** — if not connected, prompts for SSID + password and joins via `nmcli`.
 5. **Slim** — if not already a headless host, offers to drop the GUI + ModemManager/bluetooth and
-   mask the App Lab/Docker stack (~210 MB RAM; reverts in [unoq-linux-setup.md](./unoq-linux-setup.md)).
+   mask the App Lab/Docker stack (~210 MB RAM; reverts in unoq-tools [unoq-linux-setup.md](https://github.com/gbryant/unoq-tools/blob/main/docs/unoq-linux-setup.md)).
 6. **Reboot** — offered at the end.
 
 It does NOT mask the router or install the bridge — that's §4 (`install_broker.sh`). Once Wi-Fi is
@@ -114,8 +118,8 @@ up, `ssh arduino@<hostname>.local` works.
 
 ## 3. MCU boot bytes (commander on the M33)
 
-The reflash writes only the QRB2210 eMMC; the STM32 option bytes are untouched by it (see
-[`unoq-factory-restore.md`](./unoq-factory-restore.md)). To run commander on the M33 you need
+The reflash writes only the QRB2210 eMMC; the STM32 option bytes are untouched by it (see unoq-tools
+[`unoq-factory-restore.md`](https://github.com/gbryant/unoq-tools/blob/main/docs/unoq-factory-restore.md)). To run commander on the M33 you need
 it booting from flash — the one-time SWD option-byte write in
 [`zephyr-hal-spike.md`](./zephyr-hal-spike.md) → "Make the M33 boot from flash".
 
@@ -136,8 +140,8 @@ then install the bridge (plain console) or broker (channel bus). Full steps:
 
 ## 5. (Optional) Headless trim
 
-For a lean commander host, drop the GUI and unused daemons — see
-[`unoq-linux-setup.md`](./unoq-linux-setup.md) (frees ~210 MB RAM). The App Lab + Docker
+For a lean commander host, drop the GUI and unused daemons — see unoq-tools
+[`unoq-linux-setup.md`](https://github.com/gbryant/unoq-tools/blob/main/docs/unoq-linux-setup.md) (frees ~210 MB RAM). The App Lab + Docker
 stack must be **masked, not disabled** (it socket-activates back otherwise).
 
 ---

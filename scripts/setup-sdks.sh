@@ -16,6 +16,10 @@
 #   --no-esp-idf   skip ESP-IDF + its toolchain (default: install it)
 #   --zephyr       ALSO set up the Zephyr workspace for the Uno Q M33 (default: off)
 #
+# Uno Q owners: this script covers the FIRMWARE side only. Board-side setup
+# (first-boot provisioning wizard, Piper TTS, Bluetooth audio — all over adb)
+# lives in the companion repo: https://github.com/gbryant/unoq-tools
+#
 # Install location: $COMMANDER_SDK_DIR (default ~/u-developer). The dev scripts
 # default to the same path, so the common case needs zero env vars; set the per-SDK
 # vars printed at the end only if you keep an SDK elsewhere.
@@ -143,3 +147,7 @@ echo
 echo "(The esp32 dev scripts self-source $SDK_DIR/esp-idf/export.sh, so the alias"
 echo " is only for running raw idf.py. STM32_DFU_BOOTLOADER_PATH / TINYUSB_PATH"
 echo " default sensibly — see docs/getting-started.md for the full contract.)"
+echo
+echo "Uno Q owners: this covered the firmware side only — the board itself"
+echo "(first-boot provisioning, Piper TTS, Bluetooth audio, all over adb) is"
+echo "set up with the companion repo: https://github.com/gbryant/unoq-tools"

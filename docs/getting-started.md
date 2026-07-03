@@ -114,11 +114,14 @@ remote.
 cmdr init pico myrobot     # scaffold a Pico W project (board + name)
 cd myrobot
 cmdr module enable sonar   # answer the module's config questions
-dev/pico/bum               # build + upload + monitor
+./bum                      # build + upload + monitor
 ```
 
 `cmdr init <board> <name>` writes a project that fetches commander as a CMake/
-PlatformIO dependency and generates the `dev/<board>/` scripts for that board.
+PlatformIO dependency and generates its dev scripts (`bum`, `build`, `upload`,
+`monitor`) at the project root. (On pico/pico2 the CMake configure step writes
+them — if `PICO_SDK_PATH` wasn't set at init time, run the `cmake -B ...` line
+that `cmdr init` prints once it is.)
 `cmdr module enable <name>` records your answers in `cmdr.toml` and regenerates
 `commander_modules.h`; `cmdr module list` shows what's available per target. Boards:
 `uno`, `r4`, `pico`, `pico2`, `esp32`, `bluepill` (and `unoq`, see below).
@@ -136,11 +139,15 @@ PlatformIO dependency and generates the `dev/<board>/` scripts for that board.
 
 ## Going deeper
 
+- **Modules** — [modules.md](modules.md) is the reference for everything
+  `cmdr module enable` offers; [writing-a-module.md](writing-a-module.md) shows
+  how to build your own; [cmdr.md](cmdr.md) documents the tool itself.
 - **Per-board build details** live in `CLAUDE.md` ("Building") — ports, flags, the
   patch scripts, OTA models.
 - **Arduino Uno Q** is a dual-brain board (Debian + STM32U585 M33) and has its own
-  setup track — start at `docs/unoq-access.md` (board access), then
-  `docs/unoq-linux-setup.md`, and `dev/unoq/README.md` (the Debian-side bridge/broker
-  services). A guided Uno Q tutorial is in progress.
+  setup track — start at `docs/getting-started-unoq.md`, then `docs/unoq-access.md`
+  (board access) and `dev/unoq/README.md` (the Debian-side bridge/broker services).
+  Generic board tooling (bring-up wizard, TTS, BT audio) is in the companion
+  [unoq-tools](https://github.com/gbryant/unoq-tools) repo.
 - **The channel bus** (multi-consumer Linux-hosted commander):
   `docs/commander-channels-design.md` and `docs/commander-channels-bringup.md`.

@@ -17,7 +17,7 @@ import getpass
 import subprocess
 import sys
 
-import bt   # sibling tool in dev/unoq/ — the pair/connect flow lives here
+import bt   # sibling tool in this repo — the pair/connect flow lives here
 
 USER = "arduino"
 # User-session (PipeWire/BlueZ) commands need these over a non-login adb shell — .bashrc isn't
