@@ -240,7 +240,7 @@ def main():
     if step_voices(voices):
         step_verify(voices[0])
     step_daemon()
-    print("\ndone. Speak with:  python dev/unoq/tts.py \"hello from piper\"")
+    print("\ndone. Speak with:  python tts.py \"hello from piper\"")
 
 
 if __name__ == "__main__":

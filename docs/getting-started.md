@@ -145,8 +145,9 @@ that `cmdr init` prints once it is.)
 - **Per-board build details** live in `CLAUDE.md` ("Building") — ports, flags, the
   patch scripts, OTA models.
 - **Arduino Uno Q** is a dual-brain board (Debian + STM32U585 M33) and has its own
-  setup track — start at `docs/unoq-access.md` (board access), then
-  `docs/unoq-linux-setup.md`, and `dev/unoq/README.md` (the Debian-side bridge/broker
-  services). A guided Uno Q tutorial is in progress.
+  setup track — start at `docs/getting-started-unoq.md`, then `docs/unoq-access.md`
+  (board access) and `dev/unoq/README.md` (the Debian-side bridge/broker services).
+  Generic board tooling (bring-up wizard, TTS, BT audio) is in the companion
+  [unoq-tools](https://github.com/gbryant/unoq-tools) repo.
 - **The channel bus** (multi-consumer Linux-hosted commander):
   `docs/commander-channels-design.md` and `docs/commander-channels-bringup.md`.

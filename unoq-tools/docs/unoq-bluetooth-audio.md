@@ -29,7 +29,7 @@ The two things that cost the most time, in order:
 A fresh-image checklist (details below): §1 packages + groups + linger → §2 env vars in `.bashrc`
 → §3 seat-monitoring fix → §4 pair the speaker → done.
 
-**Or just run the wizard:** `dev/unoq/setup-bt-audio.py` drives all of this from your host over
+**Or just run the wizard:** `setup-bt-audio.py` drives all of this from your host over
 adb — inspects each step, asks before changing anything, idempotent (re-runnable). The manual
 steps below are the reference / for understanding what it does.
 
@@ -106,7 +106,7 @@ adb shell 'XDG_RUNTIME_DIR=/run/user/$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path
 ```
 
 (An interactive `adb shell` — no command — *does* source `.bashrc`, as does `ssh arduino@host 'espeak…'`.
-The host-side `dev/unoq/*.py` tools always prefix this env for exactly this reason.)
+The host-side `*.py` tools in this repo always prefix this env for exactly this reason.)
 
 ---
 
@@ -180,9 +180,9 @@ espeak-ng "hello"              # or: paplay file.wav, aplay, Piper TTS, ...
 Native PipeWire equivalents (handy): `wpctl status` (list with IDs), `wpctl set-default <id>`,
 `wpctl set-volume <id> 0.8`.
 
-**From your host (over adb):** `dev/unoq/bt.py` connects/reports the speaker — `bt.py` (status),
+**From your host (over adb):** `bt.py` connects/reports the speaker — `bt.py` (status),
 `bt.py connect` (reconnect after an idle disconnect), `bt.py pair`, `bt.py disconnect`.
-`dev/unoq/volume.py` reports/sets the default sink's volume — `volume.py`, `volume.py 70`,
+`volume.py` reports/sets the default sink's volume — `volume.py`, `volume.py 70`,
 `volume.py +10`/`-10`, `volume.py mute|toggle`. (`setup-bt-audio.py` calls `bt.py`'s pair flow
 for its last step.)
 

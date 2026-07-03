@@ -68,8 +68,10 @@ prerequisite matrix — is in **[docs/getting-started.md](docs/getting-started.m
 - **[docs/cmdr.md](docs/cmdr.md)** — the `cmdr` tool, command by command.
 - **[CLAUDE.md](CLAUDE.md)** — deep per-board build details, modules, conventions.
 - **[PLAN.md](PLAN.md)** — roadmap and status.
-- **Arduino Uno Q** — [docs/unoq-access.md](docs/unoq-access.md) (board access),
-  [docs/unoq-linux-setup.md](docs/unoq-linux-setup.md), and
-  [dev/unoq/README.md](dev/unoq/README.md) (Debian-side bridge/broker).
+- **Arduino Uno Q** — [docs/getting-started-unoq.md](docs/getting-started-unoq.md),
+  [docs/unoq-access.md](docs/unoq-access.md) (board access), and
+  [dev/unoq/README.md](dev/unoq/README.md) (Debian-side bridge/broker). Generic
+  board tooling (bring-up wizard, TTS, BT audio) lives in the companion
+  [unoq-tools](https://github.com/gbryant/unoq-tools) repo.
 - **Channel bus** (multi-consumer Linux-hosted commander) —
   [docs/commander-channels-design.md](docs/commander-channels-design.md).

@@ -9,7 +9,7 @@ and skipped, so it's safe to re-run.
 A fresh stock image lands you as the `arduino` user over adb with ssh/avahi DISABLED, no Wi-Fi,
 and the account password EXPIRED (sudo blocked until it's reset). adb-over-USB is the only door
 until this runs. The current password value is not assumed — `passwd` asks you for it directly.
-See docs/getting-started-unoq.md.
+See the commander repo’s docs/getting-started-unoq.md for the full Uno Q track.
 """
 import getpass
 import shlex

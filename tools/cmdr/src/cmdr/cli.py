@@ -2183,9 +2183,10 @@ adb pull /home/arduino/sony.json maps/                   # keep new maps under v
 ```
 (To inspect or stop the stream, open a command session on `ch2` — `ch2.sock` — and run `ir recv`
 to toggle it; the consuming tools above never touch it.)
-`ir_speak.py` drives `~/piper_project/tts_stream.py` as a warm co-process to speak the matched button
-name (override its location with `--piper-dir`; it falls back to `espeak-ng` if piper is missing, or
-prints-only if neither is available).
+`ir_speak.py` speaks the matched button name through the warm Piper **TTS daemon** from
+[unoq-tools](https://github.com/gbryant/unoq-tools) (install once: its `setup-tts.py`, then
+`tts.py daemon install`); it falls back to `espeak-ng` if the daemon isn't running, or
+prints-only if neither is available.
 (Or just eyeball presses: `adb shell "socat - UNIX-CONNECT:/tmp/commander/ch1.sock"`.)
 
 ## Revert to stock Arduino

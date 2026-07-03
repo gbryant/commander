@@ -4,6 +4,13 @@ systemd units that own the MCU↔Debian serial link on the Arduino Uno Q (`ganda
 **alternatives, not co-runners** — both want `/dev/ttyHS1` + `/dev/ttyGS0`, and each is paired
 with a different MCU firmware. Keep both in the repo so either can be (re)created later.
 
+> The generic Uno Q host tooling that used to live here (board bring-up wizard,
+> Piper TTS daemon + setup, Bluetooth audio, volume) moved to the freestanding
+> [unoq-tools](https://github.com/gbryant/unoq-tools) repo — it isn't
+> commander-specific. This directory keeps only what pairs with commander
+> firmware: the two service units and `install_broker.sh` (the delegation
+> target of a project's `install-broker` shim).
+
 | Unit | Pairs with firmware | What it does |
 |------|---------------------|--------------|
 | `commander-bridge.service` | **plain UART console** (default build) | Dumb `socat` 1:1 passthrough `ttyHS1 ↔ ttyGS0`. The MCU's serial console appears on the Mac's `/dev/cu.usbmodem*`. No channels. |

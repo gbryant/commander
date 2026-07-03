@@ -1,8 +1,8 @@
 # Arduino Uno Q — factory restore (fresh Debian + stock MCU boot)
 
 How to put a board we've modified back to a stock, out-of-the-box state. Companion to
-[`unoq-access.md`](./unoq-access.md) (what we changed on the SBC) and
-[`zephyr-hal-spike.md`](./zephyr-hal-spike.md) (the option-byte write, in depth).
+[`unoq-access.md`](https://github.com/gbryant/commander/blob/main/docs/unoq-access.md) (what we changed on the SBC) and
+[`zephyr-hal-spike.md`](https://github.com/gbryant/commander/blob/main/docs/zephyr-hal-spike.md) (the option-byte write, in depth).
 
 ## The one fact that drives everything: two chips, two domains
 
@@ -105,7 +105,7 @@ Get the tool from Arduino's software/downloads page. Sources/walk-throughs:
 If the board still boots and you only need to back out *our* modifications (no fresh image),
 the SBC half of `restore-arduino` is enough — it disables `commander-broker`, restores
 `commander-bridge`, and unmasks the Arduino router stack (`arduino-router.service`,
-`-serial.service`, `-serial.path`). See "Revert to stock Arduino" in `unoq-access.md`. A
+`-serial.service`, `-serial.path`). See "Revert to stock Arduino" in the commander repo’s `docs/unoq-access.md`. A
 reboot lets the router reclaim `ttyHS1`.
 
 ---
