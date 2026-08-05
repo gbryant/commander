@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Portable embedded command shell (Arduino targets)",
   "keywords": ["commander", "shell", "uart", "freertos"],
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/gbryant/commander.git"

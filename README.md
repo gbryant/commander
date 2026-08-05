@@ -76,3 +76,12 @@ prerequisite matrix — is in **[docs/getting-started.md](docs/getting-started.m
   [unoq-tools](https://github.com/gbryant/unoq-tools) repo.
 - **Channel bus** (multi-consumer Linux-hosted commander) —
   [docs/commander-channels-design.md](docs/commander-channels-design.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE). Embed it, ship it, sell it; just keep the notice.
+
+Third-party code in this repository and the SDKs you supply at build time are listed
+in [THIRD_PARTY.md](THIRD_PARTY.md), including the two dependencies with non-obvious
+terms: BTstack (behind the optional `controller` module) and the optional STM32 DFU
+bootloader.
