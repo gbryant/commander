@@ -20,7 +20,18 @@ if [ ! -f "$BROKER" ] || [ ! -f "$SERVICE" ]; then
 fi
 
 # One sudo for all privileged steps: a single hidden prompt, no re-prompt, no echo leak.
-read -s -p "Board (arduino@gandalf) sudo password: " PW; echo
+# $BOARD_SUDO_PW skips the prompt, so this is runnable from a script or an agent session that
+# has no TTY. Without it and without a terminal, `read` hits EOF and `set -e` would abort with
+# NO output at all — silent and baffling — so say what happened instead.
+if [ -n "$BOARD_SUDO_PW" ]; then
+  PW="$BOARD_SUDO_PW"
+elif [ -t 0 ]; then
+  read -s -p "Board (arduino@gandalf) sudo password: " PW; echo
+else
+  echo "no terminal to prompt for the board sudo password." >&2
+  echo "run this from a terminal, or pass it in:  BOARD_SUDO_PW=... ./install-broker" >&2
+  exit 1
+fi
 
 echo "==> pushing broker + service unit to the board"
 adb push "$BROKER"  /home/arduino/commander_broker.py      >/dev/null
