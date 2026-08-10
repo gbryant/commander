@@ -44,9 +44,13 @@ echo "==> stopping + masking the Arduino router stack, installing commander-brok
 # until the next reboot. The pkill also covers re-running this on a board masked by an older
 # version of this script, where the units are masked (so `stop` may not find them) yet the
 # original router process is still alive.
+#
+# `pkill -x <name>`, NOT `pkill -f <path>`: -f matches full command lines, and the path is in
+# THIS shell's own arguments, so -f makes the sudo shell kill itself (exit 143) — silently
+# skipping every step after it, which is worse than the bug being fixed.
 adb shell "echo '$PW' | sudo -S -p '' bash -c '
   systemctl stop arduino-router-serial.path arduino-router-serial.service arduino-router.service 2>/dev/null || true;
-  pkill -f /usr/bin/arduino-router 2>/dev/null || true;
+  pkill -x arduino-router 2>/dev/null || true;
   cd /etc/systemd/system && for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do [ -f \$u ] && [ ! -L \$u ] && mv \$u \$u.commander-bak && ln -sf /dev/null \$u; done; systemctl daemon-reload || true;
   cp /home/arduino/commander-broker.service /etc/systemd/system/ && systemctl daemon-reload && systemctl disable --now commander-bridge.service 2>/dev/null; systemctl enable commander-broker.service; systemctl restart commander-broker.service'"
 
