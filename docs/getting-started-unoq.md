@@ -152,3 +152,13 @@ stack must be **masked, not disabled** (it socket-activates back otherwise).
 - [ ] MCU console over the bridge (Mac `/dev/cu.usbmodem*`) — `help` responds.
 - [ ] (broker build) a channel publishes MCU→Debian while ch0 console works — see
       [`commander-channels-bringup.md`](./commander-channels-bringup.md).
+
+---
+
+## 7. Next — build something on it
+
+[`unoq-ir-speaker.md`](./unoq-ir-speaker.md) takes a provisioned board through a complete
+project: scaffold, flash, broker, and a remote whose button names are spoken aloud — no code
+written. It's the fastest way to prove the whole dual-brain path works, and its
+layer-by-layer troubleshooting section is the reference when something in your own project
+goes quiet.

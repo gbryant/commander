@@ -69,7 +69,9 @@ prerequisite matrix — is in **[docs/getting-started.md](docs/getting-started.m
 - **[docs/projects.md](docs/projects.md)** — real devices built with commander, as worked examples.
 - **[CLAUDE.md](CLAUDE.md)** — deep per-board build details, modules, conventions.
 - **[PLAN.md](PLAN.md)** — roadmap and status.
-- **Arduino Uno Q** — [docs/getting-started-unoq.md](docs/getting-started-unoq.md),
+- **Arduino Uno Q** — [docs/unoq-ir-speaker.md](docs/unoq-ir-speaker.md) (start here: an
+  end-to-end walkthrough, remote button → spoken name, no code),
+  [docs/getting-started-unoq.md](docs/getting-started-unoq.md) (bring up a stock board),
   [docs/unoq-access.md](docs/unoq-access.md) (board access), and
   [dev/unoq/README.md](dev/unoq/README.md) (Debian-side bridge/broker). Generic
   board tooling (bring-up wizard, TTS, BT audio) lives in the companion
