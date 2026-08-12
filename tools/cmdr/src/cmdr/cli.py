@@ -837,17 +837,29 @@ exec bash "$IMPL" "$@"
 
 UNOQ_RESTORE_ARDUINO_SCRIPT = """\
 #!/bin/bash
-# Revert the board to the stock Arduino App Lab flow: stop/disable the broker, restore the
-# plain bridge + the Arduino router stack, and (optionally) put the M33 boot bytes back so
-# the standard DFU sketch-flash works. The inverse of install-broker + enable-flash-boot.
+# Revert the board to the stock Arduino App Lab flow: stop/disable commander's services (broker
+# + bridge), restore AND start the Arduino router stack, and (optionally) put the M33 boot bytes
+# back so the standard DFU sketch-flash works. The inverse of install-broker + enable-flash-boot.
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
 read -s -p "Board sudo password: " PW; echo
 run() { adb shell "echo '$PW' | sudo -S bash -c '$1'"; }
 
-echo "==> disabling the broker, restoring the bridge + router"
-run 'systemctl disable --now commander-broker.service 2>/dev/null; systemctl enable --now commander-bridge.service 2>/dev/null || true'
-run 'cd /etc/systemd/system && for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do [ -L $u ] && rm -f $u; [ -f $u.commander-bak ] && mv $u.commander-bak $u; done; systemctl daemon-reload'
+echo "==> stopping commander's services, restoring + starting the Arduino router stack"
+# Both commander services own /dev/ttyHS1 (the broker directly, the bridge via socat), and so
+# does the router — only one can. Stop BOTH before handing the link back, or the loser
+# crash-loops on "Device or resource busy" every 2 s, silently, forever (Restart=always).
+run 'systemctl disable --now commander-broker.service 2>/dev/null; systemctl disable --now commander-bridge.service 2>/dev/null; true'
+# Restore the unit files, then actually START the router: unmasking alone leaves the stock flow
+# dead until the next reboot, which is the same "masking is not stopping" trap in reverse.
+run 'cd /etc/systemd/system && for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do [ -L $u ] && rm -f $u; [ -f $u.commander-bak ] && mv $u.commander-bak $u; done; systemctl daemon-reload; systemctl start arduino-router.service arduino-router-serial.path 2>/dev/null || true; systemctl start arduino-router-serial.service 2>/dev/null || true'
+
+sleep 2
+if adb shell "pgrep -x arduino-router >/dev/null && echo yes" 2>/dev/null | grep -q yes; then
+  echo "arduino-router running - App Lab works without a reboot"
+else
+  echo "arduino-router did not start; reboot the board (adb reboot) and it will come back" >&2
+fi
 
 read -p "Also revert the M33 boot bytes to factory (BOOT0-pin)? [y/N] " ok
 if [ "$ok" = "y" ] || [ "$ok" = "Y" ]; then
@@ -860,7 +872,7 @@ if [ "$ok" = "y" ] || [ "$ok" = "Y" ]; then
     -ex "monitor stm32l4x option_load 0" -ex quit 2>&1 | grep -iE "written|option" || true
   adb shell "pkill -f openocd" 2>/dev/null || true; adb forward --remove tcp:3333 2>/dev/null || true
 fi
-echo "restored. (re-running App Lab may need a reboot so the router takes ttyHS1 back)"
+echo "restored."
 """
 
 UNOQ_DEPLOY_SBC_SCRIPT = """\
@@ -2191,7 +2203,7 @@ prints-only if neither is available.
 
 ## Revert to stock Arduino
 ```
-./restore-arduino    # disable the broker, restore the bridge + router, optionally revert boot bytes
+./restore-arduino    # stop commander's services, restore + start the router, optionally revert boot bytes
 ```
 
 Background: `docs/zephyr-hal-spike.md` (boot fix + flash), `docs/commander-channels-bringup.md`
