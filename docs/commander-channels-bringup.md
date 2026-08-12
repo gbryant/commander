@@ -4,6 +4,13 @@
 streamed to Debian on `ch1` (`0x795 p4`) while the `ch0` console stayed live — the full Phase 2a
 scenario on real hardware.
 
+> **This is the bring-up record, not the route in.** It hand-builds what `cmdr` now generates:
+> the app edits below are `cmdr init unoq` + `cmdr module enable ir`, and the broker steps are
+> `./install-broker`. For the worked path from nothing to a working device, follow
+> [`unoq-ir-speaker.md`](./unoq-ir-speaker.md) — it reaches the same proof (an IR press arriving
+> on `ch1`) without editing a file. Read this one to understand what the generated code does,
+> or when building a channel app by hand.
+
 Run the Phase 2a channel bus end-to-end: commander on the STM32U585 (M33, via the Zephyr HAL)
 publishing tagged streams over `lpuart1`/`ttyHS1`, and the Python broker on the QRB2210 Debian
 side demuxing them. Design: `commander-channels-design.md`. Link/access: `unoq-access.md`.

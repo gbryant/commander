@@ -1,5 +1,13 @@
 # Zephyr HAL backend — spike plan (steps 1 & 2)
 
+> **This is a historical record, kept for the *why*.** The spike succeeded: the Uno Q is a
+> first-class target, and every procedure below is now done for you by a generated script —
+> `./build`, `./flash`, `./enable-flash-boot`, `./install-broker`. Read this to understand
+> what those scripts do and which findings they encode (the `lpuart1` discovery, the
+> boot-from-flash option bytes, the openocd traps). To *use* the board, start at
+> [`unoq-ir-speaker.md`](./unoq-ir-speaker.md); to bring up a stock one,
+> [`getting-started-unoq.md`](./getting-started-unoq.md).
+
 **Goal:** prove whether commander can ride on Zephyr as *one more HAL backend* without
 disturbing core/modules/cmdr — so capable boards Zephyr already supports (first target:
 **Arduino Uno Q**, STM32U585 / Cortex-M33) come "for free" via devicetree, while the
@@ -22,7 +30,7 @@ creation already lives in the runner, so modules don't notice.
       — by default it powers into the STM32 ROM bootloader, so commander never runs. One-time
       openocd option-byte write makes it boot our firmware on every power-up. **See the new
       "Make the M33 boot from flash" section below — this is REQUIRED for any commander build.**
-- [x] **Channel mux ([[project_commander_channels]]) HW-CONFIRMED on the Uno Q (2026-06-13):**
+- [x] **Channel mux HW-CONFIRMED on the Uno Q (2026-06-13):**
       `ChannelBusRunner` + SBC broker + a from-scratch IR receiver (NEC **and** Sony). A Sony
       remote press on D5 decoded on the M33 and streamed to Debian on ch1 (`0x795 p4`) while the
       ch0 console stayed live. Full recipe: `docs/commander-channels-bringup.md`.
@@ -30,7 +38,7 @@ creation already lives in the runner, so modules don't notice.
       + `platform/zephyr/ZephyrIRModule.cpp` are in-repo, and **`cmdr init unoq` is a
       first-class target** (Zephyr/west build, gdb-load flash over on-board OpenOCD, the
       option-byte step folded into the generated `enable-flash-boot` script). The Uno Q is
-      no longer a spike — see [[project_unoq_commander]] and `docs/getting-started-unoq.md`.
+      no longer a spike — see `docs/getting-started-unoq.md` and `docs/unoq-ir-speaker.md`.
 
 ### Step-2 artifacts + the key lesson
 - Scratch app: `~/zephyrproject/cmdr-unoq-spike/` (CMakeLists pulls commander core + the new
@@ -81,6 +89,12 @@ $GDB ~/zephyrproject/build/x/zephyr/zephyr.elf -batch \
 Confirmed live: openocd sees `SWD DPIDR 0x0be12477`, "Cortex-M33 r0p4", gdb load 18500 B OK.
 
 ## Make the M33 boot from flash (option bytes) — REQUIRED, hard-won 2026-06-13
+
+> **You don't have to do this by hand.** Every scaffolded project ships `./enable-flash-boot`,
+> which performs exactly the write below, is idempotent (it re-reads `FLASH_OPTR` first and
+> does nothing if it's already `0x1beff8aa`), and confirms VTOR afterwards. It's **once per
+> board**, not per project, and `./restore-arduino` reverts it. This section is why it exists
+> and what to do when it misbehaves.
 
 **Symptom:** you flash commander, `monitor reset run`, but the MCU is silent — no console, no
 response. Even a known-good plain-console build is silent. It looks like a UART/link problem;

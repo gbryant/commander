@@ -25,20 +25,30 @@ stops the other.
 |-------|-------------------|
 | Unit files | `/etc/systemd/system/commander-{bridge,broker}.service` |
 | Broker script | `/home/arduino/commander_broker.py` (source: `transport/channels/broker/commander_broker.py`) |
-| Broker runtime (PTY + sockets) | `/tmp/commander/` (`console`, `ch1.sock`, …) — ephemeral, recreated each start |
+| Broker runtime (channel sockets) | `/tmp/commander/` (`ch0.sock`, `ch1.sock`, …) — ephemeral, recreated each start. Their presence is the "broker is healthy" signal |
 | MCU link / USB-CDC gadget | `/dev/ttyHS1` (↔ `lpuart1` on the M33) / `/dev/ttyGS0` (↔ Mac `/dev/cu.usbmodem*`) |
 
 ## Prerequisites (both)
 
-1. **MCU boots from flash.** Out of the box the M33 boots its ROM bootloader — set the option
-   bytes once: see `docs/zephyr-hal-spike.md` → "Make the M33 boot from flash". Without this
-   the link is silent regardless of which service runs.
-2. **`ttyHS1` free of the Arduino router.** Mask the `arduino-router` stack so it doesn't grab
-   the port (see `docs/unoq-access.md` Phase 1).
+1. **MCU boots from flash.** Out of the box the M33 boots its ROM bootloader, so the link is
+   silent regardless of which service runs. A scaffolded project's **`./enable-flash-boot`**
+   does the one-time option-byte write; `docs/zephyr-hal-spike.md` → "Make the M33 boot from
+   flash" explains what it writes and why.
+2. **`ttyHS1` free of the Arduino router.** The router must be **stopped and masked** — both.
+   **`./install-broker`** does that too; `docs/unoq-access.md` Phase 1 is the by-hand version.
 
-## Install / switch (run on the board; needs sudo)
+## Install / switch
 
-Copy a unit and the broker script (from a checkout of this repo, or `scp`/`adb push`):
+**The normal path is `./install-broker` from a scaffolded project.** It pushes the broker and
+unit from the fetched framework source, stops and masks the router, enables the service, and
+verifies it reached `active` — one sudo, no per-file copying, and no GitHub auth on the board
+(so it works for a private repo). `BOARD_SUDO_PW=...` runs it without a prompt.
+
+Everything below is the by-hand equivalent, for when you're working on the units themselves.
+Note that copying and enabling is *not* sufficient on a board whose router still holds the
+link — do the router step above first, or the service will crash-loop on
+`[Errno 16] Device or resource busy`.
+
 ```bash
 sudo cp dev/unoq/commander-broker.service /etc/systemd/system/
 cp transport/channels/broker/commander_broker.py /home/arduino/commander_broker.py
@@ -49,6 +59,7 @@ sudo systemctl daemon-reload
 ```bash
 sudo systemctl disable --now commander-bridge.service
 sudo systemctl enable  --now commander-broker.service
+systemctl is-active commander-broker.service   # want "active"; "activating" = crash-looping
 ```
 
 **Switch back to the bridge (plain-console firmware):**
@@ -62,6 +73,11 @@ Updating the broker: re-copy `commander_broker.py` to `/home/arduino/`, then
 
 ## Revert to stock Arduino
 
-Both units are commander-specific; to hand the board back to Arduino's stack, disable them and
-**un-mask the `arduino-router` stack** (`docs/unoq-access.md` has the move-aside/symlink revert),
-and optionally `option_write` the boot bytes back to `0x1feff8aa` (`docs/zephyr-hal-spike.md`).
+A scaffolded project's **`./restore-arduino`** does the whole revert: stops and disables both
+commander units, restores *and starts* the router stack (unmasking alone leaves the stock flow
+dead until a reboot), and optionally writes the M33 boot bytes back to `0x1feff8aa`.
+
+By hand: disable both units, **un-mask the `arduino-router` stack** and start it
+(`docs/unoq-access.md` has the move-aside/symlink revert), and optionally `option_write` the
+boot bytes back (`docs/zephyr-hal-spike.md`). Only one process may own `ttyHS1`, so the
+commander units must be stopped *before* the router is started.

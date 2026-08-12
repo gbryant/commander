@@ -1,7 +1,7 @@
 # Design note: multiplexing / channels for Linux-hosted commander
 
 **Status:** design note only — NOT started. Captured 2026-06-12 while spiking the Zephyr
-HAL on the Arduino Uno Q (see `docs/zephyr-hal-spike.md`, [[project_unoq_commander]]).
+HAL on the Arduino Uno Q (see `docs/zephyr-hal-spike.md`).
 Prototype target: the Uno Q, where the multi-consumer need is finally real.
 
 ## The problem

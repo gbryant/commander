@@ -2,7 +2,7 @@
 
 **Status:** IMPLEMENTED (2026-06-16) — all four tiers landed. Captured 2026-06-15 as the detailed
 plan behind roadmap #1 ("Tests + CI for `cmdr` and a platform build matrix"); the original design
-text is kept below for context, with a "what landed" note at the end. [[project_roadmap]]
+text is kept below for context, with a "what landed" note at the end.
 
 ## How to run (quick reference)
 

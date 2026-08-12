@@ -6,7 +6,7 @@ untouched). Remaining: B2 (console/UartTransport collapse — deferred, measured
 landed and was
 HW-confirmed on the Arduino Uno Q (a Sony press on the M33 streamed to Debian on ch1 while the ch0
 console ran concurrently — see `docs/commander-channels-design.md` and
-`docs/commander-channels-bringup.md`, [[project_commander_channels]]).
+`docs/commander-channels-bringup.md`).
 
 Phase 2a **proved the thesis** — source-tagged, demuxed, concurrent bidirectional streams over one
 UART, with a thin SBC broker. But it proved it as a **bolt-on for one board**. This note is the plan
