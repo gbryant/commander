@@ -22,11 +22,12 @@ siblings in `~/github/` and are found by their prefix.
 | [cmdr-robot](#cmdr-robot) | pico2 | CMake / Pico SDK | Pico 2 W + Bluetooth pad | Bluetooth input → I2C actuation; the master half of a two-board robot |
 | [cmdr-oi-bridge](#cmdr-oi-bridge) | r4 | PlatformIO | Arduino Uno R4 WiFi + Roomba | The slave half; commander as an I2C peripheral |
 | [cmdr-solar-monitor](#cmdr-solar-monitor) | esp32 | CMake / ESP-IDF | ESP32-S3-N16R8 + INA219 | The smallest useful consumer; firmware + host logging |
+| [cmdr-unoq-ir-speaker](#cmdr-unoq-ir-speaker) | unoq | CMake / Zephyr (west) | Arduino Uno Q + IR receiver + BT speaker | Dual-brain: MCU real-time work feeding a Linux consumer. Zero custom firmware |
 | [unoq-tools](#unoq-tools) | — | — | Arduino Uno Q (Debian side) | Not a consumer — a companion tooling repo |
 
-Between them these cover all three build flavors (ESP-IDF, Pico SDK, PlatformIO)
-and both link styles (`FetchContent` for CMake targets, `lib_deps` for
-Arduino-framework ones).
+Between them these cover all four build flavors (ESP-IDF, Pico SDK, PlatformIO,
+Zephyr/west) and both link styles (`FetchContent` for CMake targets, `lib_deps`
+for Arduino-framework ones).
 
 ---
 
@@ -137,6 +138,39 @@ projects want — the device serves readings, the host does the storage and
 presentation.
 
 No hardware-confirmation date is recorded for this one in PLAN.md.
+
+---
+
+## cmdr-unoq-ir-speaker
+
+**Point a remote at it and it says the button's name.** An Arduino Uno Q: the
+STM32U585 (M33, Zephyr) decodes IR pulse trains and publishes each press on
+channel 1, while a Python subscriber on the QRB2210's Debian side matches it
+against `maps/` and speaks the name through a warm Piper voice on a Bluetooth
+speaker. The `ch0` console stays free the whole time.
+
+- **Modules:** `ir` (D5, NEC + Sony)
+- **Autostart:** `ir recv` — receiving is a standing board capability, so a fresh
+  boot streams presses with no command sent
+- **SBC side:** `bin/ir_speak.py` subscribing to the broker's `ch1.sock`, with
+  `ir_map.py` / `ir_lookup.py` and a seeded library of remote maps
+- **Board side:** TTS + Bluetooth from the companion
+  [unoq-tools](https://github.com/gbryant/unoq-tools)
+
+**`src/main.cpp` is the stock 13-line template — the emptiness is the point.**
+The whole device is composition: `cmdr init unoq`, `cmdr module enable ir`,
+`cmdr autostart add "ir recv"`. It's the clearest demonstration of what the Uno Q
+target is for — hard real-time on the MCU, something an MCU can't do (neural TTS)
+next to it, and the channel bus between them carrying data that neither end's
+transport knows anything about.
+
+It also **runs standalone**: `./deploy-sbc --service "ir_speak.py --greeting"`
+plus `bt.py autoconnect on <MAC>` make it an appliance that boots on a wall
+socket, announces itself, and needs no computer.
+
+Hardware-confirmed 2026-08-12: 18 presses decoded, matched and spoken, and the
+full chain coming up by itself after a reboot. The walkthrough that builds this
+device from nothing is [unoq-ir-speaker.md](unoq-ir-speaker.md).
 
 ## unoq-tools
 
