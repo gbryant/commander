@@ -1,8 +1,9 @@
 # Getting started — Arduino Uno Q (without App Lab)
 
-> **Status: STUB / work-in-progress.** Sections marked _(TBD — capture during reflash)_
-> are gaps App Lab papered over that we're filling in empirically the next time the board
-> is flashed to stock. Don't trust those sections until they lose the TBD marker.
+> **Status: captured empirically.** The fresh-image facts in §1 were recorded after an
+> actual stock reflash (2026-06-19), not inferred. One thing remains unverified: the stock
+> `arduino` password *value* — we know only that it ships expired, and you supply the
+> current one when resetting it.
 
 The Uno Q is a **dual-brain board**: a Qualcomm QRB2210 running Debian (the "SBC") and an
 STM32U585 M33 running commander (Zephyr). They don't share storage. This guide brings up a
@@ -120,8 +121,13 @@ up, `ssh arduino@<hostname>.local` works.
 
 The reflash writes only the QRB2210 eMMC; the STM32 option bytes are untouched by it (see unoq-tools
 [`unoq-factory-restore.md`](https://github.com/gbryant/unoq-tools/blob/main/docs/unoq-factory-restore.md)). To run commander on the M33 you need
-it booting from flash — the one-time SWD option-byte write in
-[`zephyr-hal-spike.md`](./zephyr-hal-spike.md) → "Make the M33 boot from flash".
+it booting from flash instead of its ROM bootloader.
+
+**You don't have to do this by hand.** Any scaffolded project ships `./enable-flash-boot`,
+which does the option-byte write, is idempotent, and checks VTOR afterwards — so the usual
+answer is "run that once, from your first project". The manual SWD procedure and the reasoning
+behind the polarity are in [`zephyr-hal-spike.md`](./zephyr-hal-spike.md) → "Make the M33 boot
+from flash".
 
 - [ ] M33 boots from flash (option bytes `0x1feff8aa → 0x1beff8aa`).
 
@@ -129,12 +135,24 @@ it booting from flash — the one-time SWD option-byte write in
 
 ## 4. Free the serial link + install the bridge/broker
 
-The stock `arduino-router` stack grabs `/dev/ttyHS1`; mask it so commander can own the link,
-then install the bridge (plain console) or broker (channel bus). Full steps:
-[`unoq-access.md`](./unoq-access.md) Phase 1 + [`dev/unoq/README.md`](../dev/unoq/README.md).
+The stock `arduino-router` stack owns `/dev/ttyHS1` and reclaims it on every boot, so commander
+can't have the link until the router is **stopped and masked** — both, in that order. Masking
+alone only blocks the next start; a router still running keeps its exclusive hold and whatever
+you install crash-loops on `Device or resource busy`.
 
-- [ ] `arduino-router` stack masked.
-- [ ] `commander-bridge.service` **or** `commander-broker.service` installed + enabled.
+**You don't have to do this by hand either.** A scaffolded project's `./install-broker` does the
+whole sequence and verifies the broker came up. Only one of these may own the link at a time:
+
+- **broker** (`commander-broker.service`) — the channel bus: ch0 console **plus** per-channel
+  sockets. What you want unless you have a reason not to.
+- **bridge** (`commander-bridge.service`) — a plain `socat` console, no channels. The simpler
+  fallback.
+
+Background and the manual recipe: [`unoq-access.md`](./unoq-access.md) Phase 1 +
+[`dev/unoq/README.md`](../dev/unoq/README.md).
+
+- [ ] `arduino-router` stack stopped **and** masked.
+- [ ] `commander-broker.service` **or** `commander-bridge.service` installed + enabled (not both).
 
 ---
 

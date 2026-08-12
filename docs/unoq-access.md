@@ -33,14 +33,26 @@ every boot, blocking commander's raw bridge. Fix = two systemd changes on the bo
    `Requires=arduino-router.service`, and `arduino-app-cli.service` `Wants` it too. Only
    **masking** blocks all of those. The units are real files in `/etc/systemd/system`, so
    `systemctl mask` won't symlink over them — move the file aside first:
+   **Stop BEFORE masking.** Masking only blocks a future start — a router already running keeps
+   its *exclusive* hold on `ttyHS1`, so the bridge/broker dies on open() with `[Errno 16] Device
+   or resource busy` and, with `Restart=always`, crash-loops silently until the next reboot.
+   Stopping afterwards is worse than useless: once the unit file has been moved aside and masked,
+   `systemctl stop <name>` may no longer find the unit to stop it, while the process lives on.
    ```
+   sudo systemctl stop arduino-router-serial.path arduino-router-serial.service arduino-router.service
+   sudo pkill -x arduino-router          # backstop; -x (exact name), NOT -f (see below)
    for u in arduino-router.service arduino-router-serial.service arduino-router-serial.path; do
      sudo mv /etc/systemd/system/$u /etc/systemd/system/$u.commander-bak   # free the path
      sudo ln -sf /dev/null /etc/systemd/system/$u                          # mask
    done
    sudo systemctl daemon-reload
-   sudo systemctl stop arduino-router.service arduino-router-serial.service  # kill live instances
    ```
+   `pkill -x` matches the process *name*; `pkill -f /usr/bin/arduino-router` would match full
+   command lines — including the shell running the command — so over `adb shell` it makes that
+   shell kill itself and silently skip everything after it.
+
+   `install_broker.sh` does all of this for you and then verifies the broker is `active`; this
+   recipe is for doing it by hand or understanding what the script did.
    (`app-cli` only `Wants` the router, so it skips the masked unit cleanly; `ttyGS0` is
    created by adbd independently, untouched.)
 2. **Install a persistent bridge** that pipes the MCU UART to the *existing* USB CDC ACM
