@@ -57,7 +57,7 @@ void ZephyrIRModule::tick() {
             // Split the raw value the protocol's way so it matches the cmdr IR maps/tools.
             const char *name; uint32_t addr; uint32_t cmd;
             if (e.proto == kProtocolSony) { name = "Sony"; cmd = e.code & 0x7F; addr = e.code >> 7; }
-            else                          { name = "NEC";  addr = e.code & 0xFF; cmd = (e.code >> 16) & 0xFF; }
+            else                          { name = "NEC";  ir_nec_split(e.code, &addr, &cmd); }
             char line[96];
             ir_format_event(line, name, addr, cmd, e.code, e.bits);
             _out->writeln(line);                     // one canonical event frame on the ir channel

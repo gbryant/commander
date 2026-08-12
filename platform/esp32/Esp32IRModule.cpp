@@ -154,7 +154,7 @@ void Esp32IRModule::tick() {
 
         const char *name; uint32_t addr; uint32_t cmd;
         if (proto == PROTO_NEC) {
-            name = "NEC"; addr = code & 0xFF; cmd = (code >> 16) & 0xFF;
+            name = "NEC"; ir_nec_split(code, &addr, &cmd);
         } else {
             name = "Sony"; cmd = code & 0x7F; addr = code >> 7;
         }

@@ -78,6 +78,30 @@ int main() {
         bool ok2 = (strcmp(buf, "Protocol=NEC Address=0x0, Command=0x0, Raw-Data=0x0, 32 bits") == 0);
         printf("%s ir_format_event NEC zeros -> '%s'\n", ok2 ? "PASS" : "FAIL", buf); fails += !ok2;
     }
+    {   // NEC address split — the maps in cmdr's library are the fixtures, because a mismatch
+        // here silently breaks every lookup on one platform while working on another.
+        uint32_t addr, cmd;
+
+        // EXTENDED (addr_high is NOT ~addr_low): Hisense Roku, address 0xc7ea in the shipped
+        // map. Masking to 8 bits gives 0xea and matches nothing — the bug this test exists for.
+        ir_nec_split(0x33c7c7eau, &addr, &cmd);
+        bool ok3 = (addr == 0xc7eau && cmd == 0xc7u);
+        printf("%s ir_nec_split extended -> addr=0x%x cmd=0x%x (want 0xc7ea/0xc7)\n",
+               ok3 ? "PASS" : "FAIL", (unsigned)addr, (unsigned)cmd); fails += !ok3;
+
+        // STANDARD (addr_high == ~addr_low): vizio_sound_bar's address 0x0, whose second byte
+        // is 0xff. Taking 16 bits unconditionally would give 0xff00 and break this one instead.
+        ir_nec_split(0xbf40ff00u, &addr, &cmd);
+        bool ok4 = (addr == 0x0u && cmd == 0x40u);
+        printf("%s ir_nec_split standard -> addr=0x%x cmd=0x%x (want 0x0/0x40)\n",
+               ok4 ? "PASS" : "FAIL", (unsigned)addr, (unsigned)cmd); fails += !ok4;
+
+        // A standard address whose inverse is easy to eyeball: 0x04 / 0xfb.
+        ir_nec_split(0xed12fb04u, &addr, &cmd);
+        bool ok5 = (addr == 0x04u && cmd == 0x12u);
+        printf("%s ir_nec_split standard 0x04 -> addr=0x%x cmd=0x%x\n",
+               ok5 ? "PASS" : "FAIL", (unsigned)addr, (unsigned)cmd); fails += !ok5;
+    }
     {   // Sony SIRC: 12-bit code, emitted at the next frame's leading mark
         auto sendSony = [](SonyDecoder &d, uint32_t code, int nbits, int pct) {
             SonyDecoder::Result r = d.feed(jit(2400, pct), true);  // leading mark emits prior frame

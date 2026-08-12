@@ -1,5 +1,6 @@
 #pragma once
 #include "modules/ir/IIRModule.h"
+#include "modules/ir/IrEvent.h"     // ir_nec_split — the shared NEC address/command split
 #include "core/CommandRegistry.h"
 #include "include/i2c_ids.h"
 #include "hardware/gpio.h"
@@ -125,28 +126,14 @@ public:
 
         char buf[96];
         if (proto == PROTO_NEC) {
-            // Bit k of raw = k-th received bit, so:
-            //   bits[7:0]   = addr_low  (1st byte received)
-            //   bits[15:8]  = addr_high (2nd byte received)
-            //   bits[23:16] = command   (3rd byte received)
-            //   bits[31:24] = ~command  (4th byte received)
-            // Extended NEC: addr_high != ~addr_low → 16-bit address matches IRremote.
-            uint8_t addr_low  = (uint8_t)(code & 0xFF);
-            uint8_t addr_high = (uint8_t)((code >> 8) & 0xFF);
-            uint8_t cmd       = (uint8_t)((code >> 16) & 0xFF);
-            bool    extended  = (addr_high != (uint8_t)~addr_low);
-            if (extended) {
-                uint16_t addr16 = (uint16_t)((addr_high << 8) | addr_low);
-                snprintf(buf, sizeof(buf),
-                         "Protocol=NEC  Address=0x%X,  Command=0x%X,"
-                         "  Raw-Data=0x%08X,  32 bits\r\n",
-                         addr16, cmd, (unsigned)code);
-            } else {
-                snprintf(buf, sizeof(buf),
-                         "Protocol=NEC  Address=0x%X,  Command=0x%X,"
-                         "  Raw-Data=0x%08X,  32 bits\r\n",
-                         (unsigned)addr_low, cmd, (unsigned)code);
-            }
+            // Standard vs extended NEC addressing lives in ir_nec_split() — one implementation
+            // for every platform, so a map built on one board matches presses on another.
+            uint32_t addr; uint32_t cmd;
+            ir_nec_split(code, &addr, &cmd);
+            snprintf(buf, sizeof(buf),
+                     "Protocol=NEC  Address=0x%X,  Command=0x%X,"
+                     "  Raw-Data=0x%08X,  32 bits\r\n",
+                     (unsigned)addr, (unsigned)cmd, (unsigned)code);
         } else {
             // Sony SIRC: 7-bit command (LSB first, bits[6:0]), then address bits.
             uint8_t  cmd  = (uint8_t)(code & 0x7F);
