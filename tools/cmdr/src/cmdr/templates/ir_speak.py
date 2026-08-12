@@ -15,12 +15,15 @@ the other channel tools (the Piper deps live in the daemon's venv, on the board)
 Run it on the SBC next to the broker. A test/demo tool.
 
 Usage:
-    python3 ir_speak.py [--maps DIR] [--rundir DIR] [--tts-fifo PATH]
+    python3 ir_speak.py [--maps DIR] [--rundir DIR] [--tts-fifo PATH] [--greeting [TEXT]]
 
     --maps      DIR    directory of JSON map files (default: maps/)
     --rundir    DIR    broker rundir holding ch1.sock (default: /tmp/commander)
     --tts-fifo  PATH   TTS daemon FIFO (default: $XDG_RUNTIME_DIR/tts.fifo,
                        else /run/user/<uid>/tts.fifo)
+    --greeting  TEXT   speak TEXT once at startup, after the channel link is up ("ready" if
+                       the flag is given bare). For a board that boots into this with no
+                       screen attached, it is the only sign the chain came up.
 """
 import argparse
 import json
@@ -163,6 +166,11 @@ def main():
     p.add_argument('--rundir', default='/tmp/commander', help='broker rundir (ch1.sock)')
     p.add_argument('--tts-fifo', default=default_tts_fifo(),
                    help='TTS daemon FIFO (unoq-tools tts_daemon.py)')
+    # For a headless board that boots into this (see ./deploy-sbc --service): with no screen,
+    # a spoken line is the only way to learn that the speaker connected, the voice is warm and
+    # the broker socket exists. Off unless asked for, so an interactive run stays quiet.
+    p.add_argument('--greeting', nargs='?', const='ready', metavar='TEXT',
+                   help='speak TEXT once at startup ("ready" if given with no value)')
     args = p.parse_args()
 
     maps = load_maps(args.maps)
@@ -182,6 +190,11 @@ def main():
     link = ChannelLink(args.rundir)
     print(link.hint())
     print("Press any button.  Ctrl-C to quit.\n")
+
+    # Greet AFTER the link is built, so hearing it means the whole chain is up, not just TTS.
+    if args.greeting:
+        print(f"[ir_speak] greeting: {args.greeting}")
+        speaker.say(args.greeting)
 
     announced, armed, prev, last_seen = None, False, None, 0.0
     try:

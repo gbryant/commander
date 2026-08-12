@@ -898,9 +898,39 @@ UNOQ_DEPLOY_SBC_SCRIPT = """\
 # scripts that run NEXT TO the broker and read its channel sockets — e.g. the channel IR tools
 # that `cmdr module enable ir` drops into bin/. Re-runnable; run it again after enabling a module
 # that ships SBC tools, or after editing one.
+#
+#   ./deploy-sbc                                  push the tools (+ seed maps/)
+#   ./deploy-sbc --service "ir_speak.py --greeting"   ...and run that one at every boot
+#   ./deploy-sbc --stop-service ir_speak.py       stop + disable it again
+#
+# --service turns the board into an appliance: power it up with no computer attached and the
+# tool is already running. It installs a systemd --user unit (user, not system: these tools need
+# the session bus to reach PipeWire audio, and linger keeps user units running with nobody
+# logged in). Pair it with unoq-tools `bt.py autoconnect on <MAC>` so the speaker reconnects by
+# itself, or a headless board comes up mute.
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
 DEST=/home/arduino
+
+SERVICE=""; STOP_SERVICE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --service)      SERVICE="$2"; shift 2 ;;
+    --stop-service) STOP_SERVICE="$2"; shift 2 ;;
+    *) echo "usage: ./deploy-sbc [--service \\"<tool.py> [args]\\"] [--stop-service <tool.py>]" >&2; exit 2 ;;
+  esac
+done
+
+usr() { adb shell "XDG_RUNTIME_DIR=/run/user/\\$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\\$(id -u)/bus $1"; }
+
+if [ -n "$STOP_SERVICE" ]; then
+  UNIT="commander-$(basename "$STOP_SERVICE" .py).service"
+  usr "systemctl --user disable --now $UNIT" >/dev/null 2>&1 || true
+  adb shell "rm -f ~/.config/systemd/user/$UNIT"
+  usr "systemctl --user daemon-reload" >/dev/null 2>&1 || true
+  echo "$UNIT stopped + removed"
+  exit 0
+fi
 
 if ! ls bin/*.py >/dev/null 2>&1; then
   echo "nothing in bin/ to deploy — enable a module with SBC tools first (e.g. cmdr module enable ir)."
@@ -921,7 +951,53 @@ if [ -d maps ]; then
   fi
 fi
 
+if [ -n "$SERVICE" ]; then
+  TOOL=$(echo "$SERVICE" | awk '{print $1}')
+  if [ ! -f "bin/$TOOL" ]; then
+    echo "no bin/$TOOL to run as a service (is its module enabled?)" >&2
+    exit 1
+  fi
+  UNIT="commander-$(basename "$TOOL" .py).service"
+  echo "==> installing $UNIT (runs at every boot)"
+  TMP=$(mktemp)
+  cat > "$TMP" <<UNITEOF
+[Unit]
+Description=commander SBC tool: $SERVICE
+# The tool exits when the broker's socket isn't there yet, which is normal during boot — the
+# broker is a system service and this is a user one, so they race. Restart=always covers that,
+# but ONLY with the start limit lifted: the default (5 starts in 10 s) would give up
+# permanently a second or two before the socket appears.
+StartLimitIntervalSec=0
+
+[Service]
+WorkingDirectory=$DEST
+ExecStart=/usr/bin/python3 $DEST/$SERVICE
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+UNITEOF
+  adb shell "mkdir -p ~/.config/systemd/user" >/dev/null
+  adb push "$TMP" "$DEST/.config/systemd/user/$UNIT" >/dev/null
+  rm -f "$TMP"
+  usr "systemctl --user daemon-reload" >/dev/null 2>&1 || true
+  usr "systemctl --user enable --now $UNIT" >/dev/null 2>&1 || true
+  sleep 2
+  STATE=$(usr "systemctl --user is-active $UNIT" 2>/dev/null | tr -d '\\r')
+  if [ "$STATE" = "active" ]; then
+    echo "  $UNIT active - it will start itself on every boot"
+    echo "  logs:  adb shell 'journalctl --user -u $UNIT -f'"
+  else
+    echo "  $UNIT is '$STATE', not active:" >&2
+    usr "journalctl --user -u $UNIT -n 12 --no-pager" >&2
+    exit 1
+  fi
+  exit 0
+fi
+
 echo "run them on the board, e.g.:  adb shell 'cd $DEST && python3 ir_lookup.py'"
+echo "or run one at every boot:     ./deploy-sbc --service \\"ir_speak.py --greeting\\""
 """
 
 

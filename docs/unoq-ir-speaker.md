@@ -161,7 +161,47 @@ Each line is also spoken aloud. That's the whole demo.
 
 ---
 
-## 7. Your own remote
+## 7. Run it standalone (no computer)
+
+Everything so far still needs you to start `ir_speak.py` by hand. Two commands turn it into an
+appliance you plug into a wall socket:
+
+```bash
+./deploy-sbc --service "ir_speak.py --greeting"    # run it at every boot
+cd ~/github/unoq-tools && ./bt.py autoconnect on <MAC>   # keep the speaker connected
+```
+
+Both are needed, and the second is the one people miss. **Pairing survives a reboot; a
+connection does not.** `Trusted: yes` only authorises the speaker to dial *in* — nothing on the
+board ever dials *out*, so a paired, trusted speaker just sits there after a power cycle and
+the board is mute. `bt.py autoconnect` installs a board-side loop that dials out until the
+speaker answers, which also covers switching the speaker on *after* the board.
+
+`--greeting` speaks "ready" once the channel link is up (`--greeting "your text"` for something
+else, omit it for a silent start). On a board with no screen that spoken line is the only
+feedback that the speaker connected, the voice is warm and the socket exists — silence is
+otherwise ambiguous.
+
+Everything else was already boot-proof: the broker is a system service, `ir recv` is compiled
+into the firmware by `cmdr autostart`, and the TTS daemon and keep-alive are user services with
+linger enabled. Confirmed by rebooting with nothing attached but power — it comes up, says
+"ready", and speaks button names.
+
+```bash
+./deploy-sbc --stop-service ir_speak.py     # back to starting it by hand
+./bt.py autoconnect off
+adb shell 'journalctl --user -u commander-ir_speak -f'    # when it doesn't
+```
+
+The service is generic, not IR-specific: `--service` takes any tool in `bin/`, so a future
+module's SBC tool boots the same way. It's installed as a **user** unit (these tools need the
+session bus to reach PipeWire audio) with the systemd start limit lifted — the broker is a
+system service and this is a user one, so they race at boot, and the default limit of five
+restarts in ten seconds would give up a second before the socket appears.
+
+---
+
+## 8. Your own remote
 
 If your remote isn't in the seeded maps, build one — press each button as prompted and it
 writes a JSON map:
