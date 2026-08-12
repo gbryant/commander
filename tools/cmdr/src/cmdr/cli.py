@@ -842,7 +842,17 @@ UNOQ_RESTORE_ARDUINO_SCRIPT = """\
 # back so the standard DFU sketch-flash works. The inverse of install-broker + enable-flash-boot.
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
-read -s -p "Board sudo password: " PW; echo
+# $BOARD_SUDO_PW skips the prompt, so this runs from a script or an agent session with no TTY.
+# Without it and without a terminal, `read` hits EOF and `set -e` aborts with NO output at all.
+if [ -n "$BOARD_SUDO_PW" ]; then
+  PW="$BOARD_SUDO_PW"
+elif [ -t 0 ]; then
+  read -s -p "Board sudo password: " PW; echo
+else
+  echo "no terminal to prompt for the board sudo password." >&2
+  echo "run this from a terminal, or pass it in:  BOARD_SUDO_PW=... ./restore-arduino" >&2
+  exit 1
+fi
 run() { adb shell "echo '$PW' | sudo -S bash -c '$1'"; }
 
 echo "==> stopping commander's services, restoring + starting the Arduino router stack"
@@ -861,7 +871,14 @@ else
   echo "arduino-router did not start; reboot the board (adb reboot) and it will come back" >&2
 fi
 
-read -p "Also revert the M33 boot bytes to factory (BOOT0-pin)? [y/N] " ok
+# Optional + destructive-ish, so default to NO without a terminal rather than letting `read`
+# fail the script after the router restore already succeeded.
+if [ -t 0 ]; then
+  read -p "Also revert the M33 boot bytes to factory (BOOT0-pin)? [y/N] " ok
+else
+  ok=n
+  echo "(no terminal: leaving the M33 boot bytes alone; run from a terminal to revert them)"
+fi
 if [ "$ok" = "y" ] || [ "$ok" = "Y" ]; then
 """ + UNOQ_ENV_PREAMBLE + """\
   adb shell "pkill -f openocd" 2>/dev/null || true
