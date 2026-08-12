@@ -70,9 +70,33 @@ def load_maps(maps_dir):
     return maps
 
 
+# Some remotes flip bit 7 of the command between otherwise identical frames — a toggle that
+# distinguishes a new press from a held one. A Hisense Roku sends power as 0x17 then 0x97, down
+# as 0x33 then 0xb3. Maps record the base form (that's what irmap.py captured), so both the
+# identity of a press and the lookup have to see through the toggle, or half the frames are
+# strangers and no two consecutive frames ever agree.
+TOGGLE_BIT = 0x80
+
+
+def base_command(command):
+    """The command with the toggle bit cleared — the form the maps store."""
+    return hex(int(command, 16) & ~TOGGLE_BIT)
+
+
+def press_id(key):
+    """Identity of a press: same button whether or not this frame carried the toggle bit."""
+    address, command = key
+    return (address, base_command(command))
+
+
 def lookup(maps, address, command):
-    return [(remote, e) for remote, entries in maps.items()
-            for e in entries if e['address'] == address and e['command'] == command]
+    def exact(cmd):
+        return [(remote, e) for remote, entries in maps.items()
+                for e in entries if e['address'] == address and e['command'] == cmd]
+
+    # Exact first, so a remote that genuinely uses both 0x17 and 0x97 as separate buttons still
+    # resolves each to its own name; only fall back to the toggle partner when that finds nothing.
+    return exact(command) or exact(base_command(command))
 
 
 def fmt_match(remote, entry):
@@ -211,12 +235,17 @@ def main():
             command  = m.group(3).lower()
             last_seen = now
             key = (address, command)
-            confirmed, prev = (key == prev), key   # latest twice -> drop lone stray/trailing frames
+            # Two consecutive frames of the SAME press confirm it — dropping lone stray/trailing
+            # frames when you switch remotes. Compared by press_id, so a toggle-bit remote's
+            # 0x17/0x97 pair counts as one press rather than two strangers that never agree
+            # (which announced nothing at all).
+            confirmed = prev is not None and press_id(key) == press_id(prev)
+            prev = key
             if not confirmed:
                 continue
-            if key == announced and not armed:     # same button still held — already announced
+            if press_id(key) == announced and not armed:   # same button still held
                 continue
-            announced, armed = key, False          # new (or re-pressed) button — announce it
+            announced, armed = press_id(key), False        # new (or re-pressed) button
             matches  = lookup(maps, address, command)
             spoke = speaker.say(matches[0][1]['name']) if matches else False
             show(m.group(1), address, command, int(m.group(5)), matches, spoke)
