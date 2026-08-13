@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cmdr"
-version = "0.1.0"
+version = "1.0"
 description = "Project manager for the commander embedded framework"
 license = "MIT"
 requires-python = ">=3.8"

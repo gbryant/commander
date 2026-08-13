@@ -139,3 +139,27 @@ def test_esp32_build_scripts_blank_default_without_idf(cli_mod, project_dir, mon
     text = (project_dir.path / "proj" / "build").read_text()
     assert "__IDF_EXPORT__" not in text, "the placeholder must be rendered out"
     assert '"" "${IDF_PATH:-}/export.sh"' in text, "blank baked default, runtime fallbacks intact"
+
+
+# ── framework pin ────────────────────────────────────────────────────────────
+# A scaffold pins a release TAG, never a branch: a mistake pushed to commander must not reach
+# into projects generated last month. Their owners move when they choose, with `cmdr pin` /
+# `cmdr pull`. These guard the three places CMake is emitted, which drifted apart before.
+CMAKE_TARGETS = ["pico", "pico2", "esp32", "unoq"]
+
+
+@pytest.mark.parametrize("target", CMAKE_TARGETS)
+def test_scaffold_pins_the_release_tag(cli_mod, project_dir, target):
+    cli_mod.cmd_init(init_args(target))
+    cmake = (project_dir.path / "proj" / "CMakeLists.txt").read_text()
+    assert f"GIT_TAG        {cli_mod.FRAMEWORK_TAG}" in cmake or \
+           f"GIT_TAG {cli_mod.FRAMEWORK_TAG}" in cmake, \
+        f"{target} scaffold does not pin FRAMEWORK_TAG"
+    assert "GIT_TAG        main" not in cmake and "GIT_TAG main" not in cmake, \
+        f"{target} scaffold still floats on main"
+
+
+def test_framework_tag_is_a_release_tag(cli_mod):
+    tag = cli_mod.FRAMEWORK_TAG
+    assert tag not in ("main", "master"), "FRAMEWORK_TAG must be a tag, not a branch"
+    assert tag.startswith("v") and tag[1].isdigit(), f"unexpected tag shape: {tag}"

@@ -106,7 +106,13 @@ BUILD_NUMBER, timestamp) each build and `./.build_number` so `bum-ota` can confi
 an OTA landed. `version.h` provides overridable fallbacks.
 
 **Framework version pinning** (consumer side): builds fetch commander via
-FetchContent at `GIT_TAG`. `cmdr pin <ref>` / `--latest` / `cmdr unpin` lock or
+FetchContent at `GIT_TAG`, and a fresh scaffold pins the **release tag** in
+`cli.py`'s `FRAMEWORK_TAG` — never `main` — so a mistake pushed here can't reach
+projects generated last month. Releases are **two-part, `vMAJOR.MINOR`, where the
+left digit moves only when a release breaks consumers** (right digit for
+everything else); bump `FRAMEWORK_TAG` as part of cutting one, and
+`tools/cmdr/tests/test_scaffold.py` guards that all three CMake emit sites agree.
+`cmdr pin <ref>` / `--latest` / `cmdr unpin` lock or
 float a project's commander version (rewrites the committed `CMakeLists.txt`);
 `cmdr link <path>` / `cmdr unlink` builds against a local checkout instead (a
 gitignored `commander_local.cmake` override) for framework development.

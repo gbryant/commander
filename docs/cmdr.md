@@ -91,7 +91,7 @@ which version:
 | Command | Effect |
 |---------|--------|
 | `cmdr pin <ref>` | lock the project to a commit/tag/branch (`--latest` = freeze current main tip; bare `pin` shows state) |
-| `cmdr unpin` | float back to `main` |
+| `cmdr unpin` | float back to `main` (deliberately track the tip; new projects start pinned to a release tag) |
 | `cmdr link <path>` | build against a local commander checkout (framework development; bare `link` shows status) |
 | `cmdr unlink` | back to GitHub |
 

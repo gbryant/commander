@@ -26,6 +26,16 @@ def save_config(cfg: configparser.ConfigParser) -> None:
 
 REPO_URL = "https://github.com/gbryant/commander.git"
 
+# The framework release a fresh project is pinned to. Scaffolds pin a TAG rather than floating on
+# `main` so that a mistake pushed here can't reach into projects that were generated last month —
+# they move when their owner says so (`cmdr pull` after `cmdr pin <ref>` / `--latest`, or `cmdr
+# unpin` to track `main` deliberately).
+#
+# Versioning is two-part and the left digit means one thing: **this release breaks you**. Right
+# digit for everything else. Bump this constant as part of cutting a release, so a project
+# scaffolded today gets today's framework.
+FRAMEWORK_TAG = "v1.0"
+
 PICO_TARGETS = {
     "pico":  "pico_w",
     "pico2": "pico2_w",
@@ -57,7 +67,7 @@ pico_sdk_init()
 include(FetchContent)
 FetchContent_Declare(commander
     GIT_REPOSITORY """ + REPO_URL + """
-    GIT_TAG        main
+    GIT_TAG        """ + FRAMEWORK_TAG + """
 )
 # Local commander source override — managed by `cmdr link` / `cmdr unlink`.
 include(${CMAKE_SOURCE_DIR}/commander_local.cmake OPTIONAL)
@@ -117,7 +127,7 @@ endif()
 include(FetchContent)
 FetchContent_Declare(commander
     GIT_REPOSITORY """ + REPO_URL + """
-    GIT_TAG        main
+    GIT_TAG        """ + FRAMEWORK_TAG + """
     SOURCE_SUBDIR  include
 )
 # Local commander source override — managed by `cmdr link` / `cmdr unlink`.
@@ -661,9 +671,9 @@ cmake_minimum_required(VERSION 3.20.0)
 # Pull commander before Zephyr initializes — download ONLY (don't process commander's own
 # Pico CMakeLists). SOURCE_SUBDIR=include has no CMakeLists.txt, so MakeAvailable populates
 # the source but skips add_subdirectory (the non-deprecated way to do FetchContent_Populate).
-# Pin GIT_TAG to a release/sha to freeze the framework.
+# GIT_TAG is a release tag; `cmdr pin <ref>` / `cmdr unpin` move it.
 include(FetchContent)
-FetchContent_Declare(commander GIT_REPOSITORY """ + REPO_URL + """ GIT_TAG main SOURCE_SUBDIR include)
+FetchContent_Declare(commander GIT_REPOSITORY """ + REPO_URL + """ GIT_TAG """ + FRAMEWORK_TAG + """ SOURCE_SUBDIR include)
 FetchContent_MakeAvailable(commander)
 set(COMMANDER ${commander_SOURCE_DIR})
 
