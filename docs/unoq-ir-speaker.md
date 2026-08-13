@@ -194,6 +194,18 @@ linger enabled. Confirmed by rebooting with nothing attached but power — it co
 adb shell 'journalctl --user -u commander-ir_speak -f'    # when it doesn't
 ```
 
+**Once it's deployed, reach it over the network.** A board on a shelf isn't plugged into your
+laptop, so `adb` is no longer the way to it — the unoq-tools set takes `UNOQ_HOST` and speaks
+ssh instead, same commands:
+
+```bash
+ssh-copy-id arduino@gandalf.local        # once, so it stops asking for a password
+export UNOQ_HOST=gandalf.local
+volume.py 60                             # turn it down from the sofa
+tts.py doctor                            # audit the whole audio chain remotely
+bt.py                                    # is the speaker still connected?
+```
+
 The service is generic, not IR-specific: `--service` takes any tool in `bin/`, so a future
 module's SBC tool boots the same way. It's installed as a **user** unit (these tools need the
 session bus to reach PipeWire audio) with the systemd start limit lifted — the broker is a
