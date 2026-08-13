@@ -51,7 +51,8 @@ never sleeps. Toggle it with `tts.py keepalive on|off` — turn it off and you'l
 button names start halfway through. Background:
 [unoq-bluetooth-audio.md §3c](https://github.com/gbryant/unoq-tools/blob/main/docs/unoq-bluetooth-audio.md).
 
-**The speaker does not auto-reconnect after a board reboot** — re-run `bt.py connect`.
+**The speaker does not auto-reconnect after a board reboot** — re-run `bt.py connect`, or make
+it automatic with `bt.py autoconnect on <MAC>` (§7), which is what a standalone board needs.
 
 ---
 
@@ -248,10 +249,23 @@ the M33 isn't running commander — you skipped `./enable-flash-boot`, or the fl
 `stopped.` means it *was* running and you've now switched it off — send it again. If nothing
 arrives on ch1 while it says `listening...`, suspect the receiver wiring or the D5 pin.
 
-**4. Can the board speak?** `tts.py doctor` — it audits piper, voices, the daemon, the
+**4. A remote decodes but never speaks?** Run the tool by hand with `--debug`, which narrates
+every frame it discards and why — the tool ignores frames silently by design, so this is the
+difference between "the board sent nothing" and "I threw it away":
+
+```bash
+adb shell 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user stop commander-ir_speak'
+adb shell "cd /home/arduino && XDG_RUNTIME_DIR=/run/user/\$(id -u) python3 ir_speak.py --debug"
+```
+
+Presses skipped while it's already speaking are **expected**: one announcement per press, and
+frames arriving mid-utterance are dropped so the device stays in sync with reality instead of
+narrating a backlog. Press deliberately rather than rapidly.
+
+**5. Can the board speak?** `tts.py doctor` — it audits piper, voices, the daemon, the
 Bluetooth connection, the default sink and the keep-alive, and prints the fix for each.
 
-**5. Speech starts halfway through a word?** The keep-alive is off: `tts.py keepalive on`.
+**6. Speech starts halfway through a word?** The keep-alive is off: `tts.py keepalive on`.
 
 ---
 
