@@ -148,6 +148,16 @@ void Stm32IRModule::registerCommands(CommandRegistry &reg) {
 
 void Stm32IRModule::tick() {
     if (!_active && !_wallMode) return;
+
+    // A Sony frame is ended by the NEXT frame's leading mark, so the last frame of a press waits
+    // for the following press — the console runs one press behind. Flush it once the carrier has
+    // been quiet. (72 MHz DWT cycles → µs, wrap-safe 32-bit subtraction, as in the edge ISR.)
+    if (_active) {
+        uint32_t idle_us = (DWT->CYCCNT - _last_cyc) / 72u;
+        if (_sony.flush(idle_us) == SonyDecoder::CODE)
+            pushEvent(_sony.code(), PROTO_SONY, _sony.bits());
+    }
+
     while (_ring.head != _ring.tail) {
         uint8_t  proto = _ring.proto[_ring.head];
         uint8_t  nbits = _ring.nbits[_ring.head];

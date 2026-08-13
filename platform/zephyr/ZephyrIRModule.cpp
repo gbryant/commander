@@ -48,6 +48,14 @@ bool ZephyrIRModule::start() {
 }
 
 void ZephyrIRModule::tick() {
+    // Sony frames are ended by the NEXT frame's leading mark, so the last frame of a press has
+    // nothing to end it until you press again — without this the console runs a press behind.
+    // The ISR stamps _last_cyc on every edge; quiet since then means the button was released.
+    if (_active) {
+        uint32_t idle_us = k_cyc_to_us_floor32(k_cycle_get_32() - _last_cyc);
+        if (_son.flush(idle_us) == SonyDecoder::CODE) push(_son.code(), kProtocolSony, _son.bits());
+    }
+
     while (_tail != _head) {
         Ev e = { _ring[_tail].code, _ring[_tail].proto, _ring[_tail].bits };
         _tail = (uint8_t)((_tail + 1) % RING);

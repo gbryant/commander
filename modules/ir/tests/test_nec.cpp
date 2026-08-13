@@ -119,6 +119,19 @@ int main() {
         bool ok = (r == SonyDecoder::CODE && d.code() == 0x4B2 && d.bits() == 12);
         printf("%s Sony SIRC 12-bit 0x4B2 -> 0x%X (%d bits)\n", ok ? "PASS" : "FAIL", d.code(), d.bits()); fails += !ok;
 
+        // The LAST frame of a press has no following leader to end it. Without flush() it waits
+        // for the next press, so every consumer runs one press behind — the bug this guards.
+        SonyDecoder q;
+        sendSony(q, 0x7AA, 12, 0);                          // one press, nothing to end it
+        bool pending = (q.flush(45000) == SonyDecoder::NONE);   // still repeating: don't flush
+        bool flushed = (q.flush(150000) == SonyDecoder::CODE && q.code() == 0x7AA && q.bits() == 12);
+        printf("%s Sony flush after release -> 0x%X (held=%s)\n",
+               (pending && flushed) ? "PASS" : "FAIL", q.code(), pending ? "held" : "FLUSHED EARLY");
+        fails += !(pending && flushed);
+
+        bool twice = (q.flush(150000) == SonyDecoder::NONE);   // and only once
+        printf("%s Sony flush does not repeat itself\n", twice ? "PASS" : "FAIL"); fails += !twice;
+
         // under jitter + the NEC decoder must NOT false-trigger on Sony frames
         SonyDecoder ds; NecDecoder nd;
         bool necQuiet = true;
