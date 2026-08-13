@@ -16,4 +16,5 @@ platform/esp32/managed_components/
 
 # Local publish-prep notes (do not ship)
 PUBLISH_CHECKLIST.md
+RELEASE_REVIEW_PROMPT.md
 PHILOSOPHY_NOTES.md
