@@ -288,9 +288,10 @@ Bluetooth connection, the default sink and the keep-alive, and prints the fix fo
 - **`br-connection-page-timeout`** from `bt.py connect` means the speaker is off or out of
   range. That's different from **`br-connection-profile-unavailable`**, which is the headless
   WirePlumber seat gotcha (see unoq-tools).
-- **Adopting framework fixes** in an existing project: `cmdr pull` re-fetches commander;
-  `cmdr update && cmdr regen` refreshes the generated scripts. `regen` never touches your
-  source, `cmdr.toml`, or `CMakeLists.txt`.
+- **Adopting framework fixes** in an existing project: your project pins a release tag, so
+  `cmdr pin <newer tag>` (or `--latest`) **then** `cmdr pull` — pull alone re-fetches the tag
+  you're already on. `cmdr update && cmdr regen` separately refreshes the generated scripts.
+  `regen` never touches your source, `cmdr.toml`, or `CMakeLists.txt`.
 - **Both board-mutating scripts need a terminal** for their password prompt, or
   `BOARD_SUDO_PW=...`.
 

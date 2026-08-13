@@ -212,6 +212,6 @@ Related: each consumer keeps a gitignored `PUBLISH_CHECKLIST.md` with its own
 per-repo notes, and commander's covers the framework (LICENSE is the open blocker
 on all of them). Version pinning is per-project: `cmdr pin <ref>` / `--latest` /
 `cmdr unpin` lock or float a consumer's commander version, and `cmdr link <path>`
-builds against a local checkout for framework development. The normal way to adopt
-framework changes is `cmdr pull`, against published commander — not a local
-override.
+builds against a local checkout for framework development. Consumers pin a release tag, so
+adopting framework changes is two deliberate steps — `cmdr pin <tag>` then `cmdr pull` —
+always against published commander, never a local override.

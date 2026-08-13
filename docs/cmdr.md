@@ -102,9 +102,14 @@ A project has four layers with three owners — see
 
 | Command | Refreshes |
 |---------|-----------|
-| `cmdr pull` | the fetched framework dependency (+ reconfigure) |
+| `cmdr pull` | the fetched framework dependency, **at whatever `GIT_TAG` the project pins** (+ reconfigure) |
 | `cmdr clean` | build artifacts: build dirs, `.pio/`, fetched `_deps`, esp32 `sdkconfig` |
 | `cmdr regen [--dry-run]` | cmdr-generated files: dev scripts, `commander_modules.h`, module `bin/` tools |
 
 `regen` never touches hand-written source, `cmdr.toml`, or
 `CMakeLists.txt`/`platformio.ini` — your files are yours.
+
+**Moving to a newer framework release is a separate, deliberate step.** A scaffold pins a
+release tag, so `cmdr pull` on its own re-fetches *that same tag* and changes nothing. To take a
+new release: `cmdr pin v1.1` (or `--latest` to freeze main's current tip, or `cmdr unpin` to
+track `main`), then `cmdr pull`. That's the point of pinning — updates arrive when you ask.

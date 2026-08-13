@@ -20,7 +20,7 @@ A project has four kinds of content; three maintenance commands each own one non
 |-------|----------|---------|--------|
 | Hand-written source | `main.cpp`, `cmdr.toml`, `secrets.h`, `maps/` | — | never auto-touched |
 | Generated project files | dev scripts, `commander_modules.h`, `bin/` tools | **`cmdr regen`** | re-emit from current templates |
-| Fetched framework dep | `build-*/_deps/commander-src`, `.pio/libdeps/commander` | **`cmdr pull`** | re-fetch + reconfigure (keeps build cache) |
+| Fetched framework dep | `build-*/_deps/commander-src`, `.pio/libdeps/commander` | **`cmdr pull`** | re-fetch at the pinned `GIT_TAG` + reconfigure (keeps build cache). A *newer release* needs `cmdr pin` first |
 | Build artifacts | build dirs, `.pio/`, `sdkconfig`, caches | **`cmdr clean`** | wipe (next build re-fetches) |
 
 They're complementary, not redundant. The one real overlap — `pull` and `clean` both cause a
