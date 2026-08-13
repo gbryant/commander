@@ -51,12 +51,20 @@ def load_maps(maps_dir):
 TOGGLE_BIT = 0x80
 
 
-def lookup(maps, address, command):
-    def exact(cmd):
-        return [(remote, e) for remote, entries in maps.items()
-                for e in entries if e['address'] == address and e['command'] == cmd]
+def base_command(command):
+    return hex(int(command, 16) & ~TOGGLE_BIT)
 
-    return exact(command) or exact(hex(int(command, 16) & ~TOGGLE_BIT))
+
+def lookup(maps, address, command):
+    hits = [(remote, e) for remote, entries in maps.items()
+            for e in entries if e['address'] == address and e['command'] == command]
+    if hits:
+        return hits
+    # Compare with the toggle bit cleared on BOTH sides — a map built by ir_map.py may hold
+    # either form, depending on which frame of the pair it captured.
+    base = base_command(command)
+    return [(remote, e) for remote, entries in maps.items()
+            for e in entries if e['address'] == address and base_command(e['command']) == base]
 
 
 def fmt_match(remote, entry):
