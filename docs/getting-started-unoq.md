@@ -1,9 +1,10 @@
 # Getting started — Arduino Uno Q (without App Lab)
 
 > **Status: captured empirically.** The fresh-image facts in §1 were recorded after an
-> actual stock reflash (2026-06-19), not inferred. One thing remains unverified: the stock
-> `arduino` password *value* — we know only that it ships expired, and you supply the
-> current one when resetting it.
+> actual stock reflash (2026-06-19), not inferred, and re-checked against the shipped
+> image `arduino-unoq-debian-image-20260528-558` (`/etc/shadow`, `/etc/passwd`, and the
+> systemd `*.wants` sets read straight out of the rootfs). A later Arduino image could
+> of course change any of it.
 
 The Uno Q is a **dual-brain board**: a Qualcomm QRB2210 running Debian (the "SBC") and an
 STM32U585 M33 running commander (Zephyr). They don't share storage. This guide brings up a
@@ -62,27 +63,36 @@ What a freshly flashed stock image actually gives you:
 
 - **`adb` over USB: auth-free, lands as `arduino` (uid 1000).** The user is baked into the
   image — App Lab does NOT create it. Nothing auto-runs on `adb shell`; there is no first-boot wizard.
-- **BUT the `arduino` account password ships EXPIRED.** It must be changed on first use, and
-  **`sudo` is blocked until you reset it** (`sudo: Account or password is expired`). This is the
+- **BUT the `arduino` account ships with NO password, already EXPIRED.** Its `/etc/shadow`
+  entry is `arduino::0:0:99999:7:::` — an empty hash (no password at all) with a
+  last-change date of 0, i.e. "must be changed now". So it must be set on first use, and
+  **`sudo` is blocked until you do** (`sudo: Account or password is expired`). This is the
   silent first-boot gate App Lab handled. `adb` itself needs no auth, and `hostnamectl` works (it
-  goes through polkit, not sudo) — but ssh/avahi/Wi-Fi/slim all need sudo, so reset the password
-  first: `passwd` (over `adb shell -t`), or `setup-board.py --reset-password`. (We have NOT
-  confirmed the stock password *value* — only that it ships expired; you supply it to reset.)
+  goes through polkit, not sudo) — but ssh/avahi/Wi-Fi/slim all need sudo, so set the password
+  first: `passwd` (over `adb shell -t`), or `setup-board.py`.
+  **There is no stock password to look up:** `passwd` asks for the current one, and you just
+  press **Enter**, then type the new one twice.
 - **Hostname: `uno-q`** (the stock default — a custom name is something you set).
 - **No Wi-Fi.** `wlan0` exists but is disconnected with no saved connection — Wi-Fi is the one
   real provisioning step App Lab did.
-- **`ssh` and `avahi-daemon` (mDNS) are both DISABLED.** With no Wi-Fi + ssh off + no mDNS,
-  **`adb`-over-USB is your only door** until you enable them — so do all provisioning over `adb` first.
+- **`ssh` is DISABLED, and mDNS doesn't advertise.** Neither `ssh.service` nor
+  `avahi-daemon.service` is in `multi-user.target.wants`, so neither starts at boot. (Pedantically,
+  `avahi-daemon.socket` *is* enabled, so avahi can socket-activate — but nothing advertises the
+  hostname until the service itself runs, which is why `<host>.local` doesn't resolve on a stock
+  board.) With no Wi-Fi + ssh off + no mDNS, **`adb`-over-USB is your only door** until you enable
+  them — so do all provisioning over `adb` first.
 - **No sshd host keys.** The stock image ships `/etc/ssh/` with no host keys, so simply enabling
   ssh fails to start (`sshd: no hostkeys available -- exiting`). You must `ssh-keygen -A` first —
   the wizard does this automatically, but note it if enabling ssh by hand. After a reflash the
   board's host keys are new, so if you SSH'd to the same hostname before you'll get a
   "host key has changed" / "Host key verification failed" warning on your Mac — clear the stale
   entry with `ssh-keygen -R <hostname>.local`, then accept the new fingerprint.
-- **The full Arduino stack is live again** — `arduino-router`(+`-serial`) owns `/dev/ttyHS1`;
-  `arduino-app-cli` + `docker`/`containerd` running; `lightdm` / `graphical.target` (GUI);
-  `bluetooth`; `ModemManager`. Every systemd change a lean setup makes is reverted by the reflash
-  (they lived on the wiped eMMC) — so "revert to stock" really is just "reflash."
+- **The full Arduino stack is live again** — all enabled at boot in the stock image:
+  `arduino-router`(+`-serial.service`/`-serial.path`) owns `/dev/ttyHS1`; `arduino-app-cli`;
+  `docker` + `containerd`; `bluetooth`; `ModemManager`; `NetworkManager` + `wpa_supplicant`;
+  `adbd`; and `display-manager.service → lightdm.service` for the GUI. Every systemd change a
+  lean setup makes is reverted by the reflash (they lived on the wiped eMMC) — so "revert to
+  stock" really is just "reflash."
 - **Home is ~605 MB, almost all `.arduino15`** (which ships with the image). All genuinely user
   data (sketches, scripts, `piper_project`, `maps`, configs) is gone — back it up first (§0).
 - **The M33 is untouched.** The eMMC reflash cannot reach the STM32, so its option bytes + last
@@ -103,8 +113,9 @@ unoq-tools/setup-board.py
 It inspects each thing, shows the current state, and asks permission before changing anything —
 so it's **idempotent and safe to re-run** (already-done steps show ✓ and are skipped). The steps:
 
-1. **Password** — if the account is expired (§1), runs `passwd` interactively (it asks you for the
-   current password and the new one — the value isn't assumed/stored by the script).
+1. **Password** — if the account is expired (§1), runs `passwd` interactively. It asks for the
+   current password first: on a stock image that's **empty, so press Enter**, then type the new
+   one twice. The script never assumes or stores the value.
 2. **Hostname** — shows the current one, offers to change it.
 3. **ssh** + **mDNS (avahi)** — enables each only if not already active.
 4. **Wi-Fi** — if not connected, prompts for SSID + password and joins via `nmcli`.
