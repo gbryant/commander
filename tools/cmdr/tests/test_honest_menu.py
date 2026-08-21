@@ -2,8 +2,10 @@
 backs it, so cmdr never lets you enable a module that silently won't work.
 
 The Uno Q is the sharp case: its Zephyr HAL backs only console/IR so far, so its menu
-is a hardcoded allowlist (UNOQ_MODULES) until the HAL grows (roadmap #4). These tests
-pin that contract and the per-platform `platforms` lists.
+is a hardcoded allowlist (UNOQ_MODULES) until the HAL grows (roadmap #4). The Bluepill
+has the inverse shape — everything works except I2C (hal/stm32 stub), so it's a small
+denylist (BLUEPILL_EXCLUDED). These tests pin both contracts and the per-platform
+`platforms` lists.
 """
 import pytest
 
@@ -25,13 +27,27 @@ def test_unoq_allowlist_is_honest(cli_mod):
         )
 
 
+def test_bluepill_denylist_is_honest(cli_mod):
+    """The I2C-backed modules are gated off bluepill while its I2C HAL is stubbed."""
+    assert cli_mod.BLUEPILL_EXCLUDED == {"compass", "i2c", "ina219"}
+    for name in cli_mod.BLUEPILL_EXCLUDED:
+        assert not cli_mod._module_supported(name, "bluepill"), (
+            f"{name} offered on bluepill despite the stubbed I2C HAL"
+        )
+
+
 def test_portable_modules_offered_on_all_real_targets(cli_mod):
-    """platforms=None means portable — offered everywhere except the unoq allowlist."""
+    """platforms=None means portable — offered everywhere except the unoq allowlist
+    and the bluepill I2C denylist."""
     for name, spec in cli_mod.MODULE_SPECS.items():
         if spec["platforms"] is not None:
             continue
         for t in ALL_TARGETS:
-            expect = True if t != "unoq" else name in cli_mod.UNOQ_MODULES
+            expect = True
+            if t == "unoq":
+                expect = name in cli_mod.UNOQ_MODULES
+            elif t == "bluepill":
+                expect = name not in cli_mod.BLUEPILL_EXCLUDED
             assert cli_mod._module_supported(name, t) == expect, f"{name} on {t}"
 
 

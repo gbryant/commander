@@ -732,9 +732,13 @@ UNOQ_OVERLAY_TEMPLATE = """\
 # board isn't working upstream). Toolchain env is overridable — defaults to the Arm GNU
 # Toolchain because the Zephyr SDK has no Intel-Mac build.
 UNOQ_ENV_PREAMBLE = """\
-# Zephyr build env (override any of these for your install):
-source "${ZEPHYR_VENV:-$HOME/zephyrproject/.venv}/bin/activate" 2>/dev/null || true
-export ZEPHYR_BASE="${ZEPHYR_BASE:-$HOME/zephyrproject/zephyr}"
+# Zephyr build env (override any of these for your install). The default workspace is
+# ~/u-developer/zephyrproject — what commander's setup-sdks.sh --zephyr creates — with
+# a fallback to ~/zephyrproject for a hand-made checkout.
+_ZP="${ZEPHYRPROJECT:-$HOME/u-developer/zephyrproject}"
+[ -d "$_ZP" ] || _ZP="$HOME/zephyrproject"
+source "${ZEPHYR_VENV:-$_ZP/.venv}/bin/activate" 2>/dev/null || true
+export ZEPHYR_BASE="${ZEPHYR_BASE:-$_ZP/zephyr}"
 export ZEPHYR_TOOLCHAIN_VARIANT="${ZEPHYR_TOOLCHAIN_VARIANT:-gnuarmemb}"
 export GNUARMEMB_TOOLCHAIN_PATH="${GNUARMEMB_TOOLCHAIN_PATH:-/Applications/ArmGNUToolchain/14.2.rel1/arm-none-eabi}"
 GDB="${GDB:-$GNUARMEMB_TOOLCHAIN_PATH/bin/arm-none-eabi-gdb}"
@@ -1172,10 +1176,17 @@ MODULE_SPECS = {
 # menu honest — only these are offered on unoq until the HAL grows (no broken promises).
 UNOQ_MODULES = {"system", "ir"}
 
+# Same honest-menu rule for the Bluepill: hal/stm32 I2C is still stubbed (PLAN
+# "Bluepill I2C"), so the I2C-backed modules would enable but read nothing there.
+# Shrink this set as the HAL grows. (GPIO/pulse work — sonar and ds1302 are fine.)
+BLUEPILL_EXCLUDED = {"compass", "i2c", "ina219"}
+
 
 def _module_supported(name: str, target: str) -> bool:
     if target == "unoq":
         return name in UNOQ_MODULES
+    if target == "bluepill" and name in BLUEPILL_EXCLUDED:
+        return False
     plats = MODULE_SPECS[name]["platforms"]
     return plats is None or target in plats
 
@@ -1970,8 +1981,12 @@ def cmd_module(args: argparse.Namespace) -> None:
                 opts = "  ".join(f"{k}={v}" for k, v in modules[name].items())
                 state = f"ON   {opts}".rstrip()
             elif not _module_supported(name, target):
-                state = ("n/a (Uno Q HAL: console + IR only)" if target == "unoq"
-                         else f"n/a (needs {'/'.join(spec['platforms'])})")
+                if target == "unoq":
+                    state = "n/a (Uno Q HAL: console + IR only)"
+                elif target == "bluepill" and name in BLUEPILL_EXCLUDED:
+                    state = "n/a (bluepill I2C HAL not implemented yet)"
+                else:
+                    state = f"n/a (needs {'/'.join(spec['platforms'])})"
             else:
                 state = "off"
             print(f"  {name:{width}s} {state}")
@@ -1997,6 +2012,9 @@ def cmd_module(args: argparse.Namespace) -> None:
         if target == "unoq":
             die(f"module '{name}' isn't available on the Uno Q yet — its Zephyr HAL backs only "
                 f"the console/channel bus + IR so far (GPIO/I2C are stubbed).")
+        if target == "bluepill" and name in BLUEPILL_EXCLUDED:
+            die(f"module '{name}' isn't available on the Bluepill yet — its STM32 I2C HAL "
+                f"is still stubbed (see PLAN.md \"Bluepill I2C\").")
         die(f"module '{name}' is not supported on target '{target}' (supports: {', '.join(spec['platforms'])})")
 
     # roomba and loco-bridge both own Serial1 (loco-bridge provides `oi` itself),
@@ -2262,8 +2280,10 @@ with a revert. Run them in this order on a fresh board:
 ./monitor    # open the ch0 console over the USB-CDC gadget (tio); type `help`  (after ./install-broker)
 ./bum        # build + flash + monitor
 ```
-Prereqs: a Zephyr/`west` checkout (`~/zephyrproject`), the Arm GNU Toolchain, and `adb`. Override
-`ZEPHYR_BASE` / `GNUARMEMB_TOOLCHAIN_PATH` / `GDB` if yours live elsewhere.
+Prereqs: a Zephyr/`west` workspace (commander's `scripts/setup-sdks.sh --zephyr` creates
+`~/u-developer/zephyrproject`; a plain `~/zephyrproject` checkout also works), the Arm GNU
+Toolchain, and `adb`. Override `ZEPHYRPROJECT` / `ZEPHYR_BASE` / `GNUARMEMB_TOOLCHAIN_PATH` /
+`GDB` if yours live elsewhere.
 
 ## 2. One-time board setup (reversible — needs board sudo)
 Run these **after a first `./build`** — `install-broker` pushes the broker from the fetched

@@ -58,7 +58,7 @@ get working firmware without touching WiFi, FreeRTOS, or panic-hook boilerplate.
 include(FetchContent)
 FetchContent_Declare(commander
     GIT_REPOSITORY https://github.com/gbryant/commander.git
-    GIT_TAG        main
+    GIT_TAG        v1.0     # pin a release; `cmdr pin` manages this
 )
 FetchContent_MakeAvailable(commander)
 

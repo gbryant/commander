@@ -1,6 +1,6 @@
 # Uno Q — Debian-side service units
 
-systemd units that own the MCU↔Debian serial link on the Arduino Uno Q (`gandalf`). They are
+systemd units that own the MCU↔Debian serial link on the Arduino Uno Q. They are
 **alternatives, not co-runners** — both want `/dev/ttyHS1` + `/dev/ttyGS0`, and each is paired
 with a different MCU firmware. Keep both in the repo so either can be (re)created later.
 

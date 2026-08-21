@@ -19,8 +19,9 @@ for builds and a voice download.
 - An **IR receiver module** (TSOP-style, the kind in every Arduino kit) with its signal
   pin on **D5** — the scaffold default. Power it per its own datasheet.
 - A **Bluetooth speaker**, and a **remote** to press.
-- On your Mac/Linux host: `adb`, a Zephyr/`west` checkout (`~/zephyrproject`), the Arm
-  GNU Toolchain, and `cmdr` ([getting-started.md](getting-started.md)).
+- On your Mac/Linux host: `adb`, a Zephyr/`west` workspace (`scripts/setup-sdks.sh
+  --zephyr` creates `~/u-developer/zephyrproject`; a plain `~/zephyrproject` checkout
+  also works), the Arm GNU Toolchain, and `cmdr` ([getting-started.md](getting-started.md)).
 
 **Assumed:** the board is provisioned — on Wi-Fi, hostname set, `adb shell` works. If
 it's fresh from a stock image, do [getting-started-unoq.md](getting-started-unoq.md)

@@ -66,9 +66,15 @@ idf_export() {
     done
 }
 # Echo the Zephyr venv activate script the unoq build sources, or empty.
+# Same candidates as the generated build script: $ZEPHYRPROJECT, the setup-sdks.sh
+# default (~/u-developer/zephyrproject), then a hand-made ~/zephyrproject.
 zephyr_venv() {
-    local v="${ZEPHYR_VENV:-$HOME/zephyrproject/.venv}/bin/activate"
-    [ -f "$v" ] && echo "$v"
+    local zp v
+    for zp in "${ZEPHYRPROJECT:-}" "$HOME/u-developer/zephyrproject" "$HOME/zephyrproject"; do
+        [ -n "$zp" ] || continue
+        v="${ZEPHYR_VENV:-$zp/.venv}/bin/activate"
+        [ -f "$v" ] && { echo "$v"; return; }
+    done
 }
 
 probe_pico()  { command -v cmake >/dev/null || { echo "no cmake"; return; }

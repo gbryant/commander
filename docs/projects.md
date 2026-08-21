@@ -55,6 +55,9 @@ design question — see the notes in PLAN.md.
 
 ## cmdr-ai-cam
 
+*(Repo not yet published — still cooking; the `aicam` module it exercises ships in
+commander today.)*
+
 **An MCU hosting a vision co-processor.** A Seeed XIAO ESP32-S3 runs commander and
 drives a Grove Vision AI Module V2 (WiseEye2 NPU) wearing an OV5647 camera. The
 Vision AI runs the model; commander drives it, reads results back, and exposes the
@@ -200,18 +203,13 @@ and aren't part of this catalogue.
 
 ## Coordination
 
-Every repo above is currently **private**, including commander.
-
 Consumers reference commander **by URL** — `FetchContent` for the CMake targets,
 `lib_deps` for the PlatformIO ones. So moving or renaming commander breaks every
-consumer's build until each is repointed, and publishing commander alone would leave
-its README and getting-started docs pointing at a private `unoq-tools`. Treat the
-list above as the checklist for either move.
+consumer's build until each is repointed — treat the list above as the checklist
+for any such move.
 
-Related: each consumer keeps a gitignored `PUBLISH_CHECKLIST.md` with its own
-per-repo notes, and commander's covers the framework (LICENSE is the open blocker
-on all of them). Version pinning is per-project: `cmdr pin <ref>` / `--latest` /
-`cmdr unpin` lock or float a consumer's commander version, and `cmdr link <path>`
-builds against a local checkout for framework development. Consumers pin a release tag, so
+Version pinning is per-project: `cmdr pin <ref>` / `--latest` / `cmdr unpin` lock
+or float a consumer's commander version, and `cmdr link <path>` builds against a
+local checkout for framework development. Consumers pin a release tag, so
 adopting framework changes is two deliberate steps — `cmdr pin <tag>` then `cmdr pull` —
 always against published commander, never a local override.

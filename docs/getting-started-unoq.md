@@ -28,24 +28,24 @@ Companion docs in this repo (assume the post-provisioning state this guide reach
 
 ---
 
-## 0. Before you wipe — save the board-side state
+## 0. Reflashing a used board? Save its state first
 
-Most of what we changed already lives in the repo. The things that exist **only on the
-board** and are worth pulling off first:
+**Fresh board out of the box: skip straight to §1.** This section only matters if
+you're about to reflash a board you've been using — the stock reflash wipes the
+eMMC, so pull off anything that exists only on the board:
 
-- **Provisioned facts** (the reference for what App Lab wrote):
+- **Provisioned facts** (what's set now, so re-provisioning is a checklist):
   ```bash
   adb shell 'whoami; id; hostname; head -2 /etc/os-release'
   adb shell 'nmcli -t -f NAME,TYPE,DEVICE connection show'
   adb shell 'ls -la /etc/NetworkManager/system-connections/'
   ```
-- **Wi-Fi connection profile(s)** — so re-provisioning is a copy-back, and to learn which
-  fields App Lab set:
+- **Wi-Fi connection profile(s)** — so re-provisioning is a copy-back:
   ```bash
   adb pull /etc/NetworkManager/system-connections/   ./unoq-backup/system-connections/   # needs root/sudo
   ```
 - **Home directory** — see §0.1.
-- **Uncommitted local edits** in any out-of-repo working dirs (e.g. `~/github/cmdr-unoq-test`).
+- **Uncommitted edits** in any working directories that live on the board.
 
 ### 0.1 Back up the home directory
 _(size check: run `adb shell 'du -sh /home/arduino'`; if modest, pull it whole)_

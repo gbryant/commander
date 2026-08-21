@@ -207,7 +207,7 @@ and the offset linker `stm32f103c8_dfu.ld`.
 
 **USB-DFU upload (no ST-Link).** `dev/bluepill/flash-bootloader` installs the davidgfnet
 DFU bootloader (GPL-3.0; an external dep under `~/u-developer/stm32-dfu-bootloader` like
-the other SDKs — cloned by `~/u-developer/setup.sh`, overridable via
+the other SDKs — cloned by `scripts/setup-sdks.sh`, overridable via
 `$STM32_DFU_BOOTLOADER_PATH` — patched for macOS, no WinUSB, and to release D+ after its
 re-enum nudge) once via ST-Link. Then `bootloader`
 (a shell command, gated by `-DCOMMANDER_STM32_DFU`) reboots into DFU and

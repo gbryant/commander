@@ -91,6 +91,7 @@ alias esp='. ~/u-developer/esp-idf/export.sh'   # load ESP-IDF for raw idf.py
 | ESP-IDF `export.sh` | esp32 | dev scripts self-source `~/u-developer/esp-idf/export.sh` (override via `IDF_EXPORT` / `IDF_PATH`) |
 | `TINYUSB_PATH` | bluepill USB | `$PICO_SDK_PATH/lib/tinyusb` |
 | `STM32_DFU_BOOTLOADER_PATH` | bluepill `cmdr enable dfu` | `~/u-developer/stm32-dfu-bootloader` |
+| `ZEPHYRPROJECT` (or `ZEPHYR_BASE`/`ZEPHYR_VENV`) | unoq | `~/u-developer/zephyrproject` (falls back to `~/zephyrproject`) |
 
 The esp32 `dev/esp32/*` scripts self-source ESP-IDF, so you don't need to run `esp`
 first for a normal build — the alias is just for raw `idf.py`.

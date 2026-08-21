@@ -1,7 +1,11 @@
 # Design note: multiplexing / channels for Linux-hosted commander
 
-**Status:** design note only — NOT started. Captured 2026-06-12 while spiking the Zephyr
-HAL on the Arduino Uno Q (see `docs/zephyr-hal-spike.md`).
+**Status:** implemented and hardware-proven on the Arduino Uno Q. Phase 2a below (codec,
+mux transport, publish API, SBC broker) all shipped — see "Build status" at the end —
+and the bus has since gone first-class (channel identity, command sessions:
+[`channels-first-class.md`](./channels-first-class.md) tracks what's live vs. deferred).
+This is the original design capture (2026-06-12, during the Zephyr HAL spike —
+`docs/zephyr-hal-spike.md`); read it for the *why* behind the shape.
 Prototype target: the Uno Q, where the multi-consumer need is finally real.
 
 ## The problem

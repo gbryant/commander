@@ -26,7 +26,7 @@ fi
 if [ -n "$BOARD_SUDO_PW" ]; then
   PW="$BOARD_SUDO_PW"
 elif [ -t 0 ]; then
-  read -s -p "Board (arduino@gandalf) sudo password: " PW; echo
+  read -s -p "Board (arduino) sudo password: " PW; echo
 else
   echo "no terminal to prompt for the board sudo password." >&2
   echo "run this from a terminal, or pass it in:  BOARD_SUDO_PW=... ./install-broker" >&2

@@ -7,7 +7,7 @@
 # ENABLE_PROTECTIONS (so ST-Link/SWD stays usable — it does NOT set RDP / lock the chip).
 set -e
 # External dep, like every other SDK: lives under ~/u-developer (cloned by
-# ~/u-developer/setup.sh), overridable with $STM32_DFU_BOOTLOADER_PATH. The
+# scripts/setup-sdks.sh), overridable with $STM32_DFU_BOOTLOADER_PATH. The
 # commander re-enum patch below is applied idempotently to that checkout.
 SRC="${STM32_DFU_BOOTLOADER_PATH:-$HOME/u-developer/stm32-dfu-bootloader}"
 REPO="https://github.com/davidgfnet/stm32-dfu-bootloader.git"

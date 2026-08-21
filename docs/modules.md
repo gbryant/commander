@@ -14,10 +14,10 @@ Run `cmdr module list` inside a project to see what's available for your target.
 | Module | Platforms | Commands | What it is |
 |--------|-----------|----------|------------|
 | `system` | all (always on) | `help`, `version` | command list + build identification |
-| `compass` | all | `heading`, `raw` | HMC5883L magnetometer over HAL I2C |
+| `compass` | all but bluepill* | `heading`, `raw` | HMC5883L magnetometer over HAL I2C |
 | `sonar` | all | `ping` | PING-style single-pin ultrasonic ranger |
-| `i2c` | all | `i2c` | bus diagnostics: `scan` / `read` / `write` |
-| `ina219` | all | `ina` | INA219 current/power monitor(s), multi-channel |
+| `i2c` | all but bluepill* | `i2c` | bus diagnostics: `scan` / `read` / `write` |
+| `ina219` | all but bluepill* | `ina` | INA219 current/power monitor(s), multi-channel |
 | `ds1302` | all | `rtc` | DS1302 RTC, bit-banged 3-wire |
 | `wifi` | pico, pico2, r4, esp32 | `wifi` | `status` / `off` / `on` over runner hooks |
 | `ir` | pico, pico2, uno, r4, unoq, esp32, bluepill | `ir recv` (+ `ir wall`, `ir diag`) | NEC/Sony IR receive |
@@ -36,6 +36,8 @@ Boards also register a few commands outside the module system, from their runner
 
 On the **Uno Q** only `system` and `ir` are offered — its Zephyr HAL backs the
 console/channel bus and IR so far; the menu stays honest about what works.
+\* Likewise on the **Bluepill**: its STM32 I2C HAL is still stubbed, so the
+I2C-backed modules (`compass`, `i2c`, `ina219`) aren't offered there yet.
 
 ## Sensors and buses
 

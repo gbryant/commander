@@ -95,6 +95,11 @@ which version:
 | `cmdr link <path>` | build against a local commander checkout (framework development; bare `link` shows status) |
 | `cmdr unlink` | back to GitHub |
 
+Releases are tagged **`vMAJOR.MINOR`**. The major number moves **only** when a
+release breaks existing consumers; everything else bumps the minor. So moving
+`v1.2 → v1.4` is safe by contract, and a jump to `v2.0` is the one to read the
+release notes for.
+
 ## Maintenance
 
 A project has four layers with three owners — see
