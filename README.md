@@ -18,6 +18,55 @@ Raspberry Pi Pico, Pico W, Pico 2, Pico 2 W, an ESP32-S3 board, and an STM32
 Pico 2, Pico 2 W, ESP32-S3, STM32 "Bluepill". The same module code runs on all
 of them.*
 
+## What you get
+
+A shell on the board. Modules register commands; you talk to them over serial
+or telnet while the firmware runs:
+
+```console
+> help
+  help -- list all commands
+  version -- firmware name, build number, commit
+  rtc -- DS1302 real-time clock - 'rtc' / 'rtc set ...'
+  ipstube -- 6x ST7789 displays - 'ipstube' for usage
+  wifi -- WiFi status/control - 'wifi status|off|on'
+  wled -- WS2812 LEDs - 'wled' for usage
+  marquee -- scroll a message across all six displays
+  reset -- reboot the firmware
+  ota -- flash firmware from URL (http)
+```
+
+That's a real session on [cmdr-ipstube](docs/projects.md#cmdr-ipstube), a clock
+built with it. `help`, `version`, `reset` and `ota` come from commander; `rtc`,
+`ipstube`, `wifi` and `wled` are stock modules switched on with `cmdr module
+enable`; `marquee` is the app's own. None of that wiring is hand-written.
+
+## Why this and not …
+
+**Arduino sketches** are the fastest way to start, and if one board and
+`Serial.println` debugging cover your needs, stay there. Commander is for when
+you want to *interrogate* a running device rather than re-flash it to change a
+constant — and for when the same sensor code has to run on an AVR and a Pico
+and an ESP32 without three forks of it.
+
+**MicroPython / CircuitPython** give you a REPL, which is the closest thing to
+this, and a faster edit loop. You trade away native SDK access, hard real-time
+behaviour, and the small tiers — an Uno isn't a realistic target. Commander
+keeps you in C++ on the vendor SDK and still gives you the interactive loop.
+
+**Zephyr's shell** is genuinely portable and more capable than this one, but
+it's Zephyr: a much larger commitment, and it won't run on an ATmega328.
+Commander uses Zephyr as *one* backend (the Uno Q) rather than requiring it.
+
+**ESPHome** is excellent at what it targets — declarative devices on ESP chips,
+usually pointed at Home Assistant. Commander is imperative, C++, and
+multi-vendor; different shape of problem.
+
+**Your own serial command parser** is the honest comparison, because that's
+what most people write. This is that, plus a HAL so modules move between
+boards, plus a tool that composes them, plus transports (telnet, the Uno Q
+channel bus) the parser would have grown eventually.
+
 ## Architecture in one sentence
 
 ```
@@ -87,6 +136,27 @@ prerequisite matrix — is in **[docs/getting-started.md](docs/getting-started.m
   [unoq-tools](https://github.com/gbryant/unoq-tools) repo.
 - **Channel bus** (multi-consumer Linux-hosted commander) —
   [docs/commander-channels-design.md](docs/commander-channels-design.md).
+
+## Project status
+
+A **solo project**, built for my own hardware and shared because it may be
+useful. It works — all seven boards are hardware-confirmed running the shell,
+and the [projects](docs/projects.md) listed above are real devices in daily
+use, not demos. But calibrate accordingly: there is one maintainer, and no
+support promise.
+
+- **Releases** are `vMAJOR.MINOR`; the major number moves only when a release
+  breaks existing consumers. Scaffolded projects pin a release tag, so an
+  upstream mistake can't reach a project generated last month.
+- **Testing** is a local tiered suite — `tests/run.sh` (host C++ units + `cmdr`
+  codegen golden files) and `tests/build-matrix.sh` (compile smoke across
+  boards). GitHub Actions was deliberately declined for a solo project;
+  see [docs/testing.md](docs/testing.md).
+- **Known gaps** are tracked honestly rather than glossed: Bluepill I2C is
+  stubbed (so the I2C modules aren't offered there), and Pico pull-OTA is wired
+  but not yet hardware-tested. [PLAN.md](PLAN.md) marks state per area.
+- **Issues and PRs** are welcome, but may be answered slowly. If you need a
+  guaranteed response, fork it — that's what the licence is for.
 
 ## License
 
