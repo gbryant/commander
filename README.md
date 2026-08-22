@@ -9,6 +9,15 @@ builds for any target.
 It's for **experimenting and prototyping** — one framework that scales from an AVR
 up to a Linux-hosted board, without forking per platform.
 
+![Nine development boards laid out in a row on a wooden surface, descending in
+size from left to right: Arduino Uno, Arduino UNO R4 WiFi, Arduino UNO Q,
+Raspberry Pi Pico, Pico W, Pico 2, Pico 2 W, an ESP32-S3 board, and an STM32
+"Bluepill".](docs/img/boards.jpg)
+
+*Left to right: Arduino Uno, UNO R4 WiFi, UNO Q, Raspberry Pi Pico, Pico W,
+Pico 2, Pico 2 W, ESP32-S3, STM32 "Bluepill". The same module code runs on all
+of them.*
+
 ## Architecture in one sentence
 
 ```
