@@ -114,6 +114,31 @@ A project has four layers with three owners — see
 `regen` never touches hand-written source, `cmdr.toml`, or
 `CMakeLists.txt`/`platformio.ini` — your files are yours.
 
+## Picking the right board when several are plugged in
+
+The dev scripts and host tools find your board by USB VID/PID (`find_port.py`,
+installed into the project). That's exact when each board has a distinct chip —
+but **two boards can share one**: plug in two CH340-based boards and they are
+genuinely indistinguishable, as are an ESP32 devkit and a CH340 Uno clone.
+
+Rather than guess (and silently connect you to the wrong board, which looks
+exactly like a dead one), the scripts stop and list the candidates. Resolve it
+per-run or per-project:
+
+```bash
+CMDR_PORT=/dev/cu.usbserial-1430 ./monitor    # one run
+```
+
+```toml
+# cmdr.toml — persistent
+serial = "0001"                     # preferred: identifies the board itself
+port   = "/dev/cu.usbserial-1430"   # when the chip reports no serial (CH340s don't)
+```
+
+`serial` survives re-plugging and differs per machine-independent board, so
+prefer it; many cheap USB-serial chips report none, and then the path is the
+only stable handle. Existing projects pick this up with `cmdr regen`.
+
 **Moving to a newer framework release is a separate, deliberate step.** A scaffold pins a
 release tag, so `cmdr pull` on its own re-fetches *that same tag* and changes nothing. To take a
 new release: `cmdr pin v1.1` (or `--latest` to freeze main's current tip, or `cmdr unpin` to

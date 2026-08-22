@@ -373,7 +373,10 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT=""
 for i in $(seq 1 20); do
+    # exit 1 = not enumerated yet (keep waiting, quietly); anything else is a
+    # real problem — e.g. 2 = several boards match, which polling can't fix.
     PORT=$(python3 "$DIR/scripts/find_port.py" __BOARD_ID__ 2>/dev/null) && break
+    [ $? -ne 1 ] && { python3 "$DIR/scripts/find_port.py" __BOARD_ID__ >/dev/null; exit 1; }
     [ $i -eq 1 ] && echo "Waiting for __BOARD_ID__..."
     sleep 0.5
 done
@@ -446,7 +449,10 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT=""
 for i in $(seq 1 20); do
+    # exit 1 = not enumerated yet (keep waiting, quietly); anything else is a
+    # real problem — e.g. 2 = several boards match, which polling can't fix.
     PORT=$(python3 "$DIR/scripts/find_port.py" __CHIP__ 2>/dev/null) && break
+    [ $? -ne 1 ] && { python3 "$DIR/scripts/find_port.py" __CHIP__ >/dev/null; exit 1; }
     [ $i -eq 1 ] && echo "Waiting for __CHIP__..."
     sleep 0.5
 done
@@ -504,7 +510,10 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT=""
 for i in $(seq 1 20); do
+    # exit 1 = not enumerated yet (keep waiting, quietly); anything else is a
+    # real problem — e.g. 2 = several boards match, which polling can't fix.
     PORT=$(python3 "$DIR/scripts/find_port.py" bluepill 2>/dev/null) && break
+    [ $? -ne 1 ] && { python3 "$DIR/scripts/find_port.py" bluepill >/dev/null; exit 1; }
     [ $i -eq 1 ] && echo "Waiting for the bluepill USB-CDC port (press reset after plugging in)..."
     sleep 0.5
 done
