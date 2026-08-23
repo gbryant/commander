@@ -90,7 +90,8 @@ runners register an `ota <url>` command (gated by `COMMANDER_ENABLE_OTA`, set by
 `cmdr enable ota` on the CMake side) that downloads firmware from a URL and
 self-flashes (pico_fota_bootloader / esp_ota). lwIP has plenty of sockets there,
 so no Telnet hand-off is needed. **ESP32 pull OTA is hardware-confirmed** (2026-06,
-cmdr-ipstube over `bum-ota`); pico is wired but not yet HW-tested. R4's push model
+cmdr-ipstube over `bum-ota`); **pico pull-OTA is HW-confirmed on a Pico W (2026-08-23)**,
+though the Pico 2 W (RP2350) path is untested. R4's push model
 is the exception, forced by WiFiS3's socket cap.
 
 The ESP32 `ota` command (`runners/esp32/.../ota_cmd.h`) emits weak lifecycle hooks

@@ -113,7 +113,7 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | **`cmdr` features + tooling**     | ✅ done      | optional build-flag features (e.g. IR `wall`); per-module host tools in `bin/` + seed dirs; VID/PID port detection |
 | **LittleFS — ESP32**              | ✅ done      | `cmdr enable littlefs [--size/--label/--dir]`; composable partitions (stacks with OTA, `disable ota` keeps FS); esp_littlefs git dep; `commander_mount_littlefs()`; HW-confirmed via cmdr-ipstube |
 | OTA — R4 (on-demand)              | ✅ done      | `cmdr enable ota`; `ota start` hands off telnet→OTA; push confirmed on hardware (2026-05-29) |
-| OTA — Pico (pull `ota <url>`)     | 🟡 untested  | runner wires `ota` + pfb_firmware_commit (COMMANDER_ENABLE_OTA); needs hardware test |
+| OTA — Pico (pull `ota <url>`)     | ✅ done      | `cmdr enable ota`; **HW-confirmed on Pico W (RP2040) 2026-08-23** — build 1→2 over WiFi via `ota_push.py`, verified over telnet. Pico 2 W (RP2350) not yet exercised |
 | OTA — ESP32 (pull `ota <url>`)    | ✅ done      | `cmdr enable ota`; HW-confirmed via cmdr-ipstube `bum-ota` (2026-06); weak `commander_on_ota_*` display hooks; project-level `commander_stamp_version()` so `bum-ota` confirms the build |
 | DFU upload — Bluepill             | ✅ done      | `cmdr enable dfu`; davidgfnet bootloader (`bootloader` cmd + dfu-util); HW-confirmed |
 | Board commands — Pico             | ⬜ todo      | reboot-to-bootloader via SystemModule or hook       |
@@ -265,9 +265,12 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
    BT-only proving ground was hardware-confirmed. Remaining: re-confirm on
    hardware that a pad drives the robot from the rolled-in module (and that
    telnet still works alongside BT).
-2. **OTA hardware test** — pico & esp32 runners already register the pull-based
-   `ota <url>` command (gated by COMMANDER_ENABLE_OTA via `cmdr enable ota`);
-   exercise it end-to-end on Pico W / Pico 2 W / ESP32 hardware.
+2. **OTA hardware test — Pico 2 W only remaining.** ESP32 (2026-06, cmdr-ipstube)
+   and **Pico W (2026-08-23)** are both confirmed end-to-end. The Pico 2 W is a
+   genuinely separate case, not a repeat: RP2350 takes a different
+   `pico_fota_bootloader` branch and commander's `FreeRTOSConfig.h` switches to
+   SMP/M33. The non-W Pico and Pico 2 can't do pull-OTA at all — it downloads
+   over HTTP, so it needs WiFi.
 3. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
    on ESP32 (esp_restart into download mode or DFU).
 4. **IR hardware pass** — the ESP32 (RMT) and Bluepill (EXTI/DWT) IR modules
