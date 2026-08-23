@@ -97,24 +97,30 @@ bootloader, a partition layout, a WiFi download and a reboot, so nothing below T
 observe whether the device is *actually running the new image*. It stays manual — the point
 is the physical board.
 
-Kept as regression fixtures (untracked, alongside the other scratch projects):
+Two boards are worth covering, and they are not the same test: the **Pico W** (RP2040)
+and the **Pico 2 W** (RP2350, where `pico_fota_bootloader` takes a different branch and
+commander's `FreeRTOSConfig.h` switches to SMP/M33). Both passed 2026-08-23.
 
-| Fixture | Board | Covers |
-|---------|-------|--------|
-| `~/github/cmdr-pico-ota-test` | Pico W (RP2040) | pull-OTA + `pico_fota_bootloader` |
-| `~/github/cmdr-pico2-ota-test` | Pico 2 W (RP2350) | the same, on the SMP/M33 + ARM-Secure path |
-
-Either can be recreated from nothing with `cmdr init pico <name>` + `cmdr enable ota`; the
-fixtures just save the setup. To re-run after touching the runner's OTA path, `ota_push.py`,
-or the pfb wiring:
+No fixture project is kept — scaffolding one is a two-minute job and a stale scaffold is
+worse than none. Build it fresh, run the test, delete it:
 
 ```bash
-cd ~/github/cmdr-pico-ota-test
+cmdr init pico ota-check && cd ota-check   # or `pico2` for the Pico 2 W
+cmdr enable ota
+./build
+picotool load build-pico/pfb_build/pico_fota_bootloader.uf2
+picotool load build-pico/ota-check.uf2
+picotool reboot
+```
+
+Then confirm it joined WiFi (`ping ota-check.local`), and push an update:
+
+```bash
 ./build                                   # bumps .build_number, so a pass is provable
 IP=$(ipconfig getifaddr en0)
 python3 -m http.server 8000 --directory build-pico &
-OTA_HOST=cmdr-pico-ota-test.local \
-OTA_URL="http://$IP:8000/cmdr-pico-ota-test_fota_image.bin" \
+OTA_HOST=ota-check.local \
+OTA_URL="http://$IP:8000/ota-check_fota_image.bin" \
   python3 build-pico/_deps/commander-src/scripts/ota_push.py
 ```
 
