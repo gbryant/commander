@@ -159,10 +159,9 @@ support promise.
   codegen golden files) and `tests/build-matrix.sh` (compile smoke across
   boards). GitHub Actions was deliberately declined for a solo project;
   see [docs/testing.md](docs/testing.md).
-- **Known gaps** are tracked honestly rather than glossed: Bluepill I2C is
-  stubbed (so the I2C modules aren't offered there), and pull-OTA is confirmed
-  on the Pico W but not yet on the Pico 2 W. [PLAN.md](PLAN.md) marks state
-  per area.
+- **Known gaps** are tracked honestly rather than glossed: the main one is
+  Bluepill I2C, which is stubbed — so the I2C modules aren't offered there.
+  [PLAN.md](PLAN.md) marks state per area.
 - **Issues and PRs** are welcome, but may be answered slowly. If you need a
   guaranteed response, fork it — that's what the licence is for.
 

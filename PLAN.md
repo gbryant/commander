@@ -113,7 +113,7 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | **`cmdr` features + tooling**     | ✅ done      | optional build-flag features (e.g. IR `wall`); per-module host tools in `bin/` + seed dirs; VID/PID port detection |
 | **LittleFS — ESP32**              | ✅ done      | `cmdr enable littlefs [--size/--label/--dir]`; composable partitions (stacks with OTA, `disable ota` keeps FS); esp_littlefs git dep; `commander_mount_littlefs()`; HW-confirmed via cmdr-ipstube |
 | OTA — R4 (on-demand)              | ✅ done      | `cmdr enable ota`; `ota start` hands off telnet→OTA; push confirmed on hardware (2026-05-29) |
-| OTA — Pico (pull `ota <url>`)     | ✅ done      | `cmdr enable ota`; **HW-confirmed on Pico W (RP2040) 2026-08-23** — build 1→2 over WiFi via `ota_push.py`, verified over telnet. Pico 2 W (RP2350) not yet exercised |
+| OTA — Pico (pull `ota <url>`)     | ✅ done      | `cmdr enable ota`; **HW-confirmed 2026-08-23 on Pico W (RP2040) and Pico 2 W (RP2350)** — build bumped over WiFi via `ota_push.py`, each verified independently over telnet |
 | OTA — ESP32 (pull `ota <url>`)    | ✅ done      | `cmdr enable ota`; HW-confirmed via cmdr-ipstube `bum-ota` (2026-06); weak `commander_on_ota_*` display hooks; project-level `commander_stamp_version()` so `bum-ota` confirms the build |
 | DFU upload — Bluepill             | ✅ done      | `cmdr enable dfu`; davidgfnet bootloader (`bootloader` cmd + dfu-util); HW-confirmed |
 | Board commands — Pico             | ⬜ todo      | reboot-to-bootloader via SystemModule or hook       |
@@ -265,19 +265,13 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
    BT-only proving ground was hardware-confirmed. Remaining: re-confirm on
    hardware that a pad drives the robot from the rolled-in module (and that
    telnet still works alongside BT).
-2. **OTA hardware test — Pico 2 W only remaining.** ESP32 (2026-06, cmdr-ipstube)
-   and **Pico W (2026-08-23)** are both confirmed end-to-end. The Pico 2 W is a
-   genuinely separate case, not a repeat: RP2350 takes a different
-   `pico_fota_bootloader` branch and commander's `FreeRTOSConfig.h` switches to
-   SMP/M33. The non-W Pico and Pico 2 can't do pull-OTA at all — it downloads
-   over HTTP, so it needs WiFi.
-3. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
+2. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
    on ESP32 (esp_restart into download mode or DFU).
-4. **IR hardware pass** — the ESP32 (RMT) and Bluepill (EXTI/DWT) IR modules
+3. **IR hardware pass** — the ESP32 (RMT) and Bluepill (EXTI/DWT) IR modules
    landed 2026-06-18 in the module system; exercise both on hardware.
-5. **Bluepill I2C** — implement `hal_i2c_*` for the STM32 (I2C1 peripheral or
+4. **Bluepill I2C** — implement `hal_i2c_*` for the STM32 (I2C1 peripheral or
    bit-bang) to bring up `compass`; currently stubbed in `hal/stm32/hal.cpp`.
-6. **Grove Vision AI V2 (`aicam`)** — esp32 module landed: SSCMA AT protocol over a
+5. **Grove Vision AI V2 (`aicam`)** — esp32 module landed: SSCMA AT protocol over a
    UART/I2C transport seam (`modules/aicam/` + `platform/esp32/AiCamUartTransport`),
    host = XIAO ESP32-S3, consumer = `cmdr-ai-cam`. Added `hal_i2c_read_raw` to the
    HAL. **HW-confirmed (2026-06-11): full pipeline** — `aicam info`/`sensors` plus live
