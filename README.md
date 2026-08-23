@@ -24,22 +24,29 @@ A shell on the board. Modules register commands; you talk to them over serial
 or telnet while the firmware runs:
 
 ```console
+$ cmdr init pico myrobot && cd myrobot
+$ cmdr module enable wifi
+$ cmdr module enable sonar
+$ cmdr module enable i2c
+$ ./bum                       # build + upload + monitor
+
 > help
+  reset -- reboot the firmware
+  bootloader -- enter USB bootloader
   help -- list all commands
   version -- firmware name, build number, commit
-  rtc -- DS1302 real-time clock - 'rtc' / 'rtc set ...'
-  ipstube -- 6x ST7789 displays - 'ipstube' for usage
+  i2c -- I2C bus diagnostics - 'i2c' for usage
+  ping -- measure distance (cm / in)
   wifi -- WiFi status/control - 'wifi status|off|on'
-  wled -- WS2812 LEDs - 'wled' for usage
-  marquee -- scroll a message across all six displays
-  reset -- reboot the firmware
   ota -- flash firmware from URL (http)
+> wifi status
+wifi: connected  ssid=my-network  ip=192.168.1.71  rssi=-36 dBm
 ```
 
-That's a real session on [cmdr-ipstube](docs/projects.md#cmdr-ipstube), a clock
-built with it. `help`, `version`, `reset` and `ota` come from commander; `rtc`,
-`ipstube`, `wifi` and `wled` are stock modules switched on with `cmdr module
-enable`; `marquee` is the app's own. None of that wiring is hand-written.
+A real session on a Pico W. `ping`, `i2c` and `wifi` are there because of the
+three `cmdr module enable` lines — no code was written to register them, and
+disabled modules aren't compiled at all. `help`, `version`, `reset`,
+`bootloader` and `ota` come from the runner.
 
 ## Why this and not …
 

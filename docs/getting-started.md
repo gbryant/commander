@@ -127,6 +127,26 @@ that `cmdr init` prints once it is.)
 `commander_modules.h`; `cmdr module list` shows what's available per target. Boards:
 `uno`, `r4`, `pico`, `pico2`, `esp32`, `bluepill` (and `unoq`, see below).
 
+### What a fresh project gives you
+
+Straight after `cmdr init` — before enabling anything — a board answers `help`
+with just the runner's own commands:
+
+```console
+> help
+  reset -- reboot the firmware
+  bootloader -- enter USB bootloader
+  help -- list all commands
+  version -- firmware name, build number, commit
+> version
+myrobot build 1 (2026-08-23 11:42)
+```
+
+That's the whole baseline: a working shell and nothing you didn't ask for. Each
+`cmdr module enable` adds its commands to that list (and `cmdr enable ota` adds
+`ota`), so `help` is always an accurate inventory of what this build actually
+contains.
+
 ## 6. Per-board prerequisites
 
 | Board | Build | SDKs (from §2) | Tools (beyond cmake/python) | Notes |
