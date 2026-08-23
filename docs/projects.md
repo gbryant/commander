@@ -197,9 +197,15 @@ at it. The Uno Q firmware side stays in commander (`hal/zephyr/`, `runners/zephy
 
 ## Scratch projects
 
-`cmdr-q-latest` and `cmdr-unoq-test` are Uno Q scaffolds from `cmdr init unoq`,
-kept as local testing projects. They're deliberately **not** under source control
-and aren't part of this catalogue.
+Some scaffolds are kept as local testing projects. They're deliberately **not**
+under source control and aren't part of this catalogue:
+
+- `cmdr-q-latest`, `cmdr-unoq-test` — Uno Q scaffolds from `cmdr init unoq`.
+- `cmdr-pico-ota-test` (Pico W), `cmdr-pico2-ota-test` (Pico 2 W) — the
+  hardware-in-the-loop OTA fixtures. Re-run them after changing the runner's OTA
+  path, `ota_push.py`, or the `pico_fota_bootloader` wiring; the procedure and its
+  traps are in [testing.md](testing.md) under Tier 4. Both can be recreated from
+  scratch with `cmdr init` + `cmdr enable ota` if lost.
 
 ## Coordination
 

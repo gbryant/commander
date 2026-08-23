@@ -90,6 +90,50 @@ of one representative set; same skip-with-notice mechanics (e.g. the Uno Q row s
 adb-reachable board to *flash*, but it **compiles** locally). Optionally matrix-build the example
 consumer repos (`cmdr-robot`, `cmdr-oi-bridge`, …) so their adoption path is guarded too.
 
+### Tier 4 — hardware-in-the-loop *(manual, minutes, needs a board)*
+
+Some claims can only be settled on real silicon, and OTA is the sharp case: it spans a
+bootloader, a partition layout, a WiFi download and a reboot, so nothing below Tier 3 can
+observe whether the device is *actually running the new image*. It stays manual — the point
+is the physical board.
+
+Kept as regression fixtures (untracked, alongside the other scratch projects):
+
+| Fixture | Board | Covers |
+|---------|-------|--------|
+| `~/github/cmdr-pico-ota-test` | Pico W (RP2040) | pull-OTA + `pico_fota_bootloader` |
+| `~/github/cmdr-pico2-ota-test` | Pico 2 W (RP2350) | the same, on the SMP/M33 + ARM-Secure path |
+
+Either can be recreated from nothing with `cmdr init pico <name>` + `cmdr enable ota`; the
+fixtures just save the setup. To re-run after touching the runner's OTA path, `ota_push.py`,
+or the pfb wiring:
+
+```bash
+cd ~/github/cmdr-pico-ota-test
+./build                                   # bumps .build_number, so a pass is provable
+IP=$(ipconfig getifaddr en0)
+python3 -m http.server 8000 --directory build-pico &
+OTA_HOST=cmdr-pico-ota-test.local \
+OTA_URL="http://$IP:8000/cmdr-pico-ota-test_fota_image.bin" \
+  python3 build-pico/_deps/commander-src/scripts/ota_push.py
+```
+
+`./bum-ota` does all of that, but ends in an interactive `telnet`, so drive the steps directly
+when scripting it.
+
+Four things this test taught us, all of which cost time to rediscover:
+
+- **Flash with `picotool load`, not by copying the UF2 to `/Volumes/RPI-RP2`.** On macOS the
+  board reboots mid-write and `cp` hangs forever, leaving the flash empty while looking like
+  it worked. `picotool` reports success honestly, and `picotool info` tells you what is
+  actually on the chip.
+- **The bootloader and app must be a matched pair** — flash both from the same build. A board
+  with a `pico_fota_bootloader` of unknown vintage is not a valid starting state.
+- **Verify independently of `ota_push.py`.** It reports a build number it also supplies, so
+  check the device yourself over telnet before believing a pass.
+- **A reboot is not a pass.** A failed download leaves the device running the *old* firmware
+  with telnet still up; only a changed build number proves the swap.
+
 ## The local build-test system (mechanics)
 
 All six toolchains build on the Mac — including Zephyr/Uno Q, via `gnuarmemb` + the standalone Arm
