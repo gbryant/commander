@@ -2943,6 +2943,12 @@ __pycache__/
 /upload
 /monitor
 /bum-ota
+/flash
+# unoq board-management scripts (also cmdr-generated)
+/enable-flash-boot
+/install-broker
+/restore-arduino
+/deploy-sbc
 """
 
 
