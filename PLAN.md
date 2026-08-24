@@ -116,7 +116,7 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | OTA — Pico (pull `ota <url>`)     | ✅ done      | `cmdr enable ota`; **HW-confirmed 2026-08-23 on Pico W (RP2040) and Pico 2 W (RP2350)** — build bumped over WiFi via `ota_push.py`, each verified independently over telnet |
 | OTA — ESP32 (pull `ota <url>`)    | ✅ done      | `cmdr enable ota`; HW-confirmed via cmdr-ipstube `bum-ota` (2026-06); weak `commander_on_ota_*` display hooks; project-level `commander_stamp_version()` so `bum-ota` confirms the build |
 | DFU upload — Bluepill             | ✅ done      | `cmdr enable dfu`; davidgfnet bootloader (`bootloader` cmd + dfu-util); HW-confirmed |
-| Board commands — Pico             | ⬜ todo      | reboot-to-bootloader via SystemModule or hook       |
+| Board commands — Pico             | ✅ done      | `runners/pico/BootselModule` registers `reset` + `bootloader` (reset_usb_boot); Bluepill has `bootloader` too (USB-DFU) |
 | `modules/ir/IIRModule.h`          | ✅ done      | interface only                                      |
 | `platform/pico/IRModule` (PIO)    | ✅ done      | PicoIRModule (PIO+core1); in cmdr module system (`cmdr module enable ir`) |
 | `platform/arduino/IRModule`       | ✅ done      | IRremote-based; in cmdr module system on Uno + R4 (`cmdr module enable ir`) |
@@ -263,8 +263,9 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
 
 ### What's next
 
-1. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
-   on ESP32 (esp_restart into download mode or DFU).
+1. **Board commands — ESP32 only.** Pico has `reset` + `bootloader`
+   (`BootselModule`, reset_usb_boot) and the Bluepill has `bootloader` (USB-DFU).
+   The ESP32 has `reset` but no way to drop into download mode from the shell.
 2. **IR hardware pass** — the ESP32 (RMT) and Bluepill (EXTI/DWT) IR modules
    landed 2026-06-18 in the module system; exercise both on hardware.
 3. **Bluepill I2C** — implement `hal_i2c_*` for the STM32 (I2C1 peripheral or

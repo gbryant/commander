@@ -28,6 +28,7 @@ $ cmdr init pico myrobot && cd myrobot
 $ cmdr module enable wifi
 $ cmdr module enable sonar
 $ cmdr module enable i2c
+$ cmdr enable ota             # a feature, not a module — adds `ota`
 $ ./bum                       # build + upload + monitor
 
 > help
@@ -43,10 +44,11 @@ $ ./bum                       # build + upload + monitor
 wifi: connected  ssid=my-network  ip=192.168.1.71  rssi=-36 dBm
 ```
 
-A real session on a Pico W. `ping`, `i2c` and `wifi` are there because of the
-three `cmdr module enable` lines — no code was written to register them, and
-disabled modules aren't compiled at all. `help`, `version`, `reset`,
-`bootloader` and `ota` come from the runner.
+A real session on a Pico W, and every line above the prompt put something in it.
+`ping`, `i2c` and `wifi` are there because of the three `cmdr module enable`
+lines; `ota` because of `cmdr enable ota`. No code was written to register any
+of them, and what you didn't enable isn't compiled at all. Only `help`,
+`version`, `reset` and `bootloader` come free from the runner.
 
 ## Why this and not …
 

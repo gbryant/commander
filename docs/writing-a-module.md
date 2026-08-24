@@ -21,9 +21,16 @@ public:
 ```
 
 `CommandRegistry::registerModule()` calls `init()` then `registerCommands()`.
-Commands are static `Command` entries — name, help line, an I2C command ID (use
-`0` unless the command is part of the wire protocol in `include/i2c_ids.h`), a
+Commands are static `Command` entries — name, help line, an I2C command ID, a
 handler, and a context pointer (usually `this`).
+
+**Use `I2C_NONE` for the ID** unless the command is genuinely part of the wire
+protocol in `include/i2c_ids.h`. `I2C_NONE` (`0xFF`) means "text-only, not
+dispatched over I2C", and it's the only value `validateIds()` allows to repeat —
+every stock module uses it. Do **not** pass `0`: that's a real ID
+(`CMD_HELP`, which `SystemModule` always registers), so a second command
+claiming it collides and panics the board at boot with
+`[PANIC] duplicate command id: 0x00`.
 
 ## A minimal module
 
@@ -46,7 +53,7 @@ public:
 
     void registerCommands(CommandRegistry &reg) override {
         reg.registerCommand(CMD(
-            "tilt", "tilt switch state", 0,
+            "tilt", "tilt switch state", I2C_NONE,
             [](const char *, Writer &out, void *ctx) {
                 auto *self = static_cast<TiltModule *>(ctx);
                 out.writeln(hal_gpio_read(self->_pin) ? "TILTED" : "level");
