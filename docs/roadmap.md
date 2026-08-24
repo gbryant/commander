@@ -129,6 +129,15 @@ honest-menu principle from a hand-maintained list into an invariant.
 - **Protocol versioning.** A version byte in the channel handshake (and `i2c_ids.h` is already the
   I2C wire contract) so firmware and host tools that evolve independently fail *loud*, not silent.
   Increasingly important once the project is public and consumers update on their own cadence.
-- **Pinned releases + a public README.** Scaffolds FetchContent `GIT_TAG main`, which is a
-  reproducibility hazard for shared projects — tag releases and pin. Turn `PHILOSOPHY_NOTES.md`
-  (the uncommitted seed) into real getting-started docs.
+- **Pinned releases + a public README** — *DONE 2026-08*. `v1.0` tagged, scaffolds emit
+  `GIT_TAG <release>` via `FRAMEWORK_TAG`, and the getting-started/module/cmdr docs are written.
+  Releases are two-part `vMAJOR.MINOR`; the major moves only when a release breaks consumers.
+- **Make the CMake-generated dev scripts relocatable.** `cmake/GenerateScripts.cmake` substitutes
+  `@CMDR_BUILD_DIR@` / `@CMDR_SOURCE_DIR@` as *absolute* paths, so on pico/pico2 the emitted
+  `build`/`upload`/`monitor`/`bum-ota` hard-code the project's location. Renaming or moving a
+  project silently breaks them until the next `cmake` configure — they point at a directory that
+  no longer exists. Four of the five could use `$DIR` (as the cmdr-emitted PlatformIO/IDF scripts
+  already do); `build` is the exception, since it bakes `$BLUEPAD32_PATH`, which lives outside the
+  project by nature. Worth doing for robustness. It does *not* make the scripts committable —
+  `configure_file` rewrites them on every configure, so a tracked copy would be permanent
+  working-tree noise; they stay gitignored either way.

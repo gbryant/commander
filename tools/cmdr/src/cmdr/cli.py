@@ -2933,6 +2933,16 @@ build-*/
 .pio/
 managed_components/
 __pycache__/
+
+# cmdr-generated dev scripts — regenerate with `cmdr regen`, don't commit.
+# They are generated, not source: a committed copy silently goes stale as the
+# templates move on. On CMake targets (pico/pico2) the generator also bakes
+# absolute paths and $BLUEPAD32_PATH into them, so they aren't portable anyway.
+/bum
+/build
+/upload
+/monitor
+/bum-ota
 """
 
 
