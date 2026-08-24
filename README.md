@@ -89,12 +89,12 @@ HAL (`hal/hal.h`). Platform specifics are confined to `hal/`, `transport/`, and
 | Board | Build | Status |
 |-------|-------|--------|
 | Arduino Uno (AVR) | PlatformIO | ✅ shell over serial |
-| Arduino R4 WiFi | PlatformIO | ✅ shell + WiFi + Telnet + mDNS (hardware-confirmed) |
+| Arduino R4 WiFi | PlatformIO | ✅ shell + WiFi + Telnet + mDNS |
 | Raspberry Pi Pico W (RP2040) | CMake + Pico SDK | ✅ shell over USB CDC + WiFi + Telnet |
-| Raspberry Pi Pico 2 W (RP2350) | CMake + Pico SDK | ✅ shell + WiFi + Telnet (hardware-confirmed); SMP/M33 |
+| Raspberry Pi Pico 2 W (RP2350) | CMake + Pico SDK | ✅ shell + WiFi + Telnet; SMP/M33 |
 | ESP32-S3 | ESP-IDF v5 | ✅ shell over native USB + WiFi + Telnet |
 | STM32 Bluepill (F103) | PlatformIO (CMSIS) | ✅ shell over USART/USB CDC; USB-DFU upload (I2C pending) |
-| Arduino Uno Q (Debian + M33) | Zephyr (west) + Debian services | ✅ shell + channel bus + IR (hardware-confirmed) — see the [IR-speaker walkthrough](docs/unoq-ir-speaker.md) |
+| Arduino Uno Q (Debian + M33) | Zephyr (west) + Debian services | ✅ shell + channel bus + IR — see the [IR-speaker walkthrough](docs/unoq-ir-speaker.md) |
 
 ## Quick start
 
