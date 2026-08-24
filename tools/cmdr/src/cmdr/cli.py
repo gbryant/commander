@@ -2185,6 +2185,13 @@ def _emit_scripts(target: str, name: str, out_dir: Path, chip: str = "esp32s3",
         _script("build",   render(ESP32_BUILD_SCRIPT,  chip=chip, idf_export=idf_export))
         _script("upload",  render(ESP32_UPLOAD_SCRIPT, chip=chip, idf_export=idf_export))
         _script("monitor", render(ESP32_MONITOR_SCRIPT, chip=chip))
+        # bum-ota is written by `cmdr enable ota`, but regen must be able to
+        # reproduce it too — the dev scripts are gitignored, so a fresh clone of
+        # an OTA-enabled project has no other way to get it back.
+        _cmake = out_dir / "CMakeLists.txt"
+        if _cmake.exists() and "COMMANDER_ENABLE_OTA" in _cmake.read_text():
+            _script("bum-ota", render(ESP32_BUM_OTA_SCRIPT, name=name))
+            _helper("scripts/ota_push.py", "ota_push.py")
     elif target == "unoq":
         _script("build",             UNOQ_BUILD_SCRIPT)
         _script("flash",             UNOQ_FLASH_SCRIPT)
