@@ -162,8 +162,7 @@ support promise.
 - **Known gaps** are tracked honestly rather than glossed: the main one is
   Bluepill I2C, which is stubbed — so the I2C modules aren't offered there.
   [PLAN.md](PLAN.md) marks state per area.
-- **Issues and PRs** are welcome, but may be answered slowly. If you need a
-  guaranteed response, fork it — that's what the licence is for.
+- **Issues and PRs** are welcome.
 
 ## License
 
