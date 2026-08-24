@@ -94,10 +94,9 @@ throttle+steer → (velocity, radius) feel, `ControllerCalibration` for re-cente
 sticks — and the project is just the glue that picks a stick layout. That split is
 the point: the robot-specific decisions stay in the app.
 
-Phase R2 is hardware-confirmed (2026-06-02): the Pico shell drove a real Roomba
-through the bridge. Phase R3 rolled the Bluetooth backend into commander after a
-standalone proof; **a full-stack re-test from the rolled-in `controller` module is
-still pending** — the last open hardware item on this project.
+Hardware-confirmed end to end. Phase R2 (2026-06-02): the Pico shell drove a real
+Roomba through the bridge. Phase R3 (2026-06): a Bluetooth pad drives it from the
+rolled-in `controller` module, with telnet live alongside BT.
 
 It also runs WiFi and Bluetooth together on the one CYW43, which works because the
 Pico runner owns a single shared `cyw43_arch_init()`.

@@ -205,7 +205,7 @@ Goal: migrate Roomba robot to this framework.
 - [x] **Hardware test:** Pico 2 W ↔ R4 (I2C) ↔ Roomba — the bridge works; the Pico
       shell drives a real robot through the R4 over I2C (2026-06-02)
 
-#### Phase R3 — Bluetooth controller — in progress (2026-06-02)
+#### Phase R3 — Bluetooth controller — DONE, hardware-confirmed (2026-06)
 - [x] Host decided: **Pico 2 W native** (CYW43 Bluetooth via Bluepad32/BTstack)
 - [x] Generic, backend-agnostic controller plumbing in `modules/controller/`
       (poll `state()` / push `onUpdate`/`onButton` / declarative `bind` — robot-free)
@@ -218,8 +218,11 @@ Goal: migrate Roomba robot to this framework.
       and the runner owns one `cyw43_arch_init()` shared by WiFi + BT
 - [x] WiFi + BT combined: falls out of the single-init runner — the `robot`
       project builds with WiFi creds **and** the controller module in one firmware
-- [ ] Hardware test: re-confirm a pad drives the robot from the rolled-in
-      `controller` module (and telnet still works alongside BT)
+- [x] **Hardware test:** a pad drives the robot from the rolled-in `controller`
+      module, and telnet works alongside BT on the one CYW43 — confirmed while
+      building the `cmdr-robot` drive glue (50 Hz ticker, STOP resend, spin
+      wiring, `drivedbg`), which is what shook out drive creep and the
+      arc-only steering rule
 
 ### Testing
 
@@ -260,18 +263,13 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
 
 ### What's next
 
-1. **Phase R3 — Bluetooth controller** — everything is rolled in (`cmdr module
-   enable controller`, Pico Bluepad32 backend, WiFi+BT on the one CYW43); the
-   BT-only proving ground was hardware-confirmed. Remaining: re-confirm on
-   hardware that a pad drives the robot from the rolled-in module (and that
-   telnet still works alongside BT).
-2. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
+1. **Board commands** — `reboot-bootloader` on Pico (reset_usb_boot); equivalent
    on ESP32 (esp_restart into download mode or DFU).
-3. **IR hardware pass** — the ESP32 (RMT) and Bluepill (EXTI/DWT) IR modules
+2. **IR hardware pass** — the ESP32 (RMT) and Bluepill (EXTI/DWT) IR modules
    landed 2026-06-18 in the module system; exercise both on hardware.
-4. **Bluepill I2C** — implement `hal_i2c_*` for the STM32 (I2C1 peripheral or
+3. **Bluepill I2C** — implement `hal_i2c_*` for the STM32 (I2C1 peripheral or
    bit-bang) to bring up `compass`; currently stubbed in `hal/stm32/hal.cpp`.
-5. **Grove Vision AI V2 (`aicam`)** — esp32 module landed: SSCMA AT protocol over a
+4. **Grove Vision AI V2 (`aicam`)** — esp32 module landed: SSCMA AT protocol over a
    UART/I2C transport seam (`modules/aicam/` + `platform/esp32/AiCamUartTransport`),
    host = XIAO ESP32-S3, consumer = `cmdr-ai-cam` (repo not yet published). Added
    `hal_i2c_read_raw` to the
