@@ -21,9 +21,11 @@ Scaffolds a project directory. Targets: `pico`, `pico2`, `esp32`, `uno`, `r4`,
 
 What you get: a hook `main.cpp` (`commander_config()` + `commander_setup()`),
 `cmdr.toml` (the module manifest), the generated `commander_modules.h`, a
-`.gitignore` (covers `secrets.h` and build output), `secrets.h` on WiFi targets,
-and the dev scripts `bum` / `build` / `upload` / `monitor` (+ `bum-ota` where
-supported) at the project root. `./bum` = build + upload + monitor.
+`.gitignore` (covers `secrets.h`, build output and the dev scripts), `secrets.h`
+on WiFi targets, and the dev scripts `bum` / `build` / `upload` / `monitor`
+(+ `bum-ota` where supported) at the project root. `./bum` = build + upload +
+monitor. The scripts are generated rather than committed — see
+[Maintenance](#maintenance).
 
 On pico/pico2 the scripts are written by the CMake configure step, which `init`
 runs if `PICO_SDK_PATH` and `FREERTOS_KERNEL_PATH` are set (otherwise it prints
@@ -100,6 +102,12 @@ release breaks existing consumers; everything else bumps the minor. So moving
 `v1.2 → v1.4` is safe by contract, and a jump to `v2.0` is the one to read the
 release notes for.
 
+**Moving to a newer release is a separate, deliberate step.** A scaffold pins a
+release tag, so `cmdr pull` on its own re-fetches *that same tag* and changes
+nothing. To take a new release: `cmdr pin v1.1` (or `--latest` to freeze main's
+current tip, or `cmdr unpin` to track `main`), then `cmdr pull`. That's the point
+of pinning — updates arrive when you ask.
+
 ## Maintenance
 
 A project has four layers with three owners — see
@@ -110,6 +118,11 @@ A project has four layers with three owners — see
 | `cmdr pull` | the fetched framework dependency, **at whatever `GIT_TAG` the project pins** (+ reconfigure) |
 | `cmdr clean` | build artifacts: build dirs, `.pio/`, fetched `_deps`, esp32 `sdkconfig` |
 | `cmdr regen [--dry-run]` | cmdr-generated files: dev scripts, `commander_modules.h`, module `bin/` tools |
+
+The dev scripts are **generated, not source** — a scaffolded project gitignores
+them, so a fresh clone starts without any. `cmdr regen` writes them, and is also
+how an existing project picks up template fixes. (On pico/pico2 they come from the
+CMake configure step instead, via `commander_generate_scripts()`.)
 
 `regen` never touches hand-written source, `cmdr.toml`, or
 `CMakeLists.txt`/`platformio.ini` — your files are yours.
@@ -131,15 +144,12 @@ CMDR_PORT=/dev/cu.usbserial-1430 ./monitor    # one run
 
 ```toml
 # cmdr.toml — persistent
-serial = "0001"                     # preferred: identifies the board itself
+serial = "5&1D2B3C4&0&2"            # preferred: identifies the board itself
 port   = "/dev/cu.usbserial-1430"   # when the chip reports no serial (CH340s don't)
 ```
 
-`serial` survives re-plugging and differs per machine-independent board, so
-prefer it; many cheap USB-serial chips report none, and then the path is the
-only stable handle. Existing projects pick this up with `cmdr regen`.
+Prefer `serial`: it identifies the physical board, so it keeps working after a
+re-plug, on a different USB port, or on another machine. Many cheap USB-serial
+chips (CH340s among them) report no serial at all, and then the device path is
+the only stable handle you have. Existing projects pick this up with `cmdr regen`.
 
-**Moving to a newer framework release is a separate, deliberate step.** A scaffold pins a
-release tag, so `cmdr pull` on its own re-fetches *that same tag* and changes nothing. To take a
-new release: `cmdr pin v1.1` (or `--latest` to freeze main's current tip, or `cmdr unpin` to
-track `main`), then `cmdr pull`. That's the point of pinning — updates arrive when you ask.

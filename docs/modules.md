@@ -31,8 +31,9 @@ Run `cmdr module list` inside a project to see what's available for your target.
 | `aicam` | esp32 | `aicam` | Grove Vision AI V2 camera (SSCMA protocol) |
 
 Boards also register a few commands outside the module system, from their runner:
-`reset` (everywhere), `bootloader` (Pico: USB bootloader; Bluepill: USB-DFU, with
-`cmdr enable dfu`), and `ota` (R4/Pico/ESP32, with `cmdr enable ota`).
+`reset` (every runner except the Uno Q's, which registers none), `bootloader`
+(Pico: USB bootloader; Bluepill: USB-DFU, with `cmdr enable dfu`), and `ota`
+(R4/Pico/ESP32, with `cmdr enable ota`).
 
 On the **Uno Q** only `system` and `ir` are offered — its Zephyr HAL backs the
 console/channel bus and IR so far; the menu stays honest about what works.

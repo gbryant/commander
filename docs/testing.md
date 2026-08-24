@@ -85,7 +85,7 @@ Tier 2 exhaustively: all boards × representative module combinations. **No GitH
 containers** — this runs locally on the Mac, because every toolchain we ship is reachable here:
 Uno/R4/Bluepill (PlatformIO), Pico/Pico 2 W (CMake + Pico SDK), ESP32 (ESP-IDF after `esp`), and
 **Uno Q/Zephyr builds on the Mac too** via `ZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb` against the
-standalone Arm GNU Toolchain 14.2 (`/Applications/ArmGNUToolchain/14.2.rel1`) — no Zephyr SDK, which
+standalone Arm GNU Toolchain (`$GNUARMEMB_TOOLCHAIN_PATH`) — no Zephyr SDK, which
 has no Intel-macOS toolchain. So Tier 3 is just `build-matrix.sh` with the full config list instead
 of one representative set; same skip-with-notice mechanics (e.g. the Uno Q row still needs an
 adb-reachable board to *flash*, but it **compiles** locally). Optionally matrix-build the example
@@ -193,7 +193,7 @@ All four tiers, built in the order above.
   (dispatch/Writer/SystemModule/overflow/duplicate-id panic), `modules/locomotion/tests/test_drivemixer.cpp`
   (two-zone curve, ramping, spin + LocoProtocol pack/unpack), `modules/controller/tests/test_calibration.cpp`
   (re-center/rescale/deadzone). Also runs the broker PTY-loopback and the new codec↔broker guard.
-- **Tier 1** — `tools/cmdr/tests/` (pytest). 24 golden `commander_modules.h` snapshots under
+- **Tier 1** — `tools/cmdr/tests/` (pytest). 27 golden `commander_modules.h` snapshots under
   `golden/` over a (target × module-set) matrix; invariant lint (unique includes, no designated
   initializers, balanced braces, system-first, register-line dedup, the unoq channel-bus-hook vs
   UART-hook split); honest-menu gating; manifest round-trip; ESP32 partition composition; and
@@ -223,7 +223,8 @@ Notes / gotchas found while building it:
 - ESP-IDF builds are `-Werror` + misleading-indentation; the broadened Tier 0 tests are host-g++ so
   they don't see that, but the build matrix (Tier 2) does — it's the tier that catches it.
 - ESP-IDF and Zephyr aren't on the bare PATH — they're activated by an env script (the `esp` alias
-  sources `export.sh`; the unoq `build` script sources the Zephyr venv at `~/zephyrproject/.venv`).
+  sources `export.sh`; the unoq `build` script sources the Zephyr venv from
+  `$ZEPHYRPROJECT`, defaulting to `~/u-developer/zephyrproject`).
   So `build-matrix.sh` probes for those *activators* (`idf_export` / `zephyr_venv`, overridable via
   `$IDF_EXPORT` / `$ZEPHYR_VENV`) and activates ESP-IDF itself before building, rather than checking
   for `idf.py`/`west` on PATH. The Uno Q **compiles** locally (gnuarmemb, since the Zephyr SDK has no

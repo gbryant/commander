@@ -32,7 +32,8 @@ to promote the channel bus from "an optional capability the Uno Q runner happens
 5. **No handshake.** The broker and the MCU never agree on codec version or which channels exist —
    a framing mismatch is a *silent* failure (frames just vanish). The design doc already flags this
    as the one silent-failure risk.
-6. **Text-only, and not in CI.** No binary path for the vision/audio future (roadmap #3); the host
+6. **Text-only.** (The host tests this note called out as hand-run are now Tier 0 in
+   `tests/run.sh`.) No binary path for the vision/audio future (roadmap #3); the host
    tests are run by hand.
 
 ## The plan

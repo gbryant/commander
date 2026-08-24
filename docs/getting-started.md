@@ -126,7 +126,9 @@ cmdr module enable sonar   # answer the module's config questions
 
 `cmdr init <board> <name>` writes a project that fetches commander as a CMake/
 PlatformIO dependency and generates its dev scripts (`bum`, `build`, `upload`,
-`monitor`) at the project root. (On pico/pico2 the CMake configure step writes
+`monitor`) at the project root. Those scripts are **generated, not source**, so a
+project gitignores them — if you clone one and they're missing, `cmdr regen`
+writes them (on pico/pico2, the `cmake -B ...` configure step does). (On pico/pico2 the CMake configure step writes
 them — if `PICO_SDK_PATH` wasn't set at init time, run the `cmake -B ...` line
 that `cmdr init` prints once it is.)
 `cmdr module enable <name>` records your answers in `cmdr.toml` and regenerates
@@ -148,7 +150,9 @@ with just the runner's own commands:
 myrobot build 1 (2026-08-23 11:42)
 ```
 
-That's the whole baseline: a working shell and nothing you didn't ask for. Each
+That's the whole baseline — `help` and `version` from the always-on `system`
+module, `reset` and `bootloader` from the runner — a working shell and nothing
+you didn't ask for. Each
 `cmdr module enable` adds its commands to that list (and `cmdr enable ota` adds
 `ota`), so `help` is always an accurate inventory of what this build actually
 contains.

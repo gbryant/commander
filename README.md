@@ -15,8 +15,9 @@ Raspberry Pi Pico, Pico W, Pico 2, Pico 2 W, an ESP32-S3 board, and an STM32
 "Bluepill".](docs/img/boards.jpg)
 
 *Left to right: Arduino Uno, UNO R4 WiFi, UNO Q, Raspberry Pi Pico, Pico W,
-Pico 2, Pico 2 W, ESP32-S3, STM32 "Bluepill". The same module code runs on all
-of them.*
+Pico 2, Pico 2 W, ESP32-S3, STM32 "Bluepill" — the same module code runs on all
+of them. The `pico` and `pico2` targets build for the wireless variants; the
+non-W boards run the same firmware without WiFi or Telnet.*
 
 ## What you get
 
@@ -47,8 +48,9 @@ wifi: connected  ssid=my-network  ip=192.168.1.71  rssi=-36 dBm
 A real session on a Pico W, and every line above the prompt put something in it.
 `ping`, `i2c` and `wifi` are there because of the three `cmdr module enable`
 lines; `ota` because of `cmdr enable ota`. No code was written to register any
-of them, and what you didn't enable isn't compiled at all. Only `help`,
-`version`, `reset` and `bootloader` come free from the runner.
+of them, and what you didn't enable isn't compiled at all. Only four come free:
+`help` and `version` from the always-on `system` module, `reset` and
+`bootloader` from the Pico runner.
 
 ## Why this and not …
 

@@ -180,12 +180,14 @@ device from nothing is [unoq-ir-speaker.md](unoq-ir-speaker.md).
 Not a commander consumer — a **companion repo** of host-side tooling for the
 Arduino Uno Q's Debian side, split out of commander on 2026-08-04.
 
-Everything runs from your computer over adb (no keyboard or monitor on the board),
-and the wizards are idempotent: they show current state and ask before changing
-anything. Contents: `setup-board.py` (first-boot wizard), Piper TTS (`tts.py`,
-`tts_daemon.py`, `tts-bench.py`, a systemd unit), Bluetooth audio (`bt.py`,
-`setup-bt-audio.py`), `espeak.py`, `volume.py`, and `docs/` covering headless Linux
-trimming, BT audio, factory restore, and the on-board ML backend.
+Everything runs from your computer over adb *or* ssh (no keyboard or monitor on the
+board), and the wizards are idempotent: they show current state and ask before
+changing anything. Contents: `setup-board.py` (first-boot wizard), Piper TTS
+(`setup-tts.py`, `tts.py`, `tts_daemon.py`, `tts_keepalive.py`, `tts-bench.py`,
+systemd units), Bluetooth audio (`setup-bt-audio.py`, `bt.py`,
+`bt_autoconnect.py`), `espeak.py`, `volume.py`, `board.py` (the adb/ssh transport
+the rest import), and `docs/` covering headless Linux trimming, BT audio, factory
+restore, and the on-board ML backend.
 
 It lives outside commander because it's board-generic: it doesn't know or care what
 firmware the M33 is running. Commander's Uno Q track uses it for bring-up and voice

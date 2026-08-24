@@ -101,6 +101,8 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | `platform/stm32-bluepill/`        | ✅ done      | F103C8 native CMSIS+FreeRTOS+TinyUSB; blink/USART1/USB-CDC + USB-DFU confirmed |
 | `hal/stm32/`                      | 🟡 partial   | CMSIS regs: GPIO/UART/time/USB done; **I2C stubbed** |
 | `runners/stm32-bluepill/`         | ✅ done      | `COMMANDER_BLUEPILL_RUNNER` hook main for `cmdr init bluepill` |
+| `hal/zephyr/`                     | 🟡 partial   | Uno Q M33: UART (console + channel bus) + devicetree IR; GPIO/I2C stubbed |
+| `runners/zephyr/`                 | ✅ done      | Uno Q M33 runner (west build, openocd-over-adb flash); registers no board commands yet |
 | **CMake library targets**         | ✅ done      | `commander::core/hal_pico/transport_*/modules`      |
 | **`runners/pico/`**               | ✅ done      | `commander::pico_runner`; owns main(), WiFi, hooks  |
 | **`commander.h` API**             | ✅ done      | `CommanderConfig`, required + optional callbacks    |
@@ -176,7 +178,8 @@ Goal: migrate Roomba robot to this framework.
 - [x] `platform/arduino-r4/` builds (WiFi + OTA + Telnet + UART shell)
 - [x] `platform/pico2/` builds and runs (RP2350 INVPC fault fixed 2026-05-25)
 - [x] **Flash R4 and confirm `help` + WiFi + Telnet** — done via `runners/arduino-r4`;
-      also `mDNS` (`r4-test.local` resolves; telnet-by-name confirmed) (2026-05-29)
+      also `mDNS` (resolves; telnet-by-name confirmed) (2026-05-29). That project was
+      renamed `cmdr-oi-bridge`.
 
 #### Phase R1 — Roomba driver module — driver + shell done (2026-05-29)
 - [x] `modules/roomba/Roomba.h` — portable OI driver via abstract `RoombaPort`

@@ -220,6 +220,31 @@ re-enum nudge) once via ST-Link. Then `bootloader`
 of 1.5k), so USB may only enumerate after pressing RESET post-plug. Real fix: add a
 1.5k–1.8k resistor PA12→3.3 V.
 
+### Arduino Uno Q (QRB2210 Debian + STM32U585 M33)
+
+Dual-brain: commander runs on the **M33 under Zephyr** (`hal/zephyr/`,
+`runners/zephyr/`, `platform/zephyr/`), while the QRB2210's Debian side runs the
+broker that demuxes the channel bus. Built with **west**, not CMake directly, and
+flashed over the board's own OpenOCD via adb — `west flash` doesn't work for this
+board upstream.
+
+```bash
+cmdr init unoq <name>   # scaffolds the dual-brain project
+./build                 # west build -b arduino_uno_q -d build-unoq
+./flash                 # openocd-over-adb gdb load
+./monitor               # ch0 console over the USB-CDC gadget
+```
+
+Two one-time, reversible board steps that a scaffolded project ships:
+`./enable-flash-boot` (STM32 option bytes — **the M33 ships booting its ROM
+bootloader, so without this your firmware never runs and the link is silent**) and
+`./install-broker` (masks the stock `arduino-router`, installs
+`commander-broker.service` on `/dev/ttyHS1`). `./restore-arduino` reverts both.
+
+Needs a Zephyr/west workspace — `scripts/setup-sdks.sh --zephyr` creates
+`~/u-developer/zephyrproject`. Full track: `docs/getting-started-unoq.md`, and
+`docs/unoq-ir-speaker.md` for a worked end-to-end project.
+
 ## Modules (`cmdr module`)
 
 Modules are composed by the `cmdr` tool, not by hand-editing `commander_setup()`.
@@ -245,7 +270,9 @@ Available: `system` (always), `compass` (HAL I2C — its emitter calls
 bit-banged 3-wire interface on `hal_gpio_*`, portable/all platforms; `sclk`/`io`/
 `ce` pins, default the IPSTube wiring 22/19/21; command `rtc` get / `rtc set
 YYYY-MM-DD HH:MM:SS` / `rtc dump`, app reads/writes via `commander_on_ds1302_ready`),
-`i2c` (bus diagnostics —
+`serial_monitor` (Pico/Pico 2 — `monitor` streams a second hardware UART into your
+telnet/serial session; questions `uart`/`rx`/`tx`/`baud`, default UART1 GP9/GP8
+115200), `i2c` (bus diagnostics —
 `i2c scan`/`read`/`write` over `hal_i2c_*`, one command slot, all platforms;
 handy for bringing up the locomotion bridge), `ina219` (INA219 current/power
 monitor(s) over HAL I2C, all platforms — one namespaced `ina` command for however
@@ -342,7 +369,8 @@ hardware CS slots, so 6 panel_io can't work — select-all inits all six in para
 select-one draws to a digit; **SPI mode 3** (HW-confirmed), shared DC=25/RST=26/MOSI=32/
 SCLK=33; the TFT backlight is `TFT_ENABLE_PIN=GPIO4`, **active-low** PWM via LEDC —
 GPIO5 is the separate WS2812 ambient LED chain, not the TFT backlight), exposing
-`ipstube on/off/dim/fill/clear/test` + debug (`info/cs/reinit/invert/swap/mirror/gap/spi/rgb`)
+`ipstube on/off/dim/fill/clear/test`, text rendering (`text/fit/wrap/flow/scroll`)
+and debug (`info/cs/reinit/invert/swap/mirror/gap/spi/rgb`)
 plus a use-agnostic C++ API (`drawBitmap(display,x,y,w,h,rgb565)` + full-screen
 overload / `fill` / `backlight`). The IPSTube's 6 WS2812 ambient LEDs
 (GPIO5) are driven by the separate `ws2812` module (below), enabled alongside `ipstube`.
@@ -475,7 +503,8 @@ commander/
 
 - Arduino Uno: builds, uploads, `help` command works over serial.
 - Arduino R4 WiFi: hardware-confirmed — `help` + WiFi + Telnet + mDNS
-  (`r4-test.local` resolves; telnet-by-name works) via `runners/arduino-r4`.
+  (mDNS resolves; telnet-by-name works) via `runners/arduino-r4`. That board is now
+  the [cmdr-oi-bridge] consumer.
 - Roomba OI: `modules/roomba/` (portable `Roomba` driver + `oi` shell command)
   drove a real Roomba from the R4 over `Serial1` (D0/D1). Hardware-confirmed.
 - Locomotion link (Phase R2): hardware-confirmed — a Pico 2 W master drives a real
@@ -487,6 +516,9 @@ commander/
   locomotion master that drives the robot through the R4 bridge.
 - ESP32-S3-N16R8: `help` confirmed over native USB CDC (USB Serial/JTAG); the
   runner's UART + WiFi + Telnet confirmed on a XIAO ESP32-S3.
+- Arduino Uno Q: hardware-confirmed — `help` on the M33 over the ch0 console, the
+  channel bus carrying IR presses to a Debian subscriber on ch1 while ch0 stays
+  free, and `cmdr autostart` streaming from boot. Consumer: cmdr-unoq-ir-speaker.
 - STM32 Bluepill (STM32F103C8): hardware-confirmed — blink, `help` over USART1, `help`
   over USB CDC, and USB-DFU upload with no ST-Link. I2C/compass pending. `cmdr init
   bluepill <name>` scaffolds projects; `cmdr enable dfu` / `disable dfu` toggle the
