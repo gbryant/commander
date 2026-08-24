@@ -139,7 +139,8 @@ host script talking to `ina stats` over telnet. It's also the shape most sensor
 projects want — the device serves readings, the host does the storage and
 presentation.
 
-No hardware-confirmation date is recorded for this one in PLAN.md.
+Hardware-confirmed by its own output: the graph in the project's README is two
+weeks of continuously logged readings from the device (2026-05-20 → 06-03).
 
 ---
 

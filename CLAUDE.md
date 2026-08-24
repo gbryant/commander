@@ -258,12 +258,13 @@ CSV per channel. Calibrated for a 0.1 Ω shunt; the solar-monitor consumer logs
 on the R4, the single modem-owning task live in the runner — R4 reads a cache +
 sets request flags processed in `net_poll`, `wifi off` also suppresses
 auto-reconnect; the ESP32 runner implements the hooks over `esp_wifi`, with
-`wifi off` suppressing the disconnect-handler reconnect), `ir` (Pico via `PicoIRModule` PIO+core1 — the
-`commander_pico_ir` CMake target encapsulates the PIO build; Uno via the
-Uno & R4 via the IRremote-based `platform/arduino/IRModule`, unity-included by
-the generated file with `IRremote` added to `lib_deps`). IR commands are namespaced consistently on
-both platforms: `ir recv` (NEC/Sony), `ir wall` (Roomba virtual wall), `ir diag`
-(Pico). `roomba` (R4 only — `Serial1` adapter). `locomotion` (Pico/Pico 2 W only —
+`wifi off` suppressing the disconnect-handler reconnect), `ir` — five native backends behind the
+one `IIRModule` interface: Pico via `PicoIRModule` (PIO + core1; the `commander_pico_ir` CMake
+target encapsulates the PIO build), Uno & R4 via the IRremote-based `platform/arduino/IRModule`
+(unity-included by the generated file, with `IRremote` added to `lib_deps`), ESP32 via
+`Esp32IRModule` (RMT), Bluepill via `Stm32IRModule` (EXTI/DWT), and Uno Q via `ZephyrIRModule`
+(devicetree GPIO → channel 1). IR commands are namespaced identically on every backend:
+`ir recv` (NEC/Sony), `ir wall` (Roomba virtual wall, opt-in), `ir diag` (Pico only). `roomba` (R4 only — `Serial1` adapter). `locomotion` (Pico/Pico 2 W only —
 master side: `drive`/`stop`/`loco sensors` to a remote mobile base over `hal_i2c_*`)
 and `loco-bridge` (R4 only — the matching I2C-slave bridge that forwards
 `CMD_LOCO_*` to a Roomba; it owns the shared `Roomba` driver and also provides

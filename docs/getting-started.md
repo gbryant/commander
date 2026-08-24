@@ -38,11 +38,17 @@ exact line when first run.
 ## 2. External SDKs
 
 The vendor SDKs are too large to vendor into the repo, so they live on the host and
-the `dev/<board>/` scripts locate them via env vars. Bootstrap them with:
+the build scripts locate them via env vars. `setup-sdks.sh` bootstraps the lot —
+it lives in the commander repo, so grab a copy even if you're only *consuming* the
+framework and never build this repo yourself:
 
 ```bash
-scripts/setup-sdks.sh
+git clone https://github.com/gbryant/commander.git ~/commander-src
+~/commander-src/scripts/setup-sdks.sh
 ```
+
+(Or run it from an existing checkout if you have one. Nothing else in §5 needs that
+clone — it's just where the script is kept.)
 
 It clones into `~/u-developer` by default (override with `COMMANDER_SDK_DIR=...`),
 is idempotent (re-run any time — existing checkouts are skipped), and runs the

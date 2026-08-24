@@ -280,11 +280,17 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
 
 ## Board pin reference
 
-| Signal    | Arduino Uno | Pico W (Grove) | Pico 2 W (Grove) | ESP32-S3-N16R8 |
-|-----------|-------------|----------------|------------------|----------------|
-| I2C SDA   | A4          | GP4            | GP4              | GPIO4          |
-| I2C SCL   | A5          | GP5            | GP5              | GPIO5          |
-| Sonar     | D4          | GP6            | GP6              | —              |
+These are the defaults `cmdr module enable` offers; every one is overridable at
+enable time and recorded in the project's `cmdr.toml`.
+
+| Signal    | Arduino Uno | Pico W | Pico 2 W | ESP32-S3-N16R8 |
+|-----------|-------------|--------|----------|----------------|
+| I2C SDA   | A4          | GP6    | GP6      | GPIO4          |
+| I2C SCL   | A5          | GP7    | GP7      | GPIO5          |
+| Sonar     | D6          | GP6 ⚠  | GP6 ⚠    | GPIO6          |
 | IR recv   | D5          | GP22 (PIO)     | GP22 (PIO)       | GPIO38 (RMT)   |
 | UART TX   | —           | GP20 (stdio)   | GP20 (stdio)     | GPIO43         |
 | UART RX   | —           | GP21 (stdio)   | GP21 (stdio)     | GPIO44         |
+
+⚠ The sonar default (pin 6 on every target) collides with the Pico's I2C SDA
+default. Enabling both on a Pico means changing one at enable time.

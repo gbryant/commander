@@ -23,7 +23,8 @@ commander has **three very different things that can regress**, and they need di
 strategies running at very different speeds:
 
 1. **Portable C++ logic** — `core/`, `modules/`, the channel codec/decoders. Pure, host-compilable.
-2. **The `cmdr` tool** — ~2,300 lines of Python codegen/scaffolding, currently **zero tests**. The
+2. **The `cmdr` tool** — Python codegen/scaffolding (~3,400 lines today), which at the time of
+   writing had **zero tests**; it now has the Tier 1 suite described below. The
    real bugs this past stretch (a duplicate include, the unoq IR-branch wiring, a private-repo curl
    404, stdout buffering, a `build/`-dir collision) all lived here and were caught only by
    hand-scaffolding on real hardware.

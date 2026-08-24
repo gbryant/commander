@@ -7,7 +7,7 @@ work is making it a trustworthy, shareable artifact (tests, CI, docs, pinned rel
 keeps evolving, the **channel bus is the spine** to invest in. The hardening work serves both, so
 it's the safe first bet.
 
-Status key: **proposed** (not started).
+Status key: **proposed** (not started) · **partially shipped** (some phases landed, rest deferred) · **DONE** (complete; kept for the reasoning). Items below carry their state in the heading — where a heading says DONE, the body is the original argument for doing it, preserved as written.
 
 ---
 
@@ -20,8 +20,8 @@ Status key: **proposed** (not started).
 > CI was deliberately declined (2026-06-16): solo-dev effort, local testing suffices for the
 > foreseeable future** — revisit only with outside contributors. So this item is considered done.
 
-**Why (the biggest non-glamorous win).** `cmdr` is now the heart of the UX — ~2,300 lines of
-Python — with **zero tests**. Real bugs this session (a duplicate include, a stale editable
+**Why (the biggest non-glamorous win, as it stood in June 2026).** `cmdr` is the heart of the UX —
+~3,400 lines of Python today — and at the time had **zero tests**. Real bugs that session (a duplicate include, a stale editable
 install, honest-menu gating) were caught only by hand-scaffolding and eyeballing. As boards and
 modules accrue, and especially as the project is shared publicly (others will depend on it), the
 absence of tests becomes the bottleneck between *confident* evolution and fear-driven stagnation.
