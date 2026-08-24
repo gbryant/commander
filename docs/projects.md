@@ -197,13 +197,14 @@ at it. The Uno Q firmware side stays in commander (`hal/zephyr/`, `runners/zephy
 
 ## Scratch projects
 
-Some scaffolds are kept as local testing projects. They're deliberately **not**
-under source control and aren't part of this catalogue:
+Not everything `cmdr init` scaffolds belongs in this catalogue. Throwaway
+projects — used to try a target out, or to run a hardware test — are kept out of
+source control and off this list.
 
-- `cmdr-q-latest`, `cmdr-unoq-test` — Uno Q scaffolds from `cmdr init unoq`.
-The OTA hardware test deliberately keeps **no** fixture project — it scaffolds a
-throwaway, runs, and deletes it. The procedure and its traps live in
-[testing.md](testing.md) under Tier 4.
+The OTA hardware test works that way deliberately: it scaffolds a project, runs,
+and deletes it, rather than keeping a fixture that would quietly drift from the
+current templates and stop testing what users actually get. The procedure and its
+traps are in [testing.md](testing.md) under Tier 4.
 
 ## Coordination
 

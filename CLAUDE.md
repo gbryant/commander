@@ -2,9 +2,10 @@
 
 ## What this is
 
-A portable embedded command shell targeting Arduino Uno (testbed), Raspberry Pi
-Pico W, ESP32, and the STM32 "Bluepill" (F103). Same module code (compass, sonar,
-IR, etc.) runs on all of them. Platform-specific code is limited to `hal/`,
+A portable embedded command shell targeting seven boards: Arduino Uno (testbed),
+Arduino R4 WiFi, Raspberry Pi Pico W and Pico 2 W, ESP32-S3, the STM32 "Bluepill"
+(F103), and the dual-brain Arduino Uno Q. Same module code (compass, sonar, IR,
+etc.) runs on all of them. Platform-specific code is limited to `hal/`,
 `transport/`, and `platform/`. See `PLAN.md` for roadmap and status.
 
 ## Architecture in one sentence
@@ -493,7 +494,8 @@ commander/
 ## What's next
 
 See PLAN.md ("What's next") for the live list. Headlines: re-confirm the rolled-in
-`controller` module on hardware (Phase R3), the Pico pull-OTA hardware test, an IR
-hardware pass on the new ESP32 (RMT) / Bluepill (EXTI) implementations, and
-Bluepill I2C (`hal_i2c_*` is stubbed there). Phases R0–R2 (platform proofs, Roomba
-driver, Pico-as-controller via the R4 I2C bridge) are done and hardware-confirmed.
+`controller` module on hardware (Phase R3), an IR hardware pass on the ESP32 (RMT) /
+Bluepill (EXTI) implementations, and Bluepill I2C (`hal_i2c_*` is stubbed there).
+Phases R0–R2 (platform proofs, Roomba driver, Pico-as-controller via the R4 I2C
+bridge) are done and hardware-confirmed, as is pull-OTA on every board that can do
+it (ESP32, Pico W, Pico 2 W — 2026-08-23).

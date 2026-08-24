@@ -211,7 +211,7 @@ Goal: migrate Roomba robot to this framework.
       (poll `state()` / push `onUpdate`/`onButton` / declarative `bind` — robot-free)
 - [x] BT-only de-risk **hardware-confirmed**: Bluepad32+BTstack under commander's
       FreeRTOS on a Pico 2 W; a paired pad's left stick drove the robot through the
-      R4 bridge (`~/github/bt-test`, standalone proving ground)
+      R4 bridge (proved in a standalone throwaway project, not published)
 - [x] Rolled into commander: `platform/pico/` Bluepad32 backend, `cmdr module
       enable controller` (pico/pico2 — injects CYW43_ENABLE_BLUETOOTH +
       COMMANDER_ENABLE_CONTROLLER, builds the `commander_pico_controller` target),
@@ -273,7 +273,8 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
    bit-bang) to bring up `compass`; currently stubbed in `hal/stm32/hal.cpp`.
 5. **Grove Vision AI V2 (`aicam`)** — esp32 module landed: SSCMA AT protocol over a
    UART/I2C transport seam (`modules/aicam/` + `platform/esp32/AiCamUartTransport`),
-   host = XIAO ESP32-S3, consumer = `cmdr-ai-cam`. Added `hal_i2c_read_raw` to the
+   host = XIAO ESP32-S3, consumer = `cmdr-ai-cam` (repo not yet published). Added
+   `hal_i2c_read_raw` to the
    HAL. **HW-confirmed (2026-06-11): full pipeline** — `aicam info`/`sensors` plus live
    `aicam stream` inference (rock-paper-scissors model) over the UART link. Still to
    exercise on HW: `snap` (640x480 image may exceed AICAM_RX_MAX) and the I2C transport.
