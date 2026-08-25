@@ -35,10 +35,13 @@ Boards also register a few commands outside the module system, from their runner
 (Pico: USB bootloader; Bluepill: USB-DFU, with `cmdr enable dfu`), and `ota`
 (R4/Pico/ESP32, with `cmdr enable ota`).
 
-On the **Uno Q** only `system` and `ir` are offered — its Zephyr HAL backs the
-console/channel bus and IR so far; the menu stays honest about what works.
-\* Likewise on the **Bluepill**: its STM32 I2C HAL is still stubbed, so the
-I2C-backed modules (`compass`, `i2c`, `ina219`) aren't offered there yet.
+Two targets offer less than the table suggests, and `cmdr module list` reflects
+that per project — the menu only shows what the HAL actually backs:
+
+- **Uno Q** — only `system` and `ir`. Its Zephyr HAL backs the console/channel
+  bus and IR so far; GPIO and I2C are stubbed.
+- **Bluepill** (the `*` above) — everything except the I2C-backed modules
+  (`compass`, `i2c`, `ina219`), since its STM32 I2C HAL is still stubbed.
 
 ## Sensors and buses
 

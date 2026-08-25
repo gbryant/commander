@@ -104,10 +104,10 @@ your Mac console alive by bridging ch0 to the same gadget the bridge used (`/dev
 needs `ttyHS1` (and `ttyGS0` if using `--console`) free. Several things may hold `ttyHS1`: the
 **`commander-bridge.service`** socat *and* the **Arduino router stack** (`arduino-router*`), which
 can come back via its `.path` trigger or after a reboot. Free them all. On the board (`adb shell`
-or `ssh arduino@gandalf`):
+or `ssh arduino@<your-board>`; `gandalf` is this board's hostname — substitute yours):
 ```bash
 # put the script somewhere persistent (NOT /tmp — that's cleared on reboot):
-scp transport/channels/broker/commander_broker.py arduino@gandalf:~/    # or adb push ... /home/arduino/
+scp transport/channels/broker/commander_broker.py arduino@<your-board>:~/  # or adb push ... /home/arduino/
 sudo systemctl stop commander-bridge.service \
      arduino-router-serial.path arduino-router-serial.service arduino-router.service
 sudo fuser -k /dev/ttyHS1 2>/dev/null     # belt-and-suspenders: kill any lingering holder

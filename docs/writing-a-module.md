@@ -115,10 +115,12 @@ int16_t x; int16_t y; int16_t z;
 - **Don't block.** Long waits stall the transport task. For continuous work,
   implement `tick()` and have the UART task pump it (below), or `startTask()`
   to own a FreeRTOS task.
-- **Watch the command budget.** `MAX_COMMANDS` bounds the registry; `cmdr`
-  auto-sizes it for the modules it manages, so leave headroom for your own
-  commands (the registry warns at boot and in `help` if anything was dropped —
-  check `dropped()`).
+- **Watch the command budget.** `MAX_COMMANDS` bounds the registry. `cmdr`
+  sizes it for the modules *it* manages plus a small reserve — it cannot see
+  commands your app registers, so if you add more than a handful, raise
+  `MAX_COMMANDS` yourself in `CMakeLists.txt` / `platformio.ini`. `cmdr` will
+  never lower a value you've raised, and the registry warns at boot and in
+  `help` if anything was dropped (check `dropped()`).
 
 ## Getting `tick()` pumped
 

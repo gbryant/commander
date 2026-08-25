@@ -62,8 +62,11 @@ do everywhere, but it doesn't generalize:
 3. **Not all scripts are build steps.** `install-broker`, `enable-flash-boot`, `restore-arduino`,
    `deploy-sbc` are board-management, run independent of a build — configure-time generation is the
    wrong fit (and that's exactly where the staleness bug lived).
-4. **Committed-vs-generated model shift.** cmdr commits scripts at init; configure-generated scripts
-   push toward gitignored/regenerated-locally — a different project model.
+4. ~~**Committed-vs-generated model shift.**~~ *(No longer applies — 2026-08.)* This argued that
+   cmdr commits scripts at init while configure-generation pushes toward
+   gitignored/regenerated-locally. The tool has since moved to the latter for every target:
+   `PROJECT_GITIGNORE` excludes the generated scripts, and `cmdr regen` is how a project gets
+   them back. The other three objections stand.
 
 ## The north star: thin shims (and why `regen` is still the floor)
 

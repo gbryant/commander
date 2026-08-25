@@ -215,8 +215,9 @@ Consumers reference commander **by URL** — `FetchContent` for the CMake target
 consumer's build until each is repointed — treat the list above as the checklist
 for any such move.
 
-Version pinning is per-project: `cmdr pin <ref>` / `--latest` / `cmdr unpin` lock
-or float a consumer's commander version, and `cmdr link <path>` builds against a
-local checkout for framework development. Consumers pin a release tag, so
+Version pinning is per-project. On CMake consumers `cmdr pin <ref>` / `--latest` /
+`cmdr unpin` lock or float the commander version, and `cmdr link <path>` builds
+against a local checkout for framework development; PlatformIO consumers
+(cmdr-oi-bridge) pin via the `#tag` on their `lib_deps` git ref instead. Consumers pin a release tag, so
 adopting framework changes is two deliberate steps — `cmdr pin <tag>` then `cmdr pull` —
 always against published commander, never a local override.

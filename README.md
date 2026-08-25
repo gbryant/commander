@@ -1,8 +1,9 @@
 # commander
 
 A portable embedded command shell. The same module code — compass, sonar, IR,
-locomotion, displays — runs across an 8-bit Arduino Uno, the Raspberry Pi Pico W /
-Pico 2 W, the ESP32-S3, the STM32 "Bluepill", and the dual-brain Arduino Uno Q.
+locomotion, displays — runs across an 8-bit Arduino Uno, the Arduino R4 WiFi, the
+Raspberry Pi Pico W / Pico 2 W, the ESP32-S3, the STM32 "Bluepill", and the
+dual-brain Arduino Uno Q.
 Write a module once against a small C HAL; `cmdr` composes it into a project and it
 builds for any target.
 
@@ -163,9 +164,11 @@ support promise.
   codegen golden files) and `tests/build-matrix.sh` (compile smoke across
   boards). GitHub Actions was deliberately declined for a solo project;
   see [docs/testing.md](docs/testing.md).
-- **Known gaps** are tracked honestly rather than glossed: the main one is
-  Bluepill I2C, which is stubbed — so the I2C modules aren't offered there.
-  [PLAN.md](PLAN.md) marks state per area.
+- **Known gaps** are tracked honestly rather than glossed. Bluepill I2C is
+  stubbed, so the I2C modules aren't offered there. And two IR backends —
+  ESP32 (RMT) and Bluepill (EXTI/DWT) — are written and compile but have never
+  been run on hardware; `cmdr module enable ir` offers them, so treat those two
+  as untested rather than working. [PLAN.md](PLAN.md) marks state per area.
 - **Issues and PRs** are welcome.
 
 ## License

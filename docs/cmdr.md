@@ -87,8 +87,13 @@ into DFU and flash with `dfu-util` (`./upload` stays ST-Link).
 
 ## Framework version
 
-A project fetches commander from GitHub at build time. Four commands control
-which version:
+A project fetches commander from GitHub at build time.
+
+**These four are for CMake projects** (`pico`, `pico2`, `esp32`, `unoq`), where the
+version is a `GIT_TAG` in `CMakeLists.txt`. **PlatformIO projects** (`uno`, `r4`,
+`bluepill`) pin through the `lib_deps` git ref in `platformio.ini` instead — append
+a tag (`…/commander.git#v1.1`) to pin, drop it to float — and the commands below
+will tell you so rather than running.
 
 | Command | Effect |
 |---------|--------|
@@ -104,9 +109,10 @@ release notes for.
 
 **Moving to a newer release is a separate, deliberate step.** A scaffold pins a
 release tag, so `cmdr pull` on its own re-fetches *that same tag* and changes
-nothing. To take a new release: `cmdr pin v1.1` (or `--latest` to freeze main's
-current tip, or `cmdr unpin` to track `main`), then `cmdr pull`. That's the point
-of pinning — updates arrive when you ask.
+nothing. To take a new release on a CMake project: `cmdr pin v1.2` (or `--latest`
+to freeze main's current tip, or `cmdr unpin` to track `main`), then `cmdr pull`.
+On a PlatformIO project, bump the `#tag` on the `lib_deps` ref and rebuild. Either
+way it's the point of pinning — updates arrive when you ask.
 
 ## Maintenance
 

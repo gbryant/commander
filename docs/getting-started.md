@@ -97,6 +97,8 @@ alias esp='. ~/u-developer/esp-idf/export.sh'   # load ESP-IDF for raw idf.py
 | ESP-IDF `export.sh` | esp32 | dev scripts self-source `~/u-developer/esp-idf/export.sh` (override via `IDF_EXPORT` / `IDF_PATH`) |
 | `TINYUSB_PATH` | bluepill USB | `$PICO_SDK_PATH/lib/tinyusb` |
 | `STM32_DFU_BOOTLOADER_PATH` | bluepill `cmdr enable dfu` | `~/u-developer/stm32-dfu-bootloader` |
+| `PFB_PATH` | pico/pico2 `cmdr enable ota` | `~/u-developer/pico_fota_bootloader` |
+| `PNGLE_PATH` | esp32 projects decoding PNGs (e.g. cmdr-ipstube) | `~/u-developer/pngle` |
 | `ZEPHYRPROJECT` (or `ZEPHYR_BASE`/`ZEPHYR_VENV`) | unoq | `~/u-developer/zephyrproject` (falls back to `~/zephyrproject`) |
 
 The esp32 `dev/esp32/*` scripts self-source ESP-IDF, so you don't need to run `esp`
@@ -128,9 +130,10 @@ cmdr module enable sonar   # answer the module's config questions
 PlatformIO dependency and generates its dev scripts (`bum`, `build`, `upload`,
 `monitor`) at the project root. Those scripts are **generated, not source**, so a
 project gitignores them — if you clone one and they're missing, `cmdr regen`
-writes them (on pico/pico2, the `cmake -B ...` configure step does). (On pico/pico2 the CMake configure step writes
-them — if `PICO_SDK_PATH` wasn't set at init time, run the `cmake -B ...` line
-that `cmdr init` prints once it is.)
+writes them. On pico/pico2 the CMake configure step writes them instead — if
+`PICO_SDK_PATH` wasn't set at init time, run the `cmake -B ...` line `cmdr init`
+prints, once it is.
+
 `cmdr module enable <name>` records your answers in `cmdr.toml` and regenerates
 `commander_modules.h`; `cmdr module list` shows what's available per target. Boards:
 `uno`, `r4`, `pico`, `pico2`, `esp32`, `bluepill` (and `unoq`, see below).

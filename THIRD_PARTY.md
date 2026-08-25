@@ -32,6 +32,8 @@ never copied into this tree. Their licenses govern your firmware, not this repo.
 | FreeRTOS kernel | Pico, ESP32, Bluepill, Arduino | MIT |
 | TinyUSB (`TINYUSB_PATH`, or the Pico SDK's copy) | STM32 Bluepill USB CDC | MIT |
 | [Bluepad32](https://github.com/ricardoquesada/bluepad32) (`BLUEPAD32_PATH`) | `controller` module (Pico) | Apache-2.0 — **see the BTstack note below** |
+| [pico_fota_bootloader](https://github.com/JZimnol/pico_fota_bootloader) (`PFB_PATH`) | Pico/Pico 2 W pull-OTA (`cmdr enable ota`) — linked as `pico_fota_bootloader_lib` | MIT — © Jakub Zimnol |
+| [pngle](https://github.com/kikuchan/pngle) (`PNGLE_PATH`) | ESP32 projects decoding PNGs (cmdr-ipstube) | MIT — © kikuchan |
 | [IRremote](https://github.com/Arduino-IRremote/Arduino-IRremote) | `ir` module on Uno / R4 (via `lib_deps`) | MIT |
 | [esp_littlefs](https://github.com/joltwallet/esp_littlefs) | `cmdr enable littlefs` (ESP32) | MIT |
 | Arduino cores (AVR, Renesas RA / WiFiS3) | Uno, R4 | LGPL-2.1-or-later |

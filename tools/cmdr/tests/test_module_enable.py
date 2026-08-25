@@ -77,8 +77,14 @@ def test_ir_installs_and_removes_tools(cli_mod, project_dir, answer_defaults):
     assert (root / "maps").is_dir(), "maps/ (user data) preserved on disable"
 
 
-def test_max_commands_tracks_module_count(cli_mod, project_dir, answer_defaults):
-    """MAX_COMMANDS is re-synced into the build config as modules come and go."""
+def test_max_commands_grows_but_never_shrinks(cli_mod, project_dir, answer_defaults):
+    """MAX_COMMANDS grows to fit new modules, and is never lowered again.
+
+    The computed value covers cmdr-managed modules plus a small reserve — it has no
+    idea how many commands the app registers itself, and an app can easily have more
+    than the modules do (cmdr-ipstube has 15). Shrinking on `disable` would size the
+    registry array below what the firmware actually needs and start dropping
+    commands, so a larger existing value is left alone."""
     _enter(cli_mod, project_dir, "pico")
     import re
     cmake = project_dir.path / "proj" / "CMakeLists.txt"
@@ -93,7 +99,9 @@ def test_max_commands_tracks_module_count(cli_mod, project_dir, answer_defaults)
     grown = maxcmds()
     assert grown > base, "MAX_COMMANDS should grow when a module is added"
     cli_mod.cmd_module(mod_args("disable", "controller"))
-    assert maxcmds() == base, "MAX_COMMANDS should return to base after disable"
+    assert maxcmds() == grown, (
+        "MAX_COMMANDS must not shrink on disable — the computed value ignores "
+        "app-registered commands, so lowering it can drop them")
 
 
 def test_controller_injects_and_reverts_cmake(cli_mod, project_dir, answer_defaults):

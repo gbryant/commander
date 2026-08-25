@@ -1790,10 +1790,34 @@ def _compute_max_commands(modules: dict) -> int:
     return total + _MAX_COMMANDS_RESERVE
 
 
+def _read_max_commands(root: Path = Path(".")) -> "int | None":
+    """The MAX_COMMANDS currently set in the project, if any."""
+    for f in (root / "platformio.ini", root / "CMakeLists.txt"):
+        if f.exists():
+            m = re.search(r"MAX_COMMANDS=(\d+)", f.read_text())
+            if m:
+                return int(m.group(1))
+    return None
+
+
 def _sync_max_commands(modules: dict, root: Path = Path(".")) -> None:
-    """Inject -DMAX_COMMANDS=<exact count> so the registry array fits the enabled
-    set — no manual tuning. PlatformIO build_flags or CMake add_compile_definitions."""
+    """Inject -DMAX_COMMANDS=<count> so the registry array fits the enabled set.
+
+    Only ever grows. The computed value covers cmdr-managed modules plus a small
+    reserve; it knows nothing about commands the app registers itself, and an app
+    can easily have more of those than modules (cmdr-ipstube has 15). Shrinking to
+    the computed value would silently drop them, so an existing larger setting is
+    left alone — the registry warns at boot if it's genuinely too small."""
     n = _compute_max_commands(modules)
+    existing = _read_max_commands(root)
+    if existing is not None and existing > n:
+        # Keep the larger value, but say so — on a RAM-tight target (AVR) an
+        # inflated registry array costs bytes, and only you know whether the
+        # headroom is still carrying app commands.
+        print(f"  • MAX_COMMANDS={existing} (kept; computed {n} covers only cmdr's "
+              f"modules, not commands your app registers — lower it by hand if you "
+              f"want the RAM back)")
+        return
     pio = root / "platformio.ini"
     cmake = root / "CMakeLists.txt"
     if pio.exists():
@@ -3212,7 +3236,9 @@ def _gitignore_add(entry: str) -> None:
 
 def cmd_link(args: argparse.Namespace) -> None:
     if Path("platformio.ini").exists():
-        die("`cmdr link` is for CMake (pico/esp32) projects; PlatformIO uses lib_deps")
+        die("`cmdr link` is for CMake projects (pico/pico2/esp32/unoq). This is a\n"
+            "PlatformIO project — point its lib_deps at a local path instead:\n"
+            "  lib_deps = symlink://../commander")
     cmake = Path("CMakeLists.txt")
     if not cmake.exists():
         die("no CMakeLists.txt here — run from a cmdr project root")
@@ -3246,7 +3272,9 @@ def cmd_link(args: argparse.Namespace) -> None:
 
 def cmd_unlink(args: argparse.Namespace) -> None:
     if Path("platformio.ini").exists():
-        die("`cmdr link` is for CMake (pico/esp32) projects; PlatformIO uses lib_deps")
+        die("`cmdr unlink` is for CMake projects (pico/pico2/esp32/unoq). This is a\n"
+            "PlatformIO project — its commander version is the lib_deps git ref in\n"
+            "platformio.ini; edit that directly.")
     f = Path(_LOCAL_CMAKE)
     if not f.exists():
         print("not linked — nothing to do")
@@ -3299,7 +3327,9 @@ def _apply_pin(cmake: Path, ref: str, cur: str) -> None:
 
 def cmd_pin(args: argparse.Namespace) -> None:
     if Path("platformio.ini").exists():
-        die("`cmdr pin` is for CMake (pico/esp32) projects; PlatformIO pins via lib_deps")
+        die("`cmdr pin` is for CMake projects (pico/pico2/esp32/unoq). This is a\n"
+            "PlatformIO project — pin by appending a tag to the lib_deps git ref in\n"
+            "platformio.ini, e.g. .../commander.git#v1.1")
     cmake = Path("CMakeLists.txt")
     if not cmake.exists():
         die("no CMakeLists.txt here — run from a cmdr project root")
