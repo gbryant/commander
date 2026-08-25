@@ -101,6 +101,23 @@ HAL (`hal/hal.h`). Platform specifics are confined to `hal/`, `transport/`, and
 | STM32 Bluepill (F103) | PlatformIO (CMSIS) | ✅ shell over USART/USB CDC; USB-DFU upload (I2C pending) |
 | Arduino Uno Q (Debian + M33) | Zephyr (west) + Debian services | ✅ shell + channel bus + IR — see the [IR-speaker walkthrough](docs/unoq-ir-speaker.md) |
 
+## Built with it
+
+Real devices, not demos — each is a separate repo that pulls commander in as a
+dependency and provides two functions.
+
+| Project | Board | What it demonstrates |
+|---------|-------|----------------------|
+| [cmdr-ipstube](https://github.com/gbryant/cmdr-ipstube) | ESP32 | Six SPI displays on three CS lines, filesystem assets, OTA |
+| [cmdr-robot](https://github.com/gbryant/cmdr-robot) | Pico 2 W | Bluetooth pad → I2C actuation; WiFi and BT on one radio |
+| [cmdr-oi-bridge](https://github.com/gbryant/cmdr-oi-bridge) | Uno R4 WiFi | Commander as an I2C *peripheral* — the robot's other half |
+| [cmdr-solar-monitor](https://github.com/gbryant/cmdr-solar-monitor) | ESP32-S3 | The smallest useful consumer: two modules and a host script |
+| [cmdr-unoq-ir-speaker](https://github.com/gbryant/cmdr-unoq-ir-speaker) | Uno Q | Dual-brain: hard real-time on the MCU, neural TTS beside it — with no custom firmware |
+
+Between them they cover all four build flavours (ESP-IDF, Pico SDK, PlatformIO,
+Zephyr/west). [docs/projects.md](docs/projects.md) has the full write-ups —
+modules enabled, pins, what each one proved on hardware.
+
 ## Quick start
 
 ```bash
