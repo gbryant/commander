@@ -34,7 +34,7 @@ REPO_URL = "https://github.com/gbryant/commander.git"
 # Versioning is two-part and the left digit means one thing: **this release breaks you**. Right
 # digit for everything else. Bump this constant as part of cutting a release, so a project
 # scaffolded today gets today's framework.
-FRAMEWORK_TAG = "v1.0"
+FRAMEWORK_TAG = "v1.1"
 
 PICO_TARGETS = {
     "pico":  "pico_w",
