@@ -29,6 +29,12 @@ run_cpp() {
         "CommandRegistry/Writer/SystemModule|test_registry|-DMAX_COMMANDS=16|core/tests/test_registry.cpp core/CommandRegistry.cpp"
         "DriveMixer/LocoProtocol|test_drivemixer||modules/locomotion/tests/test_drivemixer.cpp"
         "ControllerCalibration|test_calibration||modules/controller/tests/test_calibration.cpp"
+        # Peripheral drivers, exercised against the recording HAL in tests/fakes.
+        # These are the hardware-facing modules verified without hardware: every
+        # byte the driver would put on the wire is captured and asserted.
+        "St7796/Font5x7/colour|test_display|-DMAX_COMMANDS=16|modules/display/tests/test_display.cpp tests/fakes/fake_hal.cpp core/CommandRegistry.cpp"
+        "Gt911 touch|test_touch|-DMAX_COMMANDS=16|modules/touch/tests/test_touch.cpp tests/fakes/fake_hal.cpp core/CommandRegistry.cpp"
+        "Joystick/Buttons/Led/Buzzer|test_input|-DMAX_COMMANDS=16|modules/input/tests/test_input.cpp tests/fakes/fake_hal.cpp core/CommandRegistry.cpp"
     )
 
     for c in "${cases[@]}"; do

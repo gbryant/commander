@@ -22,6 +22,7 @@ siblings in `~/github/` and are found by their prefix.
 | [cmdr-robot](#cmdr-robot) | pico2 | CMake / Pico SDK | Pico 2 W + Bluetooth pad | Bluetooth input → I2C actuation; the master half of a two-board robot |
 | [cmdr-oi-bridge](#cmdr-oi-bridge) | r4 | PlatformIO | Arduino Uno R4 WiFi + Roomba | The slave half; commander as an I2C peripheral |
 | [cmdr-solar-monitor](#cmdr-solar-monitor) | esp32 | CMake / ESP-IDF | ESP32-S3-N16R8 + INA219 | The smallest useful consumer; firmware + host logging |
+| [cmdr-pico-breadboard-kit](#cmdr-pico-breadboard-kit) | pico2 | CMake / Pico SDK | GeeekPi Pico Breadboard Kit: 3.5" touch TFT, stick, buttons, LEDs, buzzer | A whole dev board as modules — display + touch + front-panel I/O |
 | [cmdr-unoq-ir-speaker](#cmdr-unoq-ir-speaker) | unoq | CMake / Zephyr (west) | Arduino Uno Q + IR receiver + BT speaker | Dual-brain: MCU real-time work feeding a Linux consumer. Zero custom firmware |
 | [unoq-tools](#unoq-tools) | — | — | Arduino Uno Q (Debian side) | Not a consumer — a companion tooling repo |
 
@@ -141,6 +142,39 @@ presentation.
 
 Hardware-confirmed by its own output: the graph in the project's README is two
 weeks of continuously logged readings from the device (2026-05-20 → 06-03).
+
+## cmdr-pico-breadboard-kit
+
+**A dev board, composed.** The GeeekPi Pico Breadboard Kit — a 3.5" ST7796 touch
+panel, a joystick, two buttons, two LEDs, an RGB LED and a buzzer, around a Pico
+2 W — with every peripheral as a commander module, so the whole board answers to
+a shell over USB or telnet.
+
+- **Modules:** `st7796` (panel), `gt911` (touch), `joystick`, `buttons`, `leds`,
+  `buzzer`, `ws2812` (PIO backend), `wifi`, `i2c`
+- **App-side:** three screens (Status / Piano / Splash), a `kit` command with a
+  `selftest`, and SWD tooling for a CMSIS-DAP debug probe
+
+It is a rewrite of an earlier non-commander project that drove the same board with
+LVGL and vendor demo code. The interesting part is the split that produced: the
+hardware knowledge (ST7796 init, GT911 register map, the WS2812 PIO program, the
+pinout) became **framework modules**, and what stayed in the project is
+composition — which screen is showing, what a touch means, what the stick does.
+`main.cpp` contains no driver code.
+
+It also drove three framework changes that outlive it: the HAL grew SPI, ADC and
+PWM (plus `hal_i2c_write_read` for the GT911's 16-bit registers); the UART
+ticker list grew from 2 to 8 slots — five ticking modules on one board — and
+started *reporting* overflow instead of dropping it; and the cmdr-generated
+`commander_on_uart_ready` now calls a weak `commander_on_app_tickers()`, so an
+app can still add periodic work once a ticking module is enabled.
+
+**Not yet hardware-confirmed** — the only consumer in this list that isn't. Every
+driver is host-tested against the recording HAL in `tests/fakes/` (the address
+windows, the touch coordinate mapping at all four rotations, the debounce
+windows), and the firmware builds for RP2350, but the board hasn't arrived at the
+bench. The project ships `docs/hardware-test.md`: a bring-up checklist ordered by
+what each failure would tell you.
 
 ---
 

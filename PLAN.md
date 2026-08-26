@@ -84,12 +84,17 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 |-----------------------------------|--------------|-----------------------------------------------------|
 | `core/` — registry, writer        | ✅ done      |                                                     |
 | `include/i2c_ids.h`               | ✅ done      | wire protocol spec                                  |
-| `hal/hal.h` interface             | ✅ done      | I2C, GPIO, time, UART                               |
+| `hal/hal.h` interface             | ✅ done      | I2C, GPIO, SPI, ADC, PWM, time, UART                |
 | `hal/arduino/`                    | ✅ done      | Wire + Arduino GPIO + Serial                        |
-| `hal/pico/`                       | ✅ done      | Pico SDK                                            |
+| `hal/pico/`                       | ✅ done      | Pico SDK; the only HAL with SPI/ADC/PWM so far      |
 | `hal/esp32/`                      | ✅ done      | ESP-IDF v5 i2c_master + UART driver                 |
 | `modules/CompassModule`           | ✅ done      | HAL only                                            |
 | `modules/SonarModule`             | ✅ done      |                                                     |
+| `modules/display/` (st7796)       | 🟡 untested  | builds + host-tested; not yet on a panel             |
+| `modules/touch/` (gt911)          | 🟡 untested  | builds + host-tested; not yet on a panel             |
+| `modules/input/` (joystick, btn)  | 🟡 untested  | builds + host-tested; not yet on the board          |
+| `modules/LedModule`, `BuzzerModule` | 🟡 untested | builds + host-tested; not yet on the board          |
+| `platform/pico/PicoWs2812Module`  | 🟡 untested  | PIO backend of the esp32 `ws2812` module            |
 | `transport/uart/`                 | ✅ done      | platform-agnostic; begin() overload without baud    |
 | `transport/telnet/`               | ✅ done      | lwIP BSD sockets (Pico/ESP32)                       |
 | `transport/telnet/arduino/`       | ✅ done      | WiFiServer-based (R4)                               |
@@ -281,6 +286,25 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
    `aicam stream` inference (rock-paper-scissors model) over the UART link. Still to
    exercise on HW: `snap` (640x480 image may exceed AICAM_RX_MAX) and the I2C transport.
 
+5. **Pico Breadboard Kit hardware pass** — six new modules (`st7796`, `gt911`,
+   `joystick`, `buttons`, `leds`, `buzzer`) plus a Pico PIO backend for `ws2812`
+   landed on `feat/pico-breadboard-kit`, together with the HAL's new SPI/ADC/PWM
+   and `hal_i2c_write_read` entry points. **None of it has met hardware yet.**
+   Every driver is covered by host tests against the new recording HAL
+   (`tests/fakes/`), so what's unknown is wiring and panel behaviour, not logic.
+   The bring-up checklist — ordered by what a failure would tell you — is
+   `docs/hardware-test.md` in the consumer, [cmdr-pico-breadboard-kit].
+   Open questions the hardware answers:
+   - Does the datasheet ST7796S init sequence bring this panel up, or does it
+     need the vendor table (`-DST7796_LEGACY_INIT`, kept for exactly this)?
+   - The panel's SPI ceiling: default 40 MHz here, the vendor code asked 62.5.
+   - GT911 orientation vs. the glass (`touch flip` / `touch rotate`), and
+     whether it answers at 0x5D or 0x14.
+   - Joystick axis polarity and a sensible default deadzone.
+   Widen those modules' platform lists only as other HALs grow SPI/ADC/PWM —
+   `hal/arduino`, `hal/esp32`, `hal/stm32` and `hal/zephyr` carry honest stubs
+   today, and the cmdr menu is gated to match.
+
 ## Board pin reference
 
 These are the defaults `cmdr module enable` offers; every one is overridable at
@@ -297,3 +321,22 @@ enable time and recorded in the project's `cmdr.toml`.
 
 ⚠ The sonar default (pin 6 on every target) collides with the Pico's I2C SDA
 default. Enabling both on a Pico means changing one at enable time.
+
+### Pico Breadboard Kit (pico/pico2 defaults)
+
+The kit's own wiring, which is what `st7796`/`gt911`/`joystick`/`buttons`/`leds`/
+`buzzer`/`ws2812` default to on those targets. Note that the panel's touch layer
+sits on **I2C0 GP8/GP9**, not the GP6/GP7 default the other I2C modules use — so
+enabling `i2c` alongside `gt911` means setting it to 8/9 (cmdr warns when enabled
+modules disagree about the pins, since the HAL has one bus and the last
+`hal_i2c_init` wins).
+
+| Signal                | Pin(s)                                   |
+|-----------------------|------------------------------------------|
+| TFT (ST7796S) SPI0    | SCK GP2, MOSI GP3, CS GP5, DC GP6, RST GP7 |
+| Touch (GT911) I2C0    | SDA GP8, SCL GP9 — addr 0x5D             |
+| Joystick              | ADC0 GP26 (X), ADC1 GP27 (Y)             |
+| Buttons BTN1 / BTN2   | GP15, GP14 (active low)                  |
+| LEDs D1 / D2          | GP16, GP17                               |
+| Buzzer                | GP13 (PWM)                               |
+| RGB LED (WS2812)      | GP12 (PIO)                               |

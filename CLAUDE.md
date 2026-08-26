@@ -24,8 +24,23 @@ Arduino is used on the Uno testbed because of the Grove shield convenience.
 API across all targets. `UartTransport::taskBody` is a static method; platform
 main calls `xTaskCreate`/`xTaskCreateStatic` and owns the stack size.
 
-**HAL is a C interface** (`extern "C"`). I2C, GPIO, time, and UART. Platform
-main calls `hal_i2c_init()` and `hal_uart_init()` before the scheduler starts.
+**HAL is a C interface** (`extern "C"`). I2C, GPIO, SPI, ADC, PWM, time, and
+UART. Platform main calls `hal_i2c_init()` and `hal_uart_init()` before the
+scheduler starts.
+
+**SPI/ADC/PWM exist only in `hal/pico` so far** (added 2026-08-26 for the
+breadboard-kit modules); the other HALs carry honest stubs, and the modules that
+need them are gated to pico/pico2 in `MODULE_SPECS`. Widen a platform list only
+when that HAL grows the real implementation — an enable-able module over a stub
+is indistinguishable from broken hardware. `hal_adc_init()` returns the *channel*
+for a pin (−1 if it isn't an ADC pin), which is what keeps analog modules
+portable: pin→channel arithmetic differs per chip. `hal_i2c_write_read()` is a
+combined write→read with a repeated start, for parts with multi-byte register
+addresses (the GT911 touch panel).
+
+**`core/CmdArgs.h`** holds the shared tokenizer + printf-free formatters
+(`cmdarg::is/next/integer/boolean`, `putUInt/putInt/putHex8/putField`). New
+modules use it; older ones keep their private copies (additive, not a migration).
 
 **`i2c_ids.h` is the wire protocol spec.** Keep it identical across all
 platforms. Do not add platform-specific IDs here.
@@ -389,6 +404,32 @@ onboard RGB LED is just this with `count=1`; multiple chains would follow the in
 `channels` pattern. Enable injects `COMMANDER_ENABLE_WS2812` (gates the `.cpp` in the
 runner); `esp_driver_rmt` is an unconditional runner REQUIRE. The IPSTube enables both
 `ipstube` (displays) and `ws2812` (GPIO5 ambient) — separate peripherals, separate modules.
+`st7796`, `gt911`, `joystick`, `buttons`, `leds`, `buzzer` (the Pico Breadboard
+Kit peripherals, 2026-08-26 — generic parts, kit-shaped defaults). `st7796` is an
+ST7796S 320x480 SPI panel over `hal_spi_*`/`hal_gpio_*`/`hal_pwm_*`: one `lcd`
+command (`fill`/`rect`/`text`/`line`/`rotate`/`invert`/`bl`/`test`), a built-in
+5x7 font (`modules/display/Font5x7.h`, MIT, from Adafruit_GFX), and no
+framebuffer — 320x480x2 is 300 KB, so drawing goes straight out the wire and the
+panel holds the only copy. Apps draw through **`IDisplay`** (the weak
+`commander_on_display_ready(IDisplay&)` hands over the *interface*, not the
+driver, so app screens survive a change of panel); `blit()` is deliberately
+LVGL-`flush_cb`-shaped so LVGL can be layered on later as a binding rather than a
+rewrite. The datasheet init sequence is the default with the vendor's ILI9341-ish
+table kept behind `-DST7796_LEGACY_INIT` as a bring-up escape hatch. `gt911`
+(capacitive touch) publishes in *display* space — `touch rotate` matches the
+panel's rotation, `touch flip x|y|swap` handles a touch layer mounted differently
+from the glass, `touch raw` shows the untransformed reading; it's the reason the
+HAL grew `hal_i2c_write_read` (16-bit registers). `joystick` is a generic input
+source like `controller` (poll / `onDirection` / `joy bind <dir> <cmd>`),
+normalized to ±1000 with **two-sided scaling** so an off-centre rest position
+still reaches full travel both ways, diagonals resolving to the dominant axis.
+`buttons` is debounced **by time in `tick()`, not edge IRQs** — a bouncing
+contact outruns a short ISR guard, which is how the original kit code collected
+phantom presses. `leds` blinks from `tick()`; `buzzer` plays note sequences
+(`buzz play c4:200,e4:200,g4:400`, integer frequency table, no libm) from
+`tick()` so nothing blocks the shell. All six are host-tested against the
+recording HAL in `tests/fakes/` and **none is hardware-confirmed yet** — see
+PLAN.md item 5 and the consumer's `docs/hardware-test.md`.
 `aicam` (esp32 only — Grove Vision AI Module V2 / WiseEye2 + OV5647 camera; host =
 XIAO ESP32-S3). Talks the **SSCMA AT protocol** (`AT+<CMD>=<args>\r\n` → `\r{json}\n`
 events with integer `boxes`/`classes`/`points`/`perf` arrays + optional base64
@@ -422,7 +463,19 @@ Uno that's ~100 bytes RAM + a command slot). Code is gated with
 `#ifdef COMMANDER_IR_WALL`; standalone reference builds define it to keep wall. A module whose `tick()` must be
 pumped by the UART task (e.g. IR `recv`) also emits a strong
 `commander_on_uart_ready()` into the generated file that `uart.addTicker()`s it
-(overriding the runner's weak hook).
+(overriding the runner's weak hook). That strong definition means **an app can no
+longer define `commander_on_uart_ready` itself** once any ticking module is
+enabled, so the generated hook ends by calling a weak
+`commander_on_app_tickers(UartTransport&)` — that's where an app's own periodic
+work goes. The ticker list holds `COMMANDER_MAX_TICKERS` (8; 4 on AVR, raised
+from a hardcoded 2 when the kit needed five at once) and **reports overflow at
+startup** rather than dropping silently — an unpumped module looks exactly like
+dead hardware.
+
+`cmdr` also **warns when enabled modules disagree about the I2C pins**: the HAL
+has one bus, so the last `hal_i2c_init` wins and the other module goes silent.
+(The breadboard kit hits this — its touch panel is on GP8/GP9 while the other I2C
+modules default to GP6/GP7.)
 
 A module may also ship **companion host tooling** via `tools` (+ optional
 `tool_dirs`) in its spec. `cmdr module enable` copies the tools (shipped as cmdr
@@ -519,6 +572,12 @@ commander/
 - Arduino Uno Q: hardware-confirmed — `help` on the M33 over the ch0 console, the
   channel bus carrying IR presses to a Debian subscriber on ch1 while ch0 stays
   free, and `cmdr autostart` streaming from boot. Consumer: cmdr-unoq-ir-speaker.
+- Pico Breadboard Kit peripherals (`st7796`, `gt911`, `joystick`, `buttons`,
+  `leds`, `buzzer`, pico `ws2812`): **builds + host-tested, NOT hardware-confirmed.**
+  Firmware links for RP2350 (460 KB flash / 277 KB RAM with the full stack) and
+  every driver is asserted byte-for-byte against `tests/fakes/fake_hal`, but none
+  has met the board. Consumer: cmdr-pico-breadboard-kit (its
+  `docs/hardware-test.md` is the bring-up order).
 - STM32 Bluepill (STM32F103C8): hardware-confirmed — blink, `help` over USART1, `help`
   over USB CDC, and USB-DFU upload with no ST-Link. I2C/compass pending. `cmdr init
   bluepill <name>` scaffolds projects; `cmdr enable dfu` / `disable dfu` toggle the

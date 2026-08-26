@@ -21,6 +21,8 @@ from conftest import GOLDEN_DIR, build_modules
 #   • the unoq channel-bus IR hook (vs the UART hook everywhere else)
 #   • aicam's uart vs i2c transport branch
 #   • esp32 display stack (ipstube+ws2812+ds1302) with its on_*_ready hooks
+#   • the pico2 breadboard-kit stack (five tickers + the weak app-ticker hook)
+#   • ws2812's two backends emitting different classes from one module name
 MATRIX = [
     ("uno",      "base",            [], {}),
     ("uno",      "ir",              ["ir"], {}),
@@ -37,6 +39,13 @@ MATRIX = [
     ("pico",     "i2c_dedup",       ["compass", "i2c", "locomotion"], {}),
     ("pico",     "wifi_ctrl_loco",  ["wifi", "controller", "locomotion"], {}),
     ("pico2",    "controller_loco", ["controller", "locomotion"], {}),
+    # The breadboard-kit stack: five ticking modules in one build (the case that
+    # forced COMMANDER_MAX_TICKERS up from 2), the display config aggregate, and
+    # the shared I2C line between the touch panel and the bus diagnostic.
+    ("pico2",    "breadboard_kit",  ["st7796", "gt911", "joystick", "buttons",
+                                     "leds", "buzzer", "ws2812", "wifi"], {}),
+    ("pico2",    "kit_i2c_shared",  ["gt911", "i2c"], {"i2c": {"sda": 8, "scl": 9}}),
+    ("pico",     "ws2812_pio",      ["ws2812"], {}),
     ("esp32",    "base",            [], {}),
     ("esp32",    "wifi",            ["wifi"], {}),
     ("esp32",    "ina219",          ["ina219"], {}),

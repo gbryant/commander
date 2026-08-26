@@ -54,6 +54,9 @@ target_link_libraries(commander_hal_pico PUBLIC
     pico_stdlib
     hardware_i2c
     hardware_gpio
+    hardware_spi
+    hardware_adc
+    hardware_pwm
     FreeRTOS-Kernel
     FreeRTOS-Kernel-Heap4
 )

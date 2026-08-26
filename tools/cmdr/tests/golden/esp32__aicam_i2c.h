@@ -19,6 +19,9 @@ inline void commander_register_modules(CommandRegistry &reg) {
     if (commander_on_aicam_ready) commander_on_aicam_ready(_m_aicam);
 }
 
+extern "C" void commander_on_app_tickers(UartTransport &) __attribute__((weak));
+
 extern "C" void commander_on_uart_ready(UartTransport &uart) {
     uart.addTicker(_m_aicam);
+    if (commander_on_app_tickers) commander_on_app_tickers(uart);
 }

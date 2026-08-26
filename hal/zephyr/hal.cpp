@@ -70,3 +70,23 @@ bool hal_i2c_probe(uint8_t)                               { return false; }
 bool hal_i2c_write(uint8_t, uint8_t, const uint8_t*, size_t) { return false; }
 bool hal_i2c_read (uint8_t, uint8_t, uint8_t*, size_t)       { return false; }
 bool hal_i2c_read_raw(uint8_t, uint8_t*, size_t)            { return false; }
+bool hal_i2c_write_read(uint8_t, const uint8_t *, size_t, uint8_t *, size_t) { return false; }
+
+// --- SPI / ADC / PWM ---------------------------------------------------------
+// Not implemented on this platform yet. The modules that need them (st7796,
+// gt911's bus is fine but joystick/buzzer/display are not) are gated to the
+// platforms whose HAL backs them, via `platforms` in MODULE_SPECS
+// (tools/cmdr/src/cmdr/cli.py) — so nothing can enable a peripheral this HAL
+// can't drive. Implement these and widen that list in the same change.
+void hal_spi_init(uint8_t, int8_t, int8_t, int8_t, uint32_t) {}
+void hal_spi_set_speed(uint8_t, uint32_t)                    {}
+void hal_spi_write(uint8_t, const uint8_t *, size_t)         {}
+void hal_spi_write16(uint8_t, const uint16_t *, size_t)      {}
+void hal_spi_transfer(uint8_t, const uint8_t *, uint8_t *, size_t) {}
+int8_t   hal_adc_init(uint8_t)     { return -1; }
+uint16_t hal_adc_read(uint8_t)     { return 0; }
+uint16_t hal_adc_max (void)        { return 0; }
+void hal_pwm_init(uint8_t)         {}
+void hal_pwm_duty(uint8_t, uint8_t)   {}
+void hal_pwm_tone(uint8_t, uint32_t)  {}
+void hal_pwm_stop(uint8_t)            {}

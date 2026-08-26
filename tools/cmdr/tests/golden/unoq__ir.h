@@ -16,8 +16,11 @@ inline void commander_register_modules(CommandRegistry &reg) {
     reg.registerModule(_m_ir);
 }
 
+extern "C" void commander_on_app_tickers(ChannelBusRunner &) __attribute__((weak));
+
 extern "C" void commander_on_channel_bus_ready(ChannelBusRunner &bus) {
     _pub_ir = bus.channels().publisher(CH_IR);
     _m_ir.setOutput(&_pub_ir);
     bus.addTicker(_m_ir);
+    if (commander_on_app_tickers) commander_on_app_tickers(bus);
 }

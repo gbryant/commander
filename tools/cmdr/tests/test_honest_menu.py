@@ -66,13 +66,31 @@ def test_platform_gated_modules_match_their_spec(cli_mod):
 
 
 @pytest.mark.parametrize("name,target", [
-    ("ipstube", "pico"), ("ws2812", "pico"), ("aicam", "r4"),   # esp32-only
+    ("ipstube", "pico"), ("aicam", "r4"),                        # esp32-only
+    ("ws2812", "bluepill"), ("ws2812", "uno"),                   # esp32 + pico backends only
     ("controller", "esp32"), ("locomotion", "r4"),               # pico-only
     ("loco-bridge", "pico"), ("roomba", "pico"),                 # r4-only
     ("wifi", "uno"), ("wifi", "bluepill"),                       # wifi needs a runner hook
+    # SPI/ADC/PWM live only in hal/pico today. These must stay gated off every
+    # other target until that platform's HAL implements them — enabling a module
+    # over a stubbed HAL looks exactly like broken hardware.
+    ("st7796", "esp32"), ("st7796", "r4"), ("st7796", "bluepill"),
+    ("joystick", "esp32"), ("joystick", "uno"),
+    ("buzzer", "esp32"), ("buzzer", "r4"),
+    ("gt911", "bluepill"),                                       # hal/stm32 I2C is stubbed
 ])
 def test_unsupported_combinations_are_gated(cli_mod, name, target):
     assert not cli_mod._module_supported(name, target), f"{name} should be gated off {target}"
+
+
+@pytest.mark.parametrize("name,target", [
+    ("ws2812", "pico"), ("ws2812", "pico2"), ("ws2812", "esp32"),  # both backends
+    ("st7796", "pico2"), ("gt911", "pico2"), ("joystick", "pico2"),
+    ("buzzer", "pico2"), ("buttons", "pico2"), ("leds", "pico2"),
+    ("buttons", "esp32"), ("leds", "r4"),                          # GPIO-only: portable
+])
+def test_supported_combinations_are_offered(cli_mod, name, target):
+    assert cli_mod._module_supported(name, target), f"{name} should be offered on {target}"
 
 
 def test_every_optional_module_supported_somewhere(cli_mod):

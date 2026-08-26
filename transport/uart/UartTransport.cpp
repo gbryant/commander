@@ -56,14 +56,19 @@ void UartTransport::handleByte(char c) {
 }
 
 void UartTransport::addTicker(IModule &m) {
-    if (_tickCount < kMaxTickers)
-        _tickers[_tickCount++] = &m;
+    if (_tickCount < kMaxTickers) _tickers[_tickCount++] = &m;
+    else                          _tickDropped++;
 }
 
 void UartTransport::taskBody(void *self) {
     auto *t = static_cast<UartTransport *>(self);
     hal_delay_ms(1500);  // let USB CDC settle before printing
     if (t->_greeting) { hal_uart_puts(t->_greeting); hal_uart_puts("\r\n"); }
+    if (t->_tickDropped) {
+        // A dropped ticker means that module's tick() never runs — it presents as
+        // hardware that does nothing. Say so instead of leaving it to be debugged.
+        hal_uart_puts("[warn] too many tickers; raise COMMANDER_MAX_TICKERS\r\n");
+    }
     t->prompt();
     for (;;) {
         int c = hal_uart_getchar(10);  // 10 ms poll; HAL yields on platforms with blocking UART

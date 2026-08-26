@@ -11,8 +11,13 @@ redistributed by it) versus what you **fetch yourself** to build.
 | `third_party/stb/stb_truetype.h` | [nothings/stb](https://github.com/nothings/stb) v1.26, Sean Barrett / RAD Game Tools | Public domain **or** MIT, at your option (dual-licensed; see the LICENSE block at the end of the file) |
 | `pico_sdk_import.cmake` | Copy of the shim from the Raspberry Pi Pico SDK | BSD-3-Clause, © 2020 Raspberry Pi (Trading) Ltd. |
 | `FreeRTOS_Kernel_import.cmake` | Copy of the shim from the FreeRTOS kernel (`portable/ThirdParty/GCC/RP2040`) | BSD-3-Clause (`SPDX-License-Identifier: BSD-3-clause`) |
+| `modules/display/Font5x7.h` | The classic 5x7 GLCD font table from [Adafruit_GFX](https://github.com/adafruit/Adafruit-GFX-Library) / Adafruit_ILI9341, trimmed to printable ASCII | MIT |
+| `platform/pico/ws2812.pio` | The WS2812 PIO program from [pico-examples](https://github.com/raspberrypi/pico-examples) | BSD-3-Clause, © 2020 Raspberry Pi (Trading) Ltd. |
 
-All three keep their original license headers intact — don't strip them when editing.
+They all keep their original license headers or attribution intact — don't strip them
+when editing. `Font5x7.h` carries only glyph data (0x20..0x7E), regenerated from the
+upstream table rather than copied wholesale, and the attribution comment at the top of
+the file is the notice.
 
 `stb_truetype.h` carries an explicit upstream warning worth repeating: it does no
 range checking on font file offsets, so it should not be pointed at untrusted fonts.

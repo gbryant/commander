@@ -1046,6 +1046,12 @@ def die(msg: str) -> None:
     sys.exit(1)
 
 
+def warn(msg: str) -> None:
+    """A problem the user must see but that doesn't stop generation — printed to
+    stderr so it survives being piped, and prefixed like the in-project `!` notes."""
+    print(f"  ! {msg}", file=sys.stderr)
+
+
 def wifi_credentials() -> tuple[str, str]:
     cfg = load_config()
     ssid     = cfg.get("wifi", "ssid",     fallback="your-network")
@@ -1156,9 +1162,11 @@ MODULE_SPECS = {
     # app drives effects via commander_on_ws2812_ready. A board's onboard RGB LED
     # is just this with count=1. Enable injects COMMANDER_ENABLE_WS2812 so the
     # runner compiles it (esp_driver_rmt is already required unconditionally).
-    "ws2812": {"always": False, "platforms": ["esp32"], "questions": [
-        ("pin",   "WS2812 data GPIO", "5"),
-        ("count", "number of LEDs in the chain", "6"),
+    # Two backends behind one module name and one `wled` command: ESP32 drives the
+    # chain from RMT, Pico from a PIO state machine (platform/pico/PicoWs2812Module).
+    "ws2812": {"always": False, "platforms": ["esp32", "pico", "pico2"], "questions": [
+        ("pin",   "WS2812 data GPIO", {"esp32": "5", "pico": "12", "pico2": "12"}),
+        ("count", "number of LEDs in the chain", {"esp32": "6", "pico": "1", "pico2": "1"}),
         ("order", "colour order (GRB/RGB/BRG/RBG/GBR/BGR)", "GRB"),
     ]},
     # Grove Vision AI Module V2 (WiseEye2 + camera) host module — SSCMA AT protocol.
@@ -1168,6 +1176,48 @@ MODULE_SPECS = {
     # uart, SDA5/SCL6 @ 0x62 for i2c (override in cmdr.toml / -DAICAM_* if needed).
     "aicam": {"always": False, "platforms": ["esp32"], "questions": [
         ("transport", "Vision AI link transport (uart/i2c)", "uart"),
+    ]},
+    # ── Pico Breadboard Kit peripherals ──────────────────────────────────────
+    # These are generic parts, not kit-specific: an ST7796 panel, a GT911 touch
+    # layer, an analog stick, buttons, LEDs and a buzzer. Defaults match the
+    # GeeekPi Pico Breadboard Kit wiring because that's the board they were
+    # brought up on — change the pins and they work anywhere.
+    #
+    # SPI/ADC/PWM only exist in hal/pico today, so those three are gated to
+    # pico/pico2. Widen the platform list at the same time as the HAL, never
+    # before — an enable-able module with a stubbed HAL reads as broken hardware.
+    "st7796": {"always": False, "platforms": ["pico", "pico2"], "questions": [
+        ("sck",      "SPI SCK pin",                   "2"),
+        ("mosi",     "SPI MOSI (DIN) pin",            "3"),
+        ("cs",       "Chip-select pin",               "5"),
+        ("dc",       "Data/command pin",              "6"),
+        ("rst",      "Reset pin",                     "7"),
+        ("bl",       "Backlight PWM pin (-1 if hard-wired on)", "-1"),
+        ("rotation", "Rotation 0-3 (90° per step)",   "0"),
+    ]},
+    "gt911":  {"always": False, "platforms": ["pico", "pico2", "esp32", "uno", "r4"], "questions": [
+        ("sda",      "I2C SDA pin", {"pico": "8", "pico2": "8", "esp32": "4", "r4": "4", "uno": "4"}),
+        ("scl",      "I2C SCL pin", {"pico": "9", "pico2": "9", "esp32": "5", "r4": "5", "uno": "5"}),
+        ("addr",     "GT911 I2C address (0x5D or 0x14)", "0x5D"),
+        ("rotation", "Rotation 0-3 — match the display", "0"),
+    ]},
+    "joystick": {"always": False, "platforms": ["pico", "pico2"], "questions": [
+        ("x",        "X axis ADC pin",                "26"),
+        ("y",        "Y axis ADC pin",                "27"),
+        ("sw",       "Push-switch pin (-1 if none)",  "-1"),
+        ("deadzone", "Deadzone, percent of travel",   "30"),
+    ]},
+    "buttons": {"always": False, "platforms": None, "questions": [
+        ("pins",       "Button pins, comma-separated", {"pico": "15,14", "pico2": "15,14", "esp32": "0", "r4": "2", "uno": "2"}),
+        ("active_low", "Pressed reads low (pull-up wiring)?", "yes"),
+        ("debounce",   "Debounce window in ms",        "25"),
+    ]},
+    "leds":   {"always": False, "platforms": None, "questions": [
+        ("pins",        "LED pins, comma-separated", {"pico": "16,17", "pico2": "16,17", "esp32": "2", "r4": "13", "uno": "13"}),
+        ("active_high", "LED lights when the pin is high?", "yes"),
+    ]},
+    "buzzer": {"always": False, "platforms": ["pico", "pico2"], "questions": [
+        ("pin", "Buzzer PWM pin", "13"),
     ]},
     # DS1302 RTC — Maxim 3-wire, bit-banged over hal_gpio_* (portable, all
     # platforms). Command `rtc`; the app reads/writes time via
@@ -1198,6 +1248,32 @@ def _module_supported(name: str, target: str) -> bool:
         return False
     plats = MODULE_SPECS[name]["platforms"]
     return plats is None or target in plats
+
+
+def _yes(v) -> bool:
+    """Truthiness for a cmdr.toml answer, which may be a bool or a typed word."""
+    if isinstance(v, bool):
+        return v
+    return str(v).strip().lower() in ("yes", "y", "true", "1", "on")
+
+
+def _pin_list(v, module: str) -> list:
+    """Parse a comma-separated pin answer ("15,14") into a list of ints."""
+    if isinstance(v, (list, tuple)):
+        items = list(v)
+    else:
+        items = [p for p in str(v).replace(" ", "").split(",") if p]
+    if not items:
+        die(f"{module}: needs at least one pin")
+    pins = []
+    for p in items:
+        try:
+            pins.append(int(str(p), 0))
+        except ValueError:
+            die(f"{module}: '{p}' is not a pin number")
+    if len(pins) > 8:
+        die(f"{module}: at most 8 pins (got {len(pins)})")
+    return pins
 
 
 def _emit_module(name: str, opts: dict, target: str):
@@ -1251,13 +1327,20 @@ def _emit_module(name: str, opts: dict, target: str):
                 ["reg.registerModule(_m_ipstube);",
                  "commander_on_ipstube_ready(_m_ipstube);"], [])
     if name == "ws2812":
-        if target != "esp32":
+        if target not in ("esp32", "pico", "pico2"):
             die(f"ws2812 module is not supported on target '{target}'")
-        pin   = opts.get("pin", 5)
-        count = opts.get("count", 6)
+        pin   = opts.get("pin", 5 if target == "esp32" else 12)
+        count = opts.get("count", 6 if target == "esp32" else 1)
         order = str(opts.get("order", "GRB")).strip().upper()
         if order not in ("GRB", "RGB", "BRG", "RBG", "GBR", "BGR"):
             die(f"ws2812 'order' must be one of GRB/RGB/BRG/RBG/GBR/BGR (got '{order}')")
+        if target in ("pico", "pico2"):
+            # PIO backend; the commander_pico_ws2812 target (linked into the pico
+            # runner) owns the .pio build, so enabling is pure registration.
+            return (['#include "platform/pico/PicoWs2812Module.h"'],
+                    [f"static PicoWs2812Module _m_ws2812({pin}, {count}, PicoWs2812Module::{order});"],
+                    ["reg.registerModule(_m_ws2812);",
+                     "if (commander_on_ws2812_ready) commander_on_ws2812_ready(_m_ws2812);"], [])
         return (['#include "platform/esp32/Ws2812Module.h"'],
                 [f"static Ws2812Module _m_ws2812({pin}, {count}, Ws2812Module::{order});",
                  "void commander_on_ws2812_ready(Ws2812Module &);"],
@@ -1297,6 +1380,84 @@ def _emit_module(name: str, opts: dict, target: str):
                 ["reg.registerModule(_m_aicam);",
                  "if (commander_on_aicam_ready) commander_on_aicam_ready(_m_aicam);"],
                 ["uart.addTicker(_m_aicam);"])
+    if name == "st7796":
+        # SPI TFT panel. The config struct is aggregate-initialized in field
+        # order — keep this in step with St7796Config if you add a field
+        # (tools/cmdr/tests/test_codegen_golden.py locks the emitted text).
+        sck  = opts.get("sck", 2)
+        mosi = opts.get("mosi", 3)
+        cs   = opts.get("cs", 5)
+        dc   = opts.get("dc", 6)
+        rst  = opts.get("rst", 7)
+        bl   = opts.get("bl", -1)
+        rot  = int(opts.get("rotation", 0)) & 3
+        # Which SPI controller the pins belong to is fixed by the chip's pinmux:
+        # on RP2040/RP2350, SCK 10/14/26 are spi1, everything else spi0.
+        bus  = 1 if int(sck) in (10, 14, 26) else 0
+        w    = opts.get("width", 320)
+        h    = opts.get("height", 480)
+        hz   = opts.get("hz", 40000000)
+        inv  = "true" if opts.get("invert", True) else "false"
+        return (['#include "modules/display/St7796Module.h"'],
+                [f"static const St7796Config _c_st7796{{{bus}, {sck}, {mosi}, {cs}, {dc}, "
+                 f"{rst}, {bl}, {w}, {h}, {rot}, {hz}, {inv}}};",
+                 "static St7796Module _m_st7796(_c_st7796);"],
+                ["reg.registerModule(_m_st7796);",
+                 "if (commander_on_display_ready) commander_on_display_ready(_m_st7796);"], [])
+    if name == "gt911":
+        # Capacitive touch. Brings up the global HAL I2C bus (deduped against
+        # compass/i2c when the pins match) and is pumped by the UART task.
+        sda  = opts.get("sda", 8)
+        scl  = opts.get("scl", 9)
+        addr = opts.get("addr", 0x5D)
+        addr_lit = f"0x{addr:02X}" if isinstance(addr, int) else addr
+        rot  = int(opts.get("rotation", 0)) & 3
+        # 100 kHz, matching every other I2C module here — so the shared-bus line
+        # dedupes with theirs instead of re-initialising the bus at a second speed.
+        # The GT911 is specified to 400 kHz but the original vendor driver ran this
+        # panel at 100 kHz, which is the rate this wiring is known good at.
+        return (['#include "hal/hal.h"', '#include "modules/touch/Gt911Module.h"'],
+                [f"static Gt911Module _m_gt911({addr_lit}, {rot});"],
+                [f"hal_i2c_init({sda}, {scl}, 100000);",
+                 "reg.registerModule(_m_gt911);",
+                 "if (commander_on_touch_ready) commander_on_touch_ready(_m_gt911);"],
+                ["uart.addTicker(_m_gt911);"])
+    if name == "joystick":
+        x  = opts.get("x", 26)
+        y  = opts.get("y", 27)
+        sw = opts.get("sw", -1)
+        dz = int(opts.get("deadzone", 30))
+        return (['#include "modules/input/JoystickModule.h"'],
+                [f"static JoystickModule _m_joystick({x}, {y}, {sw}, {dz});"],
+                ["reg.registerModule(_m_joystick);",
+                 "if (commander_on_joystick_ready) commander_on_joystick_ready(_m_joystick);"],
+                ["uart.addTicker(_m_joystick);"])
+    if name == "buttons":
+        pins = _pin_list(opts.get("pins", "15,14"), "buttons")
+        low  = "true" if _yes(opts.get("active_low", True)) else "false"
+        deb  = int(opts.get("debounce", 25))
+        return (['#include "modules/input/ButtonsModule.h"'],
+                [f"static const uint8_t _p_buttons[] = {{{', '.join(str(p) for p in pins)}}};",
+                 f"static ButtonsModule _m_buttons(_p_buttons, {len(pins)}, {low}, {deb});"],
+                ["reg.registerModule(_m_buttons);",
+                 "if (commander_on_buttons_ready) commander_on_buttons_ready(_m_buttons);"],
+                ["uart.addTicker(_m_buttons);"])
+    if name == "leds":
+        pins = _pin_list(opts.get("pins", "16,17"), "leds")
+        high = "true" if _yes(opts.get("active_high", True)) else "false"
+        return (['#include "modules/LedModule.h"'],
+                [f"static const uint8_t _p_leds[] = {{{', '.join(str(p) for p in pins)}}};",
+                 f"static LedModule _m_leds(_p_leds, {len(pins)}, {high});"],
+                ["reg.registerModule(_m_leds);",
+                 "if (commander_on_leds_ready) commander_on_leds_ready(_m_leds);"],
+                ["uart.addTicker(_m_leds);"])
+    if name == "buzzer":
+        pin = opts.get("pin", 13)
+        return (['#include "modules/BuzzerModule.h"'],
+                [f"static BuzzerModule _m_buzzer({pin});"],
+                ["reg.registerModule(_m_buzzer);",
+                 "if (commander_on_buzzer_ready) commander_on_buzzer_ready(_m_buzzer);"],
+                ["uart.addTicker(_m_buzzer);"])
     if name == "ds1302":
         sclk = opts.get("sclk", 22)
         io   = opts.get("io", 19)
@@ -1456,6 +1617,7 @@ def _c_str_literal(s: str) -> str:
 def generate_modules_file(target: str, modules: dict, out_path: Path,
                           autostart: "list" = None) -> None:
     autostart = autostart or []
+    _i2c_claims: dict = {}          # (sda, scl) -> modules that asked for it
     # system always first, then enabled optional modules alphabetically.
     order = ["system"] + sorted(m for m in modules if m != "system")
     includes: list = []
@@ -1474,6 +1636,22 @@ def generate_modules_file(target: str, modules: dict, out_path: Path,
             if r not in registers:
                 registers.append(r)
         tickers += tick
+        for r in reg:
+            m = re.match(r"hal_i2c_init\((\d+),\s*(\d+),", r)
+            if m:
+                _i2c_claims.setdefault((int(m.group(1)), int(m.group(2))), []).append(name)
+
+    # The HAL owns ONE I2C bus, so two modules asking for different pins is not a
+    # composition — the last hal_i2c_init() wins and the other module's device
+    # goes silent. That reads as dead hardware, so say it here, at the moment the
+    # file is generated, rather than leaving it to be debugged on a bench.
+    if len(_i2c_claims) > 1:
+        warn("enabled modules disagree about the I2C pins — the HAL has one bus, "
+             "so the last one wins and the others will not respond:")
+        for (sda, scl), owners in _i2c_claims.items():
+            warn(f"    SDA {sda} / SCL {scl}: {', '.join(sorted(set(owners)))}")
+        warn("  Fix: re-enable them with matching pins, or edit cmdr.toml and "
+             "`cmdr regen`.")
 
     # Modules that need tick() pumped (e.g. IR recv) get a strong, non-inline ticker hook
     # that overrides the runner's weak default. The hook + transport type differ by build:
@@ -1502,10 +1680,24 @@ def generate_modules_file(target: str, modules: dict, out_path: Path,
         "}",
     ]
     if tickers:
-        hook = ('extern "C" void commander_on_channel_bus_ready(ChannelBusRunner &bus) {'
+        # The generated hook is a STRONG definition, so an app can no longer
+        # define commander_on_uart_ready itself (duplicate symbol) once any
+        # ticking module is enabled. Apps still need their own periodic work — a
+        # UI refresh, a control loop — so the generated hook ends by calling a
+        # weak app hook. Define commander_on_app_tickers() in your main.cpp to
+        # add tickers of your own; apps that don't pay nothing.
+        pump = "bus" if bus_build else "uart"
+        ttype = "ChannelBusRunner" if bus_build else "UartTransport"
+        hook = (f'extern "C" void commander_on_channel_bus_ready({ttype} &bus) {{'
                 if bus_build else
-                'extern "C" void commander_on_uart_ready(UartTransport &uart) {')
-        lines += ["", hook, *["    " + t for t in tickers], "}"]
+                f'extern "C" void commander_on_uart_ready({ttype} &uart) {{')
+        lines += ["",
+                  f'extern "C" void commander_on_app_tickers({ttype} &) __attribute__((weak));',
+                  "",
+                  hook,
+                  *["    " + t for t in tickers],
+                  f"    if (commander_on_app_tickers) commander_on_app_tickers({pump});",
+                  "}"]
     if autostart:
         # Boot commands dispatched once at startup (cmdr autostart). Output is discarded —
         # we want the side effect (e.g. `ir recv` starting the stream), not the reply. The
@@ -1777,6 +1969,9 @@ _MODULE_COMMANDS = {
     "ds1302": 1,
     # aicam: one namespaced `aicam` command.
     "aicam": 1,
+    # Breadboard-kit peripherals: one namespaced command each —
+    # `lcd`, `touch`, `joy`, `btn`, `led`, `buzz`.
+    "st7796": 1, "gt911": 1, "joystick": 1, "buttons": 1, "leds": 1, "buzzer": 1,
 }
 # Headroom for runner-registered commands (bootsel on pico, ota when enabled) plus
 # a few app-registered ones. Conservative, since under-sizing silently drops commands.
@@ -2083,8 +2278,11 @@ def cmd_module(args: argparse.Namespace) -> None:
             _controller_cmake_enable()
         if name == "ipstube":
             _ipstube_cmake_enable()
-        if name == "ws2812":
-            _ws2812_cmake_enable()
+        if name == "ws2812" and target == "esp32":
+            _ws2812_cmake_enable()      # RMT backend needs a CMake opt-in
+        elif name == "ws2812":
+            # Pico: commander_pico_ws2812 is already linked into the runner.
+            print("  • drive the LEDs from the shell (`wled`) or commander_on_ws2812_ready()")
         if name == "aicam" and modules[name].get("transport", "uart") != "i2c":
             _aicam_cmake_enable()
         if name == "ir" and target == "esp32":
@@ -2105,7 +2303,7 @@ def cmd_module(args: argparse.Namespace) -> None:
             _controller_cmake_disable()
         if name == "ipstube":
             _ipstube_cmake_disable()
-        if name == "ws2812":
+        if name == "ws2812" and target == "esp32":
             _ws2812_cmake_disable()
         if name == "aicam":
             _aicam_cmake_disable()
@@ -2964,6 +3162,8 @@ build-*/
 .pio/
 managed_components/
 __pycache__/
+# written by the build's version stamp so bum-ota can confirm an image landed
+/.build_number
 
 # cmdr-generated dev scripts — regenerate with `cmdr regen`, don't commit.
 # They are generated, not source: a committed copy silently goes stale as the

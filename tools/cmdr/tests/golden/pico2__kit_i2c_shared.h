@@ -3,21 +3,26 @@
 #pragma once
 #include "core/CommandRegistry.h"
 #include "core/SystemModule.h"
-#include "platform/arduino/IRModule.h"
-#include "platform/arduino/IRModule.cpp"
+#include "hal/hal.h"
+#include "modules/touch/Gt911Module.h"
+#include "modules/I2CDiagModule.h"
 #include "transport/uart/UartTransport.h"
 
 static SystemModule _m_system;
-static IRModule _m_ir(5);
+static Gt911Module _m_gt911(0x5D, 0);
+static I2CDiagModule _m_i2c;
 
 inline void commander_register_modules(CommandRegistry &reg) {
     reg.registerModule(_m_system);
-    reg.registerModule(_m_ir);
+    hal_i2c_init(8, 9, 100000);
+    reg.registerModule(_m_gt911);
+    if (commander_on_touch_ready) commander_on_touch_ready(_m_gt911);
+    reg.registerModule(_m_i2c);
 }
 
 extern "C" void commander_on_app_tickers(UartTransport &) __attribute__((weak));
 
 extern "C" void commander_on_uart_ready(UartTransport &uart) {
-    uart.addTicker(_m_ir);
+    uart.addTicker(_m_gt911);
     if (commander_on_app_tickers) commander_on_app_tickers(uart);
 }

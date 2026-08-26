@@ -1,5 +1,9 @@
 #include "../hal.h"
 #include "hardware/i2c.h"
+#include "hardware/spi.h"
+#include "hardware/adc.h"
+#include "hardware/pwm.h"
+#include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "pico/time.h"
 #include "pico/stdio.h"
@@ -49,6 +53,18 @@ bool hal_i2c_read_raw(uint8_t addr, uint8_t *data, size_t len) {
                                    make_timeout_time_ms(10)) == (int)len;
 }
 
+bool hal_i2c_write_read(uint8_t addr, const uint8_t *wdata, size_t wlen,
+                        uint8_t *rdata, size_t rlen) {
+    // nostop=true on the write leaves the bus held, so the read below issues a
+    // repeated START — one transaction, which is what multi-byte-register parts
+    // (GT911) require.
+    if (i2c_write_blocking_until(_i2c_bus, addr, wdata, wlen, true,
+                                 make_timeout_time_ms(10)) != (int)wlen) return false;
+    if (rlen == 0) return true;
+    return i2c_read_blocking_until(_i2c_bus, addr, rdata, rlen, false,
+                                   make_timeout_time_ms(10)) == (int)rlen;
+}
+
 void hal_gpio_set_output(uint8_t pin) { gpio_init(pin); gpio_set_dir(pin, GPIO_OUT); }
 void hal_gpio_set_input (uint8_t pin) { gpio_init(pin); gpio_set_dir(pin, GPIO_IN);  }
 void hal_gpio_write(uint8_t pin, bool high) { gpio_put(pin, high); }
@@ -64,6 +80,104 @@ uint32_t hal_pulse_in_us(uint8_t pin, bool level, uint32_t timeout_us) {
         if (time_us_64() - pulse_start > timeout_us) return 0;
     }
     return (uint32_t)(time_us_64() - pulse_start);
+}
+
+// --- SPI ---------------------------------------------------------------------
+// RP2040/RP2350 have two SPI controllers. Which one a pin belongs to is fixed by
+// the pinmux, so the caller passes the bus its wiring dictates (e.g. the Pico
+// Breadboard Kit's panel is GP2/GP3 = spi0).
+static spi_inst_t *spi_of(uint8_t bus) { return bus ? spi1 : spi0; }
+
+void hal_spi_init(uint8_t bus, int8_t sck_pin, int8_t mosi_pin, int8_t miso_pin,
+                  uint32_t speed_hz) {
+    spi_init(spi_of(bus), speed_hz);
+    spi_set_format(spi_of(bus), 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    if (sck_pin  >= 0) gpio_set_function((uint)sck_pin,  GPIO_FUNC_SPI);
+    if (mosi_pin >= 0) gpio_set_function((uint)mosi_pin, GPIO_FUNC_SPI);
+    if (miso_pin >= 0) gpio_set_function((uint)miso_pin, GPIO_FUNC_SPI);
+}
+
+void hal_spi_set_speed(uint8_t bus, uint32_t speed_hz) {
+    spi_set_baudrate(spi_of(bus), speed_hz);
+}
+
+void hal_spi_write(uint8_t bus, const uint8_t *data, size_t len) {
+    spi_write_blocking(spi_of(bus), data, len);
+}
+
+void hal_spi_write16(uint8_t bus, const uint16_t *data, size_t count) {
+    // Switch the frame width rather than byte-swapping in software: the SPI
+    // block shifts a 16-bit frame MSB-first, which is exactly RGB565 wire order.
+    spi_inst_t *s = spi_of(bus);
+    spi_set_format(s, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    spi_write16_blocking(s, data, count);
+    spi_set_format(s, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+}
+
+void hal_spi_transfer(uint8_t bus, const uint8_t *tx, uint8_t *rx, size_t len) {
+    spi_inst_t *s = spi_of(bus);
+    if (tx && rx)      spi_write_read_blocking(s, tx, rx, len);
+    else if (tx)       spi_write_blocking(s, tx, len);
+    else if (rx)       spi_read_blocking(s, 0x00, rx, len);
+}
+
+// --- ADC ---------------------------------------------------------------------
+static bool _adc_ready = false;
+
+int8_t hal_adc_init(uint8_t pin) {
+    if (pin < 26 || pin > 29) return -1;      // not an ADC-capable GPIO
+    if (!_adc_ready) { adc_init(); _adc_ready = true; }
+    adc_gpio_init(pin);
+    return (int8_t)(pin - 26);                // GP26..GP29 → channels 0..3
+}
+
+uint16_t hal_adc_read(uint8_t channel) {
+    adc_select_input(channel);
+    return adc_read();           // 12-bit
+}
+
+uint16_t hal_adc_max(void) { return 4095; }
+
+// --- PWM ---------------------------------------------------------------------
+// Duty mode uses a fixed 8-bit wrap so hal_pwm_duty is a plain level write; tone
+// mode reprograms wrap+divider for the requested frequency at 50% duty. Both
+// share the slice, so a pin can move between them (backlight → beep → backlight).
+void hal_pwm_init(uint8_t pin) {
+    gpio_set_function(pin, GPIO_FUNC_PWM);
+    uint slice = pwm_gpio_to_slice_num(pin);
+    pwm_config c = pwm_get_default_config();
+    pwm_config_set_wrap(&c, 255);
+    pwm_init(slice, &c, true);
+    pwm_set_gpio_level(pin, 0);
+}
+
+void hal_pwm_duty(uint8_t pin, uint8_t duty) {
+    uint slice = pwm_gpio_to_slice_num(pin);
+    pwm_set_clkdiv(slice, 4.0f);         // ~122 kHz at 125 MHz sys clock — silent
+    pwm_set_wrap(slice, 255);
+    pwm_set_gpio_level(pin, duty);
+    pwm_set_enabled(slice, true);
+}
+
+void hal_pwm_tone(uint8_t pin, uint32_t freq_hz) {
+    uint slice = pwm_gpio_to_slice_num(pin);
+    if (freq_hz == 0) { hal_pwm_stop(pin); return; }
+    // Pick the smallest divider that keeps wrap inside 16 bits, so low notes and
+    // high notes both land close to the requested pitch.
+    uint32_t sys = clock_get_hz(clk_sys);
+    float div = (float)sys / (freq_hz * 65536.0f);
+    if (div < 1.0f) div = 1.0f;
+    uint32_t wrap = (uint32_t)((float)sys / (div * freq_hz)) - 1;
+    if (wrap > 65535) wrap = 65535;
+    pwm_set_clkdiv(slice, div);
+    pwm_set_wrap(slice, (uint16_t)wrap);
+    pwm_set_gpio_level(pin, (uint16_t)(wrap / 2));   // 50% duty = square wave
+    pwm_set_enabled(slice, true);
+}
+
+void hal_pwm_stop(uint8_t pin) {
+    pwm_set_gpio_level(pin, 0);
+    pwm_set_enabled(pwm_gpio_to_slice_num(pin), false);
 }
 
 void     hal_delay_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }

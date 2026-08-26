@@ -46,6 +46,18 @@ test`) and **broaden** coverage to the portable logic that has bitten or easily 
 - `NecDecoder` / `SonyDecoder` (jitter, repeat, noise — partly there already)
 - `CommandRegistry::dispatch`, `Writer`, `SystemModule`
 - `DriveMixer` (two-zone curve, ramping, spin), `ControllerCalibration` (re-center/rescale/deadzone)
+- **Peripheral drivers, against the recording HAL** (`tests/fakes/fake_hal.{h,cpp}`): the whole
+  `hal.h` C interface implemented as an in-memory log, so a driver can be driven on a laptop and
+  asserted byte-for-byte on what it put on SPI/I2C — plus test-controlled inputs (`setAdc`,
+  `setGpio`, per-register I2C answers) and a movable clock (`now_us`) that makes debounce windows
+  and note durations testable at all. This is what covers `st7796` (init sequence, address windows,
+  clipping, text rasterization vs. the font table), `gt911` (16-bit register addressing, the status
+  handshake, coordinate mapping at all four rotations), `joystick`, `buttons`, `leds` and `buzzer`.
+
+  It is not a substitute for hardware — it cannot tell you a wire is in the wrong hole — but it
+  moves the entire class of "logic bug that presents as dead hardware" off the bench. Those six
+  modules were written and verified this way before the board existed; the remaining unknowns are
+  listed as a bring-up checklist in the consumer project rather than as untested code here.
 
 This is the instant feedback loop — it catches the Sony-decoder / volatile-struct-assignment class
 of bug at compile-or-run, with no cross-compiler in the way.

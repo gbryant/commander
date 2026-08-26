@@ -84,6 +84,17 @@ bool hal_i2c_read_raw(uint8_t addr, uint8_t *data, size_t len) {
     return ret == ESP_OK;
 }
 
+bool hal_i2c_write_read(uint8_t addr, const uint8_t *wdata, size_t wlen,
+                        uint8_t *rdata, size_t rlen) {
+    i2c_master_dev_handle_t dev = open_device(addr);
+    esp_err_t ret = rlen ? i2c_master_transmit_receive(dev, wdata, wlen, rdata, rlen, 50)
+                         : i2c_master_transmit(dev, wdata, wlen, 50);
+    if (ret != ESP_OK)
+        ESP_LOGW(TAG, "write_read 0x%02X: %s", addr, esp_err_to_name(ret));
+    i2c_master_bus_rm_device(dev);
+    return ret == ESP_OK;
+}
+
 // gpio_set_direction (not gpio_config) so repeated direction flips — e.g. a
 // bit-banged 3-wire bus like the DS1302, which switches its IO line in/out many
 // times per read — don't re-run gpio_config's pin reservation and spam IDF's
@@ -154,3 +165,22 @@ void hal_uart_putchar(char c)     { uart_write_bytes(HAL_UART_PORT, &c, 1); }
 void hal_uart_puts(const char *s) { uart_write_bytes(HAL_UART_PORT, s, strlen(s)); }
 
 #endif
+
+// --- SPI / ADC / PWM ---------------------------------------------------------
+// Not implemented on this platform yet. The modules that need them (st7796,
+// gt911's bus is fine but joystick/buzzer/display are not) are gated to the
+// platforms whose HAL backs them, via `platforms` in MODULE_SPECS
+// (tools/cmdr/src/cmdr/cli.py) — so nothing can enable a peripheral this HAL
+// can't drive. Implement these and widen that list in the same change.
+void hal_spi_init(uint8_t, int8_t, int8_t, int8_t, uint32_t) {}
+void hal_spi_set_speed(uint8_t, uint32_t)                    {}
+void hal_spi_write(uint8_t, const uint8_t *, size_t)         {}
+void hal_spi_write16(uint8_t, const uint16_t *, size_t)      {}
+void hal_spi_transfer(uint8_t, const uint8_t *, uint8_t *, size_t) {}
+int8_t   hal_adc_init(uint8_t)     { return -1; }
+uint16_t hal_adc_read(uint8_t)     { return 0; }
+uint16_t hal_adc_max (void)        { return 0; }
+void hal_pwm_init(uint8_t)         {}
+void hal_pwm_duty(uint8_t, uint8_t)   {}
+void hal_pwm_tone(uint8_t, uint32_t)  {}
+void hal_pwm_stop(uint8_t)            {}

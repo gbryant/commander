@@ -35,6 +35,30 @@ target_link_libraries(commander_pico_ir PUBLIC
 )
 add_library(commander::pico_ir ALIAS commander_pico_ir)
 
+# ── commander_pico_ws2812 ─────────────────────────────────────────────────────
+# Addressable-RGB output on Pico. Same encapsulation as commander_pico_ir: the
+# generated ws2812.pio.h is needed only by the .cpp, so PicoWs2812Module.h stays
+# free of PIO types and the cmdr-generated file can include it directly. Linked
+# into the runner so enabling the module is pure registration; --gc-sections drops
+# it when nothing instantiates it.
+add_library(commander_pico_ws2812 STATIC
+    ${COMMANDER_ROOT}/platform/pico/PicoWs2812Module.cpp
+)
+pico_generate_pio_header(commander_pico_ws2812 ${COMMANDER_ROOT}/platform/pico/ws2812.pio)
+target_include_directories(commander_pico_ws2812
+    PUBLIC  $<BUILD_INTERFACE:${COMMANDER_ROOT}>
+    PRIVATE ${CMAKE_CURRENT_LIST_DIR}        # FreeRTOSConfig.h
+)
+target_link_libraries(commander_pico_ws2812 PUBLIC
+    commander_core
+    commander_hal_pico
+    pico_stdlib
+    hardware_pio
+    FreeRTOS-Kernel
+    FreeRTOS-Kernel-Heap4
+)
+add_library(commander::pico_ws2812 ALIAS commander_pico_ws2812)
+
 add_library(commander_pico_runner STATIC
     runner.cpp
     BootselModule.cpp
@@ -51,6 +75,7 @@ target_link_libraries(commander_pico_runner PUBLIC
     commander_transport_telnet
     commander_modules
     commander_pico_ir
+    commander_pico_ws2812
     pico_cyw43_arch_lwip_sys_freertos
     pico_lwip_mdns
     hardware_watchdog

@@ -27,7 +27,13 @@ Run `cmdr module list` inside a project to see what's available for your target.
 | `controller` | pico, pico2 | `pad`, `bind`, `unbind`, `calibrate`, `btforget` | Bluetooth game-controller input |
 | `serial_monitor` | pico, pico2 | `monitor` | stream a second UART into your session |
 | `ipstube` | esp32 | `ipstube` | six ST7789 IPS displays (IPSTube clock) |
-| `ws2812` | esp32 | `wled` | addressable-RGB chain over RMT |
+| `ws2812` | esp32, pico, pico2 | `wled` | addressable-RGB chain (RMT on esp32, PIO on pico) |
+| `st7796` | pico, pico2† | `lcd` | ST7796S SPI TFT panel, 320×480 |
+| `gt911` | pico, pico2, esp32, uno, r4 | `touch` | GT911 capacitive touch controller |
+| `joystick` | pico, pico2† | `joy` | two-axis analog stick, calibrated + bindable |
+| `buttons` | all | `btn` | debounced GPIO push buttons, bindable |
+| `leds` | all | `led` | indicator LEDs: on/off/toggle/blink |
+| `buzzer` | pico, pico2† | `buzz` | piezo buzzer: tones and note sequences |
 | `aicam` | esp32 | `aicam` | Grove Vision AI V2 camera (SSCMA protocol) |
 
 Boards also register a few commands outside the module system, from their runner:
@@ -42,6 +48,12 @@ that per project — the menu only shows what the HAL actually backs:
   bus and IR so far; GPIO and I2C are stubbed.
 - **Bluepill** (the `*` above) — everything except the I2C-backed modules
   (`compass`, `i2c`, `ina219`), since its STM32 I2C HAL is still stubbed.
+- **SPI / ADC / PWM** (the `†` above) — `hal_spi_*`, `hal_adc_*` and `hal_pwm_*`
+  are implemented in `hal/pico` only, so the modules that need them (`st7796`,
+  `joystick`, `buzzer`) are offered on pico/pico2 alone. The other HALs carry
+  honest stubs. Widen a module's platform list only when that platform's HAL
+  grows the real thing — an enable-able module over a stubbed HAL is
+  indistinguishable from broken hardware.
 
 ## Sensors and buses
 
@@ -138,6 +150,94 @@ re-centered/rescaled before publishing; apps needing temporal smoothing apply
 needs `BLUEPAD32_PATH`; WiFi and BT share the one CYW43 radio, so telnet keeps
 working.
 
+## Panel, touch and front-panel I/O
+
+These came out of the Pico Breadboard Kit but none of them are kit-specific —
+they're an ST7796 panel, a GT911 touch layer, an analog stick, buttons, LEDs and
+a buzzer. The defaults match that kit's wiring because that's where they were
+brought up; change the pins and they work anywhere.
+
+> Not yet hardware-confirmed. The drivers are covered by host tests against the
+> recording HAL in `tests/fakes/` — every byte they put on the wire is asserted —
+> but they have not met the physical board. See PLAN.md.
+
+### st7796 — SPI TFT panel
+`lcd` — `info`, `on`/`off`, `bl <0-255>`, `clear`, `fill <colour>`,
+`rect x y w h <colour>`, `text x y scale <text…>`, `line <n> <text…>` (a
+full-width status row), `rotate 0-3`, `invert on|off`, `test` (colour bars,
+border and text — the bring-up check).
+
+Colours take a name (`red`, `cyan`, `dim`…) or a literal (`0xF800`, `63488`).
+Text uses the built-in 5×7 font (`modules/display/Font5x7.h`) at any integer
+scale.
+
+Apps draw through **`IDisplay`** — deliberately the interface, not the driver, so
+app screens survive a change of panel:
+
+```cpp
+extern "C" void commander_on_display_ready(IDisplay &d) {
+    d.fill(color::kBlack);
+    d.drawText(8, 8, "hello", color::kWhite, color::kBlack, 2);
+}
+```
+
+`blit(x, y, w, h, const uint16_t *)` is shaped like LVGL's `flush_cb`, so
+layering LVGL on top later is a binding, not a rewrite. There is no framebuffer —
+320×480×2 is 300 KB — so drawing goes straight out the wire and the panel holds
+the only copy. Questions: `sck`, `mosi`, `cs`, `dc`, `rst`, `bl` (−1 when the
+backlight is hard-wired on), `rotation`. Which SPI controller the pins belong to
+is derived from the SCK pin.
+
+### gt911 — capacitive touch
+`touch` — one reading; `info`, `raw`, `watch`/`stop`, `rotate 0-3`,
+`flip x|y|xy|swap|none`.
+
+Reports in **display** space, not panel space: `rotate` matches the display's
+rotation and the flip flags handle a touch layer mounted differently from the
+glass. `raw` shows the untransformed reading, which is what you want during
+bring-up. Apps get points via `commander_on_touch_ready(Gt911Module&)` plus
+`onTouch()` or `read()`.
+
+This module is why the HAL grew `hal_i2c_write_read()`: the GT911 addresses
+16-bit registers, which needs a combined write→read with a repeated start.
+
+### joystick — two-axis analog stick
+`joy` — position and direction; `raw`, `cal`, `deadzone <0-90>`, `watch`/`stop`,
+`bind <dir> <command…>`, `unbind`, `binds`.
+
+A generic input source, like `controller`: it publishes by poll (`x()`, `y()`,
+`direction()`), by push (`onDirection`, `onButton`), and declaratively
+(`joy bind up "lcd rotate 1"`). Axes are normalized to ±1000 around a centre
+measured at init, with **two-sided scaling** so a stick that doesn't rest at
+midscale still reaches full travel both ways. Diagonals resolve to the dominant
+axis, so a menu gets one unambiguous direction. Calibration is spatial only —
+temporal smoothing belongs at the consumer's loop rate, the same split
+`ControllerCalibration` / `StickFilter` draws.
+
+### buttons — debounced push buttons
+`btn` — state and press counts; `watch`/`stop`, `bind <n> <command…>`,
+`unbind`, `binds`. Up to 8 pins in one module, one command.
+
+Debounced by **time in `tick()`, not by edge interrupts**: a bouncing contact
+fires an ISR faster than a short guard window, and printing from inside an ISR
+makes it worse. Polling at tick rate with a settle window can't re-enter.
+Questions: `pins` (comma-separated), `active_low`, `debounce` ms.
+
+### leds — indicator LEDs
+`led` — all states; `led <n> on|off|toggle`, `led <n> blink <ms>`,
+`led all on|off`. Blinking runs from `tick()`, so it never blocks the shell.
+Questions: `pins`, `active_high`.
+
+### buzzer — piezo buzzer
+`buzz` — what's playing; `buzz <hz> [ms]`, `off`, `beep`,
+`play <notes>`, `melody boot|ok|alert|fail`.
+
+Note syntax is `<note><octave>[#|b]:<ms>` comma-separated, with `r` for a rest:
+`buzz play c4:200,e4:200,g4:400`. Frequencies come from an integer table shifted
+by octave — no libm, no floats. Everything is advanced from `tick()`, so a melody
+never blocks the console. `BuzzerModule::noteToHz()` is public and useful on its
+own (e.g. mapping a touch coordinate to a pitch).
+
 ## Displays and LEDs (ESP32)
 
 ### ipstube — six ST7789 displays
@@ -151,9 +251,14 @@ per-display chip-select. `ipstube on/off/dim/fill/clear/test`, text rendering
 
 ### ws2812 — addressable RGB
 `wled <r> <g> <b>` (all), `wled <i> <r> <g> <b>` (one), `wled off`,
-`wled bright <0-255>`. Questions: `pin`, `count`, colour `order`. A board's
-onboard RGB LED is just this with `count=1`. Apps drive effects via
-`commander_on_ws2812_ready(Ws2812Module&)`.
+`wled bright <0-255>`, `wled test`. Questions: `pin`, `count`, colour `order`. A
+board's onboard RGB LED is just this with `count=1`. Apps drive effects via
+`commander_on_ws2812_ready(...)`.
+
+**Two backends, one module name and one command surface:** ESP32 drives the chain
+from the RMT peripheral (`platform/esp32/Ws2812Module`), Pico from a PIO state
+machine (`platform/pico/PicoWs2812Module`, bounded at 64 pixels, no heap on the
+LED path). App code that drives LEDs moves between the two boards unchanged.
 
 ## Vision (ESP32)
 
