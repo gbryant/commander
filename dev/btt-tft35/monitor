@@ -1,0 +1,8 @@
+#!/bin/bash
+# Console over tio at 115200. This board has no USB-CDC console — USART2 (PA2=TX/PA3=RX,
+# the "RS232" header) needs an external USB-TTL adapter, so the port must be passed explicitly.
+#   dev/btt-tft35/monitor /dev/cu.usbserial-XXX
+set -e
+PORT="${1:?usage: dev/btt-tft35/monitor <usb-ttl-adapter-port>}"
+echo "Connecting to $PORT  (Ctrl-T q to quit)"
+tio --baudrate 115200 "$PORT"

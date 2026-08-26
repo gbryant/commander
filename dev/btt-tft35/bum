@@ -1,0 +1,9 @@
+#!/bin/bash
+# Build + upload (ST-Link). Optionally monitor: pass the USART2 USB-TTL adapter port as $1.
+#   dev/btt-tft35/bum                         # build + flash
+#   dev/btt-tft35/bum /dev/cu.usbserial-XXXX  # build + flash + open the USART2 console
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$DIR/build"
+"$DIR/upload"
+[ -n "$1" ] && "$DIR/monitor" "$1"

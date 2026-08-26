@@ -1,15 +1,19 @@
 // STM32F2 native HAL — implements hal/hal.h against CMSIS registers (no vendor HAL).
-// Target: BIGTREETECH TFT35 V3.0/E3/B1 (STM32F207VC — Cortex-M3, 256 KB flash, 128 KB
+// Target: BIGTREETECH TFT35-E3 V3.0 (STM32F207VC — Cortex-M3, 256 KB flash, 128 KB
 // SRAM). Modeled on hal/stm32/hal.cpp (F103 "Bluepill"), but F2's GPIO block is the
 // MODER/OTYPER/OSPEEDR/PUPDR/AFR style shared with F4, not F1's CRL/CRH nibbles.
 //
-// UNVERIFIED ON HARDWARE. This board's schematic hasn't been checked yet — see
-// PLAN.md. Specifically unconfirmed before first flash attempt:
-//   - Whether PA9/PA10 (USART1, AF7 — the default pin pair used below) are actually
-//     broken out on a header on this board, or reserved for the LCD/touch bus.
-//   - The onboard status LED GPIO (none is wired into commander_on_panic() here —
-//     see platform/btt-tft35/stm32_panic.h).
-// Both are safe to get wrong: worst case is "no console output", not damage.
+// UNVERIFIED ON HARDWARE, but GPIO/console pins are now confirmed against the
+// official schematic (BTT-TFT35-E3-V3.0/Hardware/BTT TFT35-E3 V3.0PIN.pdf):
+// USART2 on PA2(TX)/PA3(RX) is the labeled "RS232" console header (+5V/GND/RST
+// alongside it) — USART1 is dedicated to the onboard WIFI module header instead.
+// Still open before first flash — see PLAN.md:
+//   - The HSE crystal (Y1 on the schematic) has no printed frequency.
+//   - The onboard status LEDs (D1-D6) have no GPIO mapping on the pinout sheet
+//     (none is wired into commander_on_panic() here — see
+//     platform/btt-tft35/stm32_panic.h).
+// Both are safe to get wrong: worst case is "no console output", not damage. The
+// 5-pin SWD header (RST/SWCLK/GND/SWDIO/3.3V) IS confirmed — see PLAN.md for flashing.
 //
 // Pin encoding: a pin is (port << 4) | bit, where port 0..4 = GPIOA..GPIOE.
 // Time base: the Cortex-M3 DWT cycle counter (free-running at SystemCoreClock),
@@ -135,34 +139,34 @@ uint64_t hal_time_us(void) {
 }
 
 // --- UART console --------------------------------------------------------------
-// USART1: PA9 = TX, PA10 = RX, AF7 — the standard F2/F4 default USART1 pinout, unverified
-// against this specific board (see file header).
+// USART2: PA2 = TX, PA3 = RX, AF7 — the board's labeled "RS232" header (confirmed
+// against the schematic; see file header). USART1 is reserved for the WIFI header.
 
 void hal_uart_init(uint32_t baud) {
     dwt_init();
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-    RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
+    RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
 
-    set_pin_mode(0x09, 0x2); set_pin_af(0x09, 7);   // PA9  = USART1_TX, AF7
-    set_pin_mode(0x0A, 0x2); set_pin_af(0x0A, 7);   // PA10 = USART1_RX, AF7
+    set_pin_mode(0x02, 0x2); set_pin_af(0x02, 7);   // PA2 = USART2_TX, AF7
+    set_pin_mode(0x03, 0x2); set_pin_af(0x03, 7);   // PA3 = USART2_RX, AF7
 
-    // USART1 is on APB2. BRR (12.4 fixed) == fck/baud, OVER8=0 (default).
-    USART1->BRR = SystemCoreClock / baud;
-    USART1->CR1 = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
+    // USART2 is on APB1. BRR (12.4 fixed) == fck/baud, OVER8=0 (default).
+    USART2->BRR = SystemCoreClock / baud;
+    USART2->CR1 = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
 }
 
 int hal_uart_getchar(uint32_t timeout_ms) {
     TickType_t start = xTaskGetTickCount();
     do {
-        if (USART1->SR & USART_SR_RXNE) return (int)(USART1->DR & 0xFF);
+        if (USART2->SR & USART_SR_RXNE) return (int)(USART2->DR & 0xFF);
         vTaskDelay(pdMS_TO_TICKS(1));
     } while ((xTaskGetTickCount() - start) < pdMS_TO_TICKS(timeout_ms));
     return -1;
 }
 
 void hal_uart_putchar(char c) {
-    while (!(USART1->SR & USART_SR_TXE)) { }
-    USART1->DR = (uint8_t)c;
+    while (!(USART2->SR & USART_SR_TXE)) { }
+    USART2->DR = (uint8_t)c;
 }
 
 void hal_uart_puts(const char *s) {

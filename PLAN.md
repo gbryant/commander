@@ -252,16 +252,27 @@ bitmap rendering, touch calibration) and is deliberately out of scope for the fi
       `runners/stm32-bluepill/`, no USB/DFU (not scoped yet).
 - [x] `platformio.ini` `[env:btt-tft35]` + `scripts/stm32_tft35_freertos.py` (Cortex-M3
       GCC/ARM_CM3 port, same as Bluepill).
-- [ ] **Before first flash attempt**, confirm against the actual board/schematic:
-      1. Whether PA9/PA10 are broken out on a header for USART1, or reserved for the
-         LCD/touch bus — may need a different UART.
-      2. HSE crystal presence/frequency, to enable PLL bring-up.
-      3. The onboard status LED GPIO, to wire into `commander_on_panic()` (currently a
-         silent halt — see `platform/btt-tft35/stm32_panic.h`).
-      4. `board = genericSTM32F207VC` in `platformio.ini` resolves in the installed
+- [x] **Console + programming pins confirmed** against the official schematic
+      (`bigtreetech/BTT-TFT35-E3-V3.0` — `Hardware/BTT TFT35-E3 V3.0PIN.pdf`):
+      - **SWD header** (5-pin: RST/SWCLK/GND/SWDIO/3.3V) — flash via ST-Link, matching
+        `upload_protocol = stlink` in `platformio.ini`.
+      - **Console is USART2**, PA2=TX/PA3=RX (the board's labeled "RS232" header, +5V/
+        GND/RST alongside it) — **not** USART1/PA9-PA10 as first assumed by analogy
+        with the Bluepill; USART1 (TX1/RX1) is dedicated to the onboard WIFI module
+        header instead. `hal/stm32f2/hal.cpp` and the runner were updated accordingly.
+      - USB is on PA11(D-)/PA12(D+), confirmed but unused by this port so far.
+- [ ] **Still open before first flash attempt:**
+      1. HSE crystal frequency — a Y1 crystal footprint is on the schematic sheet but
+         no value is printed; `clock.c` runs off HSI (16 MHz, no PLL) until this is
+         confirmed (by reading the physical crystal or a fuller schematic export).
+      2. The onboard status LEDs (D1-D6 on the pinout sheet) have no GPIO mapping shown
+         on this sheet — needed to wire `commander_on_panic()` beyond a silent halt (see
+         `platform/btt-tft35/stm32_panic.h`).
+      3. `board = genericSTM32F207VC` in `platformio.ini` resolves in the installed
          `ststm32` platform version; the upstream BTT firmware's own `platformio.ini`
          uses a custom board JSON (`STM32F207VC_0x8000`) we don't currently vendor.
-- [ ] First hardware test: ST-Link flash, confirm `help` over USART1.
+- [ ] First hardware test: `dev/btt-tft35/bum` (ST-Link flash), confirm `help` over
+      USART2 via a USB-TTL adapter on the RS232 header.
 - [ ] Bluepill I2C and this board's I2C stub are both open — likely worth landing
       STM32 I2C once, shared across `hal/stm32` and `hal/stm32f2` if the peripheral is
       similar enough.

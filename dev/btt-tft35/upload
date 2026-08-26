@@ -1,0 +1,7 @@
+#!/bin/bash
+# Flash via ST-Link (SWD). Connect the board's 5-pin SWD header
+# (RST/SWCLK/GND/SWDIO/3.3V, per BTT-TFT35-E3-V3.0/Hardware/BTT TFT35-E3 V3.0PIN.pdf)
+# to an ST-Link or ST-Link clone. openocd auto-detects the ST-Link — no port needed.
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+pio run -e btt-tft35 -t upload

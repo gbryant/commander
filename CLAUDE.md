@@ -231,13 +231,20 @@ first flash (HSE crystal, whether PA9/PA10 are broken out for USART1 vs. reserve
 the LCD bus, the status LED pin) and the follow-up phases (I2C, then display/touch).
 
 ```bash
-pio run -e btt-tft35           # build only — untested, no dev/btt-tft35/ scripts yet
+dev/btt-tft35/bum               # build + flash via ST-Link + optional monitor arg
+dev/btt-tft35/build             # build only
+pio run -e btt-tft35 -t upload  # flash via the board's 5-pin SWD header
 ```
 
-`hal/stm32f2/hal.cpp` is the HAL (CMSIS registers: GPIO via MODER/OTYPER/OSPEEDR/PUPDR/
-AFR — F2/F4's style, not F1's CRL/CRH — DWT µs time base, USART1; I2C is stubbed like
-the Bluepill's). `platform/btt-tft35/clock.c` deliberately runs off the internal 16 MHz
-HSI (no PLL) rather than guess this board's HSE crystal.
+Flashed via the board's onboard 5-pin **SWD header** (RST/SWCLK/GND/SWDIO/3.3V — confirmed
+from `BTT-TFT35-E3-V3.0/Hardware/BTT TFT35-E3 V3.0PIN.pdf`) with an ST-Link or clone — same
+`upload_protocol = stlink` path as the Bluepill. `hal/stm32f2/hal.cpp` is the HAL (CMSIS
+registers: GPIO via MODER/OTYPER/OSPEEDR/PUPDR/AFR — F2/F4's style, not F1's CRL/CRH — DWT
+µs time base; I2C is stubbed like the Bluepill's). The console is **USART2** on PA2(TX)/
+PA3(RX) — the board's labeled "RS232" header — not USART1, which is dedicated to the
+onboard WIFI module header; console access needs an external USB-TTL adapter wired to that
+header (`dev/btt-tft35/monitor <port>`). `platform/btt-tft35/clock.c` deliberately runs off
+the internal 16 MHz HSI (no PLL) rather than guess this board's unlabeled HSE crystal.
 
 ### Arduino Uno Q (QRB2210 Debian + STM32U585 M33)
 
