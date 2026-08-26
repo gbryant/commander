@@ -404,8 +404,25 @@ onboard RGB LED is just this with `count=1`; multiple chains would follow the in
 `channels` pattern. Enable injects `COMMANDER_ENABLE_WS2812` (gates the `.cpp` in the
 runner); `esp_driver_rmt` is an unconditional runner REQUIRE. The IPSTube enables both
 `ipstube` (displays) and `ws2812` (GPIO5 ambient) — separate peripherals, separate modules.
-`st7796`, `gt911`, `joystick`, `buttons`, `leds`, `buzzer` (the Pico Breadboard
-Kit peripherals, 2026-08-26 — generic parts, kit-shaped defaults). `st7796` is an
+`st7796`, `st7789`, `gt911`, `joystick`, `buttons`, `leds`, `buzzer` (the Pico
+Breadboard Kit peripherals, 2026-08-26 — generic parts, kit-shaped defaults).
+**`st7796` and `st7789` are both thin subclasses of `SpiPanel`**
+(`modules/display/SpiPanel.h`): these controllers differ only in bring-up
+sequence and MADCTL, so the base owns drawing/clipping/text/the `lcd` command and
+a subclass supplies `sendInitSequence()`, `madctl(rot)` and `panelName()`. Adding
+ILI9341/ST7735 is a subclass, not a driver. Both register `lcd`, so they're
+declared `conflicts` in MODULE_SPECS and cmdr refuses the second (otherwise the
+registration is silently shadowed at dispatch — the same generalized check now
+also covers roomba/loco-bridge, which was previously hardcoded).
+`st7789` covers the small colour IPS modules (240x135 on the Waveshare
+RP2350-GEEK, 240x240, 320x170); its **window offset** is the thing that bites —
+the controller has 240x320 of RAM and the glass shows a smaller window, so every
+address shifts, differently per rotation. `SpiPanel` derives that from the
+RAM-vs-glass gap (split across both edges, axes swapped on odd rotations), which
+reproduces the canonical 52,40 / 40,53 / 53,40 / 40,52 for a 240x135 panel and
+gives zero for a panel whose RAM matches its glass — which is why the ST7796
+needs no special case. `lcd offset <dx> <dy>` nudges it live for variants that
+don't centre their window. `st7796` is an
 ST7796S 320x480 SPI panel over `hal_spi_*`/`hal_gpio_*`/`hal_pwm_*`: one `lcd`
 command (`fill`/`rect`/`text`/`line`/`rotate`/`invert`/`bl`/`test`), a built-in
 5x7 font (`modules/display/Font5x7.h`, MIT, from Adafruit_GFX), and no

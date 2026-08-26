@@ -1122,7 +1122,7 @@ MODULE_SPECS = {
     "roomba":  {"always": False, "platforms": ["r4"], "questions": [
         ("baud", "Roomba OI baud rate", "115200"),
         ("brc",  "BRC/wake pin (Mini-DIN 5), -1 if none", "-1"),
-    ]},
+    ], "conflicts": ["loco-bridge"]},
     "locomotion": {"always": False, "platforms": ["pico", "pico2"], "questions": [
         ("addr", "Mobile-base bridge I2C address", "0x42"),
         ("sda",  "I2C SDA pin", "6"),
@@ -1151,7 +1151,7 @@ MODULE_SPECS = {
         ("port", "I2C port (0=Wire A4/A5 5V, 1=Wire1 Qwiic 3.3V)", "1"),
         ("baud", "Roomba OI baud rate", "115200"),
         ("brc",  "BRC/wake pin (Mini-DIN 5), -1 if none", "-1"),
-    ]},
+    ], "conflicts": ["roomba"]},
     # IPSTube clock: six ST7789 (135x240) IPS displays on one SPI bus, per-display
     # CS, shared backlight. esp_lcd driver; the app drives the displays via the
     # commander_on_ipstube_ready() hook. Pins default to the IPSTube wiring; enable
@@ -1194,7 +1194,22 @@ MODULE_SPECS = {
         ("rst",      "Reset pin",                     "7"),
         ("bl",       "Backlight PWM pin (-1 if hard-wired on)", "-1"),
         ("rotation", "Rotation 0-3 (90° per step)",   "0"),
-    ]},
+    ], "conflicts": ["st7789"]},
+    # ST7789: the controller behind most small colour IPS modules. Same driver
+    # base as the ST7796 and the same `lcd` command — which is why the two are
+    # declared as conflicting. The `panel` preset picks the glass size *and* the
+    # controller RAM behind it, and that pair is what sets the window offset.
+    # Defaults are the Waveshare RP2350-GEEK's 1.14" wiring.
+    "st7789": {"always": False, "platforms": ["pico", "pico2"], "questions": [
+        ("panel",    "Panel (240x135 / 240x240 / 320x170 / 240x320 / custom)", "240x135"),
+        ("sck",      "SPI SCK pin",                   "10"),
+        ("mosi",     "SPI MOSI (DIN) pin",            "11"),
+        ("cs",       "Chip-select pin",               "9"),
+        ("dc",       "Data/command pin",              "8"),
+        ("rst",      "Reset pin",                     "12"),
+        ("bl",       "Backlight PWM pin (-1 if hard-wired on)", "25"),
+        ("rotation", "Rotation 0-3 (1 = landscape on the GEEK)", "1"),
+    ], "conflicts": ["st7796"]},
     "gt911":  {"always": False, "platforms": ["pico", "pico2", "esp32", "uno", "r4"], "questions": [
         ("sda",      "I2C SDA pin", {"pico": "8", "pico2": "8", "esp32": "4", "r4": "4", "uno": "4"}),
         ("scl",      "I2C SCL pin", {"pico": "9", "pico2": "9", "esp32": "5", "r4": "5", "uno": "5"}),
@@ -1248,6 +1263,30 @@ def _module_supported(name: str, target: str) -> bool:
         return False
     plats = MODULE_SPECS[name]["platforms"]
     return plats is None or target in plats
+
+
+# ST7789 modules show a window of a 240x320 controller RAM, and the size of that
+# window is the whole difference between panel variants. Presets rather than four
+# raw numbers, because getting the RAM size wrong is invisible until the image is
+# offset on the glass. "custom" reads nativeW/nativeH/ramW/ramH from cmdr.toml.
+_ST7789_PANELS = {
+    "240x135": (135, 240, 240, 320),   # 1.14" — Waveshare RP2350-GEEK / RP2040-GEEK
+    "240x240": (240, 240, 240, 320),   # 1.3"
+    "320x170": (170, 320, 240, 320),   # 1.9"
+    "240x320": (240, 320, 240, 320),   # 2.0" full-frame — no offset
+}
+
+
+def _st7789_geometry(opts: dict):
+    """(nativeW, nativeH, ramW, ramH) for the chosen panel preset."""
+    panel = str(opts.get("panel", "240x135")).strip().lower()
+    if panel in _ST7789_PANELS:
+        return _ST7789_PANELS[panel]
+    if panel != "custom":
+        die(f"st7789 'panel' must be one of {', '.join(_ST7789_PANELS)} or custom "
+            f"(got '{panel}')")
+    return (opts.get("nativeW", 135), opts.get("nativeH", 240),
+            opts.get("ramW", 240),    opts.get("ramH", 320))
 
 
 def _yes(v) -> bool:
@@ -1380,30 +1419,50 @@ def _emit_module(name: str, opts: dict, target: str):
                 ["reg.registerModule(_m_aicam);",
                  "if (commander_on_aicam_ready) commander_on_aicam_ready(_m_aicam);"],
                 ["uart.addTicker(_m_aicam);"])
-    if name == "st7796":
-        # SPI TFT panel. The config struct is aggregate-initialized in field
-        # order — keep this in step with St7796Config if you add a field
-        # (tools/cmdr/tests/test_codegen_golden.py locks the emitted text).
-        sck  = opts.get("sck", 2)
-        mosi = opts.get("mosi", 3)
-        cs   = opts.get("cs", 5)
-        dc   = opts.get("dc", 6)
-        rst  = opts.get("rst", 7)
-        bl   = opts.get("bl", -1)
-        rot  = int(opts.get("rotation", 0)) & 3
+    if name in ("st7796", "st7789"):
+        # SPI TFT panels. Both are SpiPanel subclasses differing only in bring-up
+        # and MADCTL, so they share one emitter — and one `lcd` command, which is
+        # why MODULE_SPECS marks them as conflicting.
+        sck  = opts.get("sck", 10 if name == "st7789" else 2)
+        mosi = opts.get("mosi", 11 if name == "st7789" else 3)
+        cs   = opts.get("cs", 9 if name == "st7789" else 5)
+        dc   = opts.get("dc", 8 if name == "st7789" else 6)
+        rst  = opts.get("rst", 12 if name == "st7789" else 7)
+        bl   = opts.get("bl", 25 if name == "st7789" else -1)
+        rot  = int(opts.get("rotation", 1 if name == "st7789" else 0)) & 3
         # Which SPI controller the pins belong to is fixed by the chip's pinmux:
         # on RP2040/RP2350, SCK 10/14/26 are spi1, everything else spi0.
         bus  = 1 if int(sck) in (10, 14, 26) else 0
-        w    = opts.get("width", 320)
-        h    = opts.get("height", 480)
         hz   = opts.get("hz", 40000000)
-        inv  = "true" if opts.get("invert", True) else "false"
-        return (['#include "modules/display/St7796Module.h"'],
-                [f"static const St7796Config _c_st7796{{{bus}, {sck}, {mosi}, {cs}, {dc}, "
-                 f"{rst}, {bl}, {w}, {h}, {rot}, {hz}, {inv}}};",
-                 "static St7796Module _m_st7796(_c_st7796);"],
-                ["reg.registerModule(_m_st7796);",
-                 "if (commander_on_display_ready) commander_on_display_ready(_m_st7796);"], [])
+        inv  = "true" if _yes(opts.get("invert", True)) else "false"
+
+        if name == "st7789":
+            nw, nh, rw, rh = _st7789_geometry(opts)
+            cls, hdr = "St7789Module", "modules/display/St7789Module.h"
+        else:
+            nw = opts.get("width", 320)
+            nh = opts.get("height", 480)
+            rw = rh = 0                    # RAM == glass, so no window offset
+            cls, hdr = "St7796Module", "modules/display/St7796Module.h"
+
+        # Emitted field-by-field rather than as a positional aggregate: adding a
+        # field to SpiPanelConfig would silently shift every value after it, and
+        # a display whose rotation lands in `ramW` is a bad afternoon.
+        var = f"_c_{name}"
+        decl = [f"static const SpiPanelConfig {var} = [] {{",
+                "    SpiPanelConfig c;",
+                f"    c.bus = {bus}; c.sck = {sck}; c.mosi = {mosi};",
+                f"    c.cs = {cs}; c.dc = {dc}; c.rst = {rst}; c.bl = {bl};",
+                f"    c.nativeW = {nw}; c.nativeH = {nh};",
+                f"    c.ramW = {rw}; c.ramH = {rh};",
+                f"    c.rotation = {rot}; c.hz = {hz}; c.invert = {inv};",
+                "    return c;",
+                "}();",
+                f"static {cls} _m_{name}({var});"]
+        return ([f'#include "{hdr}"'],
+                decl,
+                [f"reg.registerModule(_m_{name});",
+                 f"if (commander_on_display_ready) commander_on_display_ready(_m_{name});"], [])
     if name == "gt911":
         # Capacitive touch. Brings up the global HAL I2C bus (deduped against
         # compass/i2c when the pins match) and is pumped by the UART task.
@@ -1971,7 +2030,7 @@ _MODULE_COMMANDS = {
     "aicam": 1,
     # Breadboard-kit peripherals: one namespaced command each —
     # `lcd`, `touch`, `joy`, `btn`, `led`, `buzz`.
-    "st7796": 1, "gt911": 1, "joystick": 1, "buttons": 1, "leds": 1, "buzzer": 1,
+    "st7796": 1, "st7789": 1, "gt911": 1, "joystick": 1, "buttons": 1, "leds": 1, "buzzer": 1,
 }
 # Headroom for runner-registered commands (bootsel on pico, ota when enabled) plus
 # a few app-registered ones. Conservative, since under-sizing silently drops commands.
@@ -2245,14 +2304,16 @@ def cmd_module(args: argparse.Namespace) -> None:
                 f"is still stubbed (see PLAN.md \"Bluepill I2C\").")
         die(f"module '{name}' is not supported on target '{target}' (supports: {', '.join(spec['platforms'])})")
 
-    # roomba and loco-bridge both own Serial1 (loco-bridge provides `oi` itself),
-    # so only one may be enabled at a time.
-    _SERIAL1_OWNERS = {"roomba", "loco-bridge"}
-    if args.action == "enable" and name in _SERIAL1_OWNERS:
-        other = (_SERIAL1_OWNERS - {name}) & modules.keys()
-        if other:
-            die(f"'{next(iter(other))}' already owns Serial1 — disable it before enabling '{name}' "
-                f"(loco-bridge provides the `oi` command itself)")
+    # Some modules can't coexist: they own the same peripheral (roomba and
+    # loco-bridge both drive Serial1) or register the same shell command (st7796
+    # and st7789 both own `lcd`, and the second registration is silently shadowed
+    # at dispatch). Declared per module as `conflicts` in MODULE_SPECS.
+    if args.action == "enable":
+        clash = set(spec.get("conflicts", [])) & modules.keys()
+        if clash:
+            other = next(iter(sorted(clash)))
+            die(f"'{name}' conflicts with the enabled module '{other}' — they claim the same "
+                f"command or peripheral. Disable it first: cmdr module disable {other}")
 
     if args.action == "enable":
         opts: dict = {}

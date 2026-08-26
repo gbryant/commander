@@ -12,6 +12,7 @@
 #include <vector>
 #include "tests/fakes/fake_hal.h"
 #include "modules/display/St7796Module.h"
+#include "modules/display/St7789Module.h"
 #include "core/CommandRegistry.h"
 
 static int fails = 0;
@@ -30,24 +31,26 @@ static St7796Config kitConfig() {
     return c;
 }
 
-// Commands (DC low) and data (DC high) the driver emitted, in order.
-static std::vector<uint8_t> cmds()  { return fake_hal::spiWith(kDC, false); }
-static std::vector<uint8_t> datas() { return fake_hal::spiWith(kDC, true);  }
+// Commands (DC low) and data (DC high) the driver emitted, in order. The DC pin
+// is a parameter because it differs per board — hardcoding it makes the parser
+// decode the wrong stream and report nonsense (which it duly did once).
+static std::vector<uint8_t> cmds(int dc = kDC)  { return fake_hal::spiWith(dc, false); }
+static std::vector<uint8_t> datas(int dc = kDC) { return fake_hal::spiWith(dc, true);  }
 
-static bool sent(uint8_t c) {
-    for (uint8_t v : cmds()) if (v == c) return true;
+static bool sent(uint8_t c, int dc = kDC) {
+    for (uint8_t v : cmds(dc)) if (v == c) return true;
     return false;
 }
 
 // The last CASET/RASET pair — i.e. the address window of the most recent draw.
 struct Window { int x1, x2, y1, y2; bool found; };
-static Window lastWindow() {
+static Window lastWindow(int dcPin = kDC) {
     Window w{0, 0, 0, 0, false};
     bool dc = false;
     int  pending = 0;                    // 0x2A or 0x2B awaiting its 4 data bytes
     std::vector<uint8_t> buf;
     for (const auto &e : fake_hal::log) {
-        if (e.kind == fake_hal::Event::GpioWrite && e.pin == kDC) { dc = e.value != 0; continue; }
+        if (e.kind == fake_hal::Event::GpioWrite && e.pin == dcPin) { dc = e.value != 0; continue; }
         if (e.kind != fake_hal::Event::SpiWrite) continue;
         if (!dc) {
             if (e.bytes.size() == 1 && (e.bytes[0] == 0x2A || e.bytes[0] == 0x2B)) {
@@ -373,6 +376,125 @@ int main() {
         w.text.clear(); fake_hal::reset();
         reg.dispatch("lcd test", w);
         check(!fake_hal::pixels().empty(), "cmd: 'lcd test' draws the self test");
+    }
+
+    // ═══ ST7789 — the window-offset panel ════════════════════════════════════
+    // A 240x135 module is a 240x320 controller showing a small window, so every
+    // address is shifted, and the shift changes with rotation. Getting this wrong
+    // is the classic ST7789 failure: a picture that looks right but is slid a few
+    // dozen pixels off the glass, with a band of noise down one edge.
+    {
+        SpiPanelConfig geek;                    // Waveshare RP2350-GEEK 1.14"
+        geek.bus = 0; geek.sck = 10; geek.mosi = 11; geek.cs = 9;
+        geek.dc = 8; geek.rst = 12; geek.bl = 25;
+        geek.nativeW = 135; geek.nativeH = 240; // the glass, portrait
+        geek.ramW = 240;    geek.ramH = 320;    // the controller's RAM
+        geek.rotation = 0;  geek.hz = 40000000; geek.invert = true;
+
+        fake_hal::reset();
+        St7789Module d(geek);
+        d.init();
+        const int geekDC = 8;               // this board's DC line, not the kit's
+        check(d.ready(), "st7789: init completes");
+        check(sent(0x01, geekDC), "st7789: SWRESET sent");
+        check(sent(0x11, geekDC) && sent(0x29, geekDC), "st7789: SLPOUT + DISPON sent");
+        check(sent(0x21, geekDC), "st7789: INVON sent");
+        check(sent(0x3A, geekDC), "st7789: COLMOD sent");
+        check(d.width() == 135 && d.height() == 240, "st7789: rotation 0 is 135x240");
+
+        // The offsets, checked one rotation at a time by drawing a single pixel
+        // at the origin and reading back the address window.
+        struct Expect { uint8_t rot; int ox; int oy; int w; int h; };
+        static const Expect kExpect[] = {
+            {0, 52, 40, 135, 240},
+            {1, 40, 53, 240, 135},
+            {2, 53, 40, 135, 240},
+            {3, 40, 52, 240, 135},
+        };
+        bool all_ok = true;
+        for (const Expect &e : kExpect) {
+            d.setRotation(e.rot);
+            check(d.width() == e.w && d.height() == e.h, "st7789: rotation swaps the axes");
+            fake_hal::reset();
+            d.fillRect(0, 0, 1, 1, color::kRed);
+            Window w = lastWindow(geekDC);
+            bool ok = w.found && w.x1 == e.ox && w.y1 == e.oy;
+            if (!ok) {
+                all_ok = false;
+                printf("     rot %u: wanted origin %d,%d  got %d,%d\n",
+                       e.rot, e.ox, e.oy, w.x1, w.y1);
+            }
+        }
+        check(all_ok, "st7789: origin offset is correct at all four rotations");
+
+        // A full-screen fill must land exactly on the glass — the far edge is
+        // what catches an off-by-one in the gap split.
+        d.setRotation(0);
+        fake_hal::reset();
+        d.fill(color::kBlue);
+        Window w = lastWindow(geekDC);
+        check(w.found && w.x1 == 52 && w.x2 == 186 && w.y1 == 40 && w.y2 == 279,
+              "st7789: full-screen fill covers exactly the visible window");
+        check(fake_hal::pixels().size() == 135u * 240u, "st7789: full fill pushes 135*240 pixels");
+
+        d.setRotation(1);
+        fake_hal::reset();
+        d.fill(color::kBlue);
+        w = lastWindow(geekDC);
+        check(w.found && w.x1 == 40 && w.x2 == 279 && w.y1 == 53 && w.y2 == 187,
+              "st7789: landscape fill covers exactly the visible window");
+
+        // Clipping still works in offset space: a rect off the right edge is
+        // trimmed to the glass, not to the controller's RAM.
+        d.setRotation(0);
+        fake_hal::reset();
+        d.fillRect(130, 0, 50, 10, color::kRed);
+        w = lastWindow(geekDC);
+        check(w.found && w.x2 == 52 + 134, "st7789: clipping happens in panel space, then offsets");
+        check(fake_hal::pixels().size() == 5u * 10u, "st7789: only the on-glass part is drawn");
+
+        // The manual nudge, for a module whose window isn't centred.
+        fake_hal::reset();
+        CommandRegistry reg;
+        StringWriter sw;
+        reg.registerModule(d);                   // re-inits; rotation returns to 0
+        sw.text.clear();
+        reg.dispatch("lcd offset 2 -3", sw);
+        fake_hal::reset();
+        d.fillRect(0, 0, 1, 1, color::kRed);
+        w = lastWindow(geekDC);
+        check(w.found && w.x1 == 54 && w.y1 == 37, "st7789: 'lcd offset' nudges the window");
+
+        sw.text.clear();
+        reg.dispatch("lcd", sw);
+        check(sw.text.find("st7789") != std::string::npos, "st7789: info names the panel");
+        check(sw.text.find("window offset") != std::string::npos, "st7789: info reports the offset");
+    }
+
+    // A panel whose RAM matches its glass gets no offset at all — which is why
+    // the ST7796 needed no special case.
+    {
+        fake_hal::reset();
+        St7796Module d(kitConfig());
+        d.init();
+        fake_hal::reset();
+        d.fillRect(0, 0, 1, 1, color::kRed);
+        Window w = lastWindow();
+        check(w.found && w.x1 == 0 && w.y1 == 0, "st7796: no RAM gap means no offset");
+    }
+
+    // A 240x240 module (1.3") — gap only on one axis.
+    {
+        SpiPanelConfig sq;
+        sq.nativeW = 240; sq.nativeH = 240; sq.ramW = 240; sq.ramH = 320;
+        sq.cs = kCS; sq.dc = kDC; sq.rst = kRST;
+        fake_hal::reset();
+        St7789Module d(sq);
+        d.init();
+        fake_hal::reset();
+        d.fillRect(0, 0, 1, 1, color::kRed);
+        Window w = lastWindow();
+        check(w.found && w.x1 == 0 && w.y1 == 40, "st7789 240x240: offset only on the axis with a gap");
     }
 
     printf("\n%s\n", fails ? "FAILURES" : "all display tests passed");

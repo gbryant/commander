@@ -22,7 +22,15 @@ static Gt911Module _m_gt911(0x5D, 0);
 static JoystickModule _m_joystick(26, 27, -1, 30);
 static const uint8_t _p_leds[] = {16, 17};
 static LedModule _m_leds(_p_leds, 2, true);
-static const St7796Config _c_st7796{0, 2, 3, 5, 6, 7, -1, 320, 480, 0, 40000000, true};
+static const SpiPanelConfig _c_st7796 = [] {
+    SpiPanelConfig c;
+    c.bus = 0; c.sck = 2; c.mosi = 3;
+    c.cs = 5; c.dc = 6; c.rst = 7; c.bl = -1;
+    c.nativeW = 320; c.nativeH = 480;
+    c.ramW = 0; c.ramH = 0;
+    c.rotation = 0; c.hz = 40000000; c.invert = true;
+    return c;
+}();
 static St7796Module _m_st7796(_c_st7796);
 static WifiModule _m_wifi;
 static PicoWs2812Module _m_ws2812(12, 1, PicoWs2812Module::GRB);

@@ -29,6 +29,7 @@ Run `cmdr module list` inside a project to see what's available for your target.
 | `ipstube` | esp32 | `ipstube` | six ST7789 IPS displays (IPSTube clock) |
 | `ws2812` | esp32, pico, pico2 | `wled` | addressable-RGB chain (RMT on esp32, PIO on pico) |
 | `st7796` | pico, pico2† | `lcd` | ST7796S SPI TFT panel, 320×480 |
+| `st7789` | pico, pico2† | `lcd` | ST7789 SPI IPS panel (240×135, 240×240, 320×170…) |
 | `gt911` | pico, pico2, esp32, uno, r4 | `touch` | GT911 capacitive touch controller |
 | `joystick` | pico, pico2† | `joy` | two-axis analog stick, calibrated + bindable |
 | `buttons` | all | `btn` | debounced GPIO push buttons, bindable |
@@ -161,6 +162,21 @@ brought up; change the pins and they work anywhere.
 > recording HAL in `tests/fakes/` — every byte they put on the wire is asserted —
 > but they have not met the physical board. See PLAN.md.
 
+### The shared panel driver
+
+`st7796` and `st7789` are both thin subclasses of **`SpiPanel`**
+(`modules/display/SpiPanel.h`). These controllers differ in their power/gamma
+bring-up and their MADCTL values, but they draw identically — CASET, RASET,
+RAMWR, 16-bit pixels — so the base owns the drawing, clipping, text, row buffer
+and the whole `lcd` command surface, and a panel subclass supplies three things:
+its init sequence, its MADCTL per rotation, and its name.
+
+They both register `lcd`, so **they're declared as conflicting** — `cmdr module
+enable` refuses the second one rather than letting its registration be silently
+shadowed at dispatch.
+
+Adding another controller (ILI9341, ST7735…) is a subclass, not a driver.
+
 ### st7796 — SPI TFT panel
 `lcd` — `info`, `on`/`off`, `bl <0-255>`, `clear`, `fill <colour>`,
 `rect x y w h <colour>`, `text x y scale <text…>`, `line <n> <text…>` (a
@@ -187,6 +203,33 @@ layering LVGL on top later is a binding, not a rewrite. There is no framebuffer 
 the only copy. Questions: `sck`, `mosi`, `cs`, `dc`, `rst`, `bl` (−1 when the
 backlight is hard-wired on), `rotation`. Which SPI controller the pins belong to
 is derived from the SCK pin.
+
+### st7789 — SPI IPS panel
+Same `lcd` command surface as `st7796` (above), plus `lcd offset <dx> <dy>`.
+
+The thing that bites on these panels is the **window offset**. An ST7789 has
+240×320 of controller RAM and the glass usually shows a smaller window of it, so
+every address needs shifting — and the shift changes with rotation. Rather than a
+table of magic numbers per panel, `SpiPanel` derives it from the gap between the
+controller RAM and the glass, split across both edges and swapped on the odd
+rotations. For a 240×135 module that reproduces the familiar 52,40 / 40,53 /
+53,40 / 40,52 — and for a panel whose RAM matches its glass (the ST7796) every
+offset is zero, which is why that one needed no special case.
+
+The `panel` question picks glass *and* RAM together as a preset:
+
+| Preset | Glass | Typical module |
+|--------|-------|----------------|
+| `240x135` | 135×240 | 1.14" — Waveshare RP2350-GEEK / RP2040-GEEK |
+| `240x240` | 240×240 | 1.3" |
+| `320x170` | 170×320 | 1.9" |
+| `240x320` | 240×320 | 2.0" full-frame (no offset) |
+| `custom`  | from `cmdr.toml` | anything else |
+
+If a module doesn't centre its window, `lcd test` then `lcd offset <dx> <dy>`
+until the 1px border touches all four edges, and record the result in
+`cmdr.toml`. Colour order is settable (`setBgr`) for the BGR-wired variants,
+which otherwise present as red and blue swapped.
 
 ### gt911 — capacitive touch
 `touch` — one reading; `info`, `raw`, `watch`/`stop`, `rotate 0-3`,

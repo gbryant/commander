@@ -136,6 +136,30 @@ def test_serial1_owners_mutually_exclusive(cli_mod, project_dir, answer_defaults
         cli_mod.cmd_module(mod_args("enable", "loco-bridge"))
 
 
+def test_panels_mutually_exclusive(cli_mod, project_dir, answer_defaults):
+    """st7796 and st7789 both register `lcd` — the second would be shadowed at
+    dispatch rather than rejected, so cmdr refuses the combination outright."""
+    _enter(cli_mod, project_dir, "pico2")
+    cli_mod.cmd_module(mod_args("enable", "st7796"))
+    with pytest.raises(SystemExit):
+        cli_mod.cmd_module(mod_args("enable", "st7789"))
+    # ...and the other way round, once the first is out of the way.
+    cli_mod.cmd_module(mod_args("disable", "st7796"))
+    cli_mod.cmd_module(mod_args("enable", "st7789"))
+    with pytest.raises(SystemExit):
+        cli_mod.cmd_module(mod_args("enable", "st7796"))
+
+
+def test_st7789_panel_preset_sets_ram_geometry(cli_mod, project_dir, answer_defaults):
+    """The panel preset is what makes the window offset correct — a 240x135 glass
+    on 240x320 of controller RAM. Wrong RAM values are invisible until hardware."""
+    _enter(cli_mod, project_dir, "pico2")
+    cli_mod.cmd_module(mod_args("enable", "st7789"))
+    gen = (project_dir.path / "proj" / "commander_modules.h").read_text()
+    assert "c.nativeW = 135; c.nativeH = 240;" in gen
+    assert "c.ramW = 240; c.ramH = 320;" in gen
+
+
 def test_ir_pio_lib_dep_added_on_r4(cli_mod, project_dir, answer_defaults):
     """On a PlatformIO target, enabling ir adds IRremote to lib_deps; disable removes it."""
     _enter(cli_mod, project_dir, "r4")

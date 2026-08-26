@@ -46,6 +46,10 @@ MATRIX = [
                                      "leds", "buzzer", "ws2812", "wifi"], {}),
     ("pico2",    "kit_i2c_shared",  ["gt911", "i2c"], {"i2c": {"sda": 8, "scl": 9}}),
     ("pico",     "ws2812_pio",      ["ws2812"], {}),
+    # The two SPI panels share an emitter and a command; the geometry preset is
+    # what distinguishes them, and a wrong ramW/ramH is invisible until hardware.
+    ("pico2",    "st7789_geek",     ["st7789"], {}),
+    ("pico2",    "st7789_240x240",  ["st7789"], {"st7789": {"panel": "240x240"}}),
     ("esp32",    "base",            [], {}),
     ("esp32",    "wifi",            ["wifi"], {}),
     ("esp32",    "ina219",          ["ina219"], {}),

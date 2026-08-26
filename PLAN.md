@@ -90,7 +90,9 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | `hal/esp32/`                      | ✅ done      | ESP-IDF v5 i2c_master + UART driver                 |
 | `modules/CompassModule`           | ✅ done      | HAL only                                            |
 | `modules/SonarModule`             | ✅ done      |                                                     |
+| `modules/display/` (SpiPanel)     | ✅ done      | shared base: drawing, clipping, text, `lcd` command  |
 | `modules/display/` (st7796)       | 🟡 untested  | builds + host-tested; not yet on a panel             |
+| `modules/display/` (st7789)       | 🟡 untested  | 240x135/240x240/320x170; window offsets host-tested  |
 | `modules/touch/` (gt911)          | 🟡 untested  | builds + host-tested; not yet on a panel             |
 | `modules/input/` (joystick, btn)  | 🟡 untested  | builds + host-tested; not yet on the board          |
 | `modules/LedModule`, `BuzzerModule` | 🟡 untested | builds + host-tested; not yet on the board          |
@@ -305,6 +307,20 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
    `hal/arduino`, `hal/esp32`, `hal/stm32` and `hal/zephyr` carry honest stubs
    today, and the cmdr menu is gated to match.
 
+6. **A debug probe with a screen (RP2350-GEEK).** Planned project, design notes in
+   [probe-display.md](docs/probe-display.md). Turn a Waveshare RP2350-GEEK into a
+   CMSIS-DAP probe that displays its own state, then the target's. Architecture is
+   settled: **fork `debugprobe` and add a commander shell on a second USB CDC**,
+   with commander supplying `IDisplay`/`Font5x7`/`st7789` for the screen. Three
+   tiers — probe status; a standalone SWD sampling profiler (the probe drives the
+   link itself when no host is attached, histogramming the target PC, with symbols
+   off the TF card); and trace. The trace tier is possible because **RP2350 keeps
+   trace on-chip**: an ETM/TPIU feeding `CORESIGHT_TRACE` (`0x50700000`), DMA'd to
+   target RAM and readable back over SWD — no SWO pin needed, which is otherwise
+   the blocker on the 3-pin debug connector. ITM is decodable on the probe; ETM
+   realistically means capture on the probe, decode on the host. First piece
+   (`st7789`) has landed.
+
 ## Board pin reference
 
 These are the defaults `cmdr module enable` offers; every one is overridable at
@@ -321,6 +337,19 @@ enable time and recorded in the project's `cmdr.toml`.
 
 ⚠ The sonar default (pin 6 on every target) collides with the Pico's I2C SDA
 default. Enabling both on a Pico means changing one at enable time.
+
+### Waveshare RP2350-GEEK (st7789 defaults)
+
+The `st7789` module's defaults are this board's wiring. Note SCK GP10 puts the
+panel on **spi1** (the emitter derives the bus from the SCK pin).
+
+| Signal | Pin(s) |
+|--------|--------|
+| LCD (ST7789 240x135) | DC GP8, CS GP9, CLK GP10, MOSI GP11, RST GP12, backlight GP25 |
+| SWD to target | SWCLK GP2, SWDIO GP3 |
+| UART bridge | TX GP4, RX GP5 |
+| I2C | SDA GP28, SCL GP29 |
+| TF card (SPI) | SCK GP18, MOSI GP19, MISO GP20, CS GP23 |
 
 ### Pico Breadboard Kit (pico/pico2 defaults)
 
