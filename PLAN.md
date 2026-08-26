@@ -103,6 +103,9 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | `runners/stm32-bluepill/`         | ✅ done      | `COMMANDER_BLUEPILL_RUNNER` hook main for `cmdr init bluepill` |
 | `hal/zephyr/`                     | 🟡 partial   | Uno Q M33: UART (console + channel bus) + devicetree IR; GPIO/I2C stubbed |
 | `runners/zephyr/`                 | ✅ done      | Uno Q M33 runner (west build, openocd-over-adb flash); registers no board commands yet |
+| `platform/btt-tft35/`             | 🔲 scaffolded | BTT TFT35-E3 V3.0 (STM32F207VC); headless-shell scope only, no hardware yet — see "BTT TFT35-E3 port" below |
+| `hal/stm32f2/`                    | 🟡 partial   | CMSIS regs (MODER/AFR style, not F1's CRL/CRH): GPIO/time/UART1(PA9/PA10) done, unverified; I2C stubbed |
+| `runners/btt-tft35/`              | ✅ done      | `COMMANDER_TFT35_RUNNER` hook main, mirrors the Bluepill runner minus USB/DFU |
 | **CMake library targets**         | ✅ done      | `commander::core/hal_pico/transport_*/modules`      |
 | **`runners/pico/`**               | ✅ done      | `commander::pico_runner`; owns main(), WiFi, hooks  |
 | **`commander.h` API**             | ✅ done      | `CommanderConfig`, required + optional callbacks    |
@@ -226,6 +229,43 @@ Goal: migrate Roomba robot to this framework.
       building the `cmdr-robot` drive glue (50 Hz ticker, STOP resend, spin
       wiring, `drivedbg`), which is what shook out drive creep and the
       arc-only steering rule
+
+### BTT TFT35-E3 V3.0 port (scaffolded, not yet hardware-confirmed)
+
+A new target board: the BIGTREETECH TFT35-E3 V3.0 touchscreen (STM32F207VC, Cortex-M3,
+256 KB flash, 128 KB SRAM), from the same MCU family the [BTT TouchScreenFirmware]
+(https://github.com/bigtreetech/BIGTREETECH-TouchScreenFirmware) project targets — this
+port does not use or depend on that firmware, only the same hardware. Scope decided
+2026-08-26: **headless shell only**, matching the Bluepill precedent — no LCD/touch/SD
+driver yet. That would be a much larger follow-up (display controller bring-up, font/
+bitmap rendering, touch calibration) and is deliberately out of scope for the first pass.
+
+- [x] `hal/stm32f2/hal.cpp` — GPIO, DWT time base, USART1 console (PA9/PA10, AF7), I2C
+      stub. Modeled on `hal/stm32/hal.cpp` but ported to F2's MODER/OTYPER/OSPEEDR/PUPDR/
+      AFR GPIO block (shared with F4), not F1's CRL/CRH nibble style.
+- [x] `platform/btt-tft35/clock.c` — deliberately conservative: runs from the internal
+      16 MHz HSI, no PLL, no assumption about this board's HSE crystal (unconfirmed).
+      Swap to HSE+PLL (like the Bluepill's 72 MHz bring-up) once the board's crystal is
+      known — that also needs PWR/voltage-scaling + ART accelerator + flash wait-state
+      tuning that 16 MHz doesn't require.
+- [x] `runners/btt-tft35/runner.cpp` + `FreeRTOSConfig.h` — mirrors
+      `runners/stm32-bluepill/`, no USB/DFU (not scoped yet).
+- [x] `platformio.ini` `[env:btt-tft35]` + `scripts/stm32_tft35_freertos.py` (Cortex-M3
+      GCC/ARM_CM3 port, same as Bluepill).
+- [ ] **Before first flash attempt**, confirm against the actual board/schematic:
+      1. Whether PA9/PA10 are broken out on a header for USART1, or reserved for the
+         LCD/touch bus — may need a different UART.
+      2. HSE crystal presence/frequency, to enable PLL bring-up.
+      3. The onboard status LED GPIO, to wire into `commander_on_panic()` (currently a
+         silent halt — see `platform/btt-tft35/stm32_panic.h`).
+      4. `board = genericSTM32F207VC` in `platformio.ini` resolves in the installed
+         `ststm32` platform version; the upstream BTT firmware's own `platformio.ini`
+         uses a custom board JSON (`STM32F207VC_0x8000`) we don't currently vendor.
+- [ ] First hardware test: ST-Link flash, confirm `help` over USART1.
+- [ ] Bluepill I2C and this board's I2C stub are both open — likely worth landing
+      STM32 I2C once, shared across `hal/stm32` and `hal/stm32f2` if the peripheral is
+      similar enough.
+- [ ] LCD/touch/SD as a later phase, once the shell boots on hardware.
 
 ### Testing
 

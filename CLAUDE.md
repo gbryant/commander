@@ -2,10 +2,11 @@
 
 ## What this is
 
-A portable embedded command shell targeting seven boards: Arduino Uno (testbed),
+A portable embedded command shell targeting eight boards: Arduino Uno (testbed),
 Arduino R4 WiFi, Raspberry Pi Pico W and Pico 2 W, ESP32-S3, the STM32 "Bluepill"
-(F103), and the dual-brain Arduino Uno Q. Same module code (compass, sonar, IR,
-etc.) runs on all of them. Platform-specific code is limited to `hal/`,
+(F103), the dual-brain Arduino Uno Q, and the BIGTREETECH TFT35-E3 V3.0 touchscreen
+(STM32F207, scaffolded but not yet hardware-confirmed). Same module code (compass,
+sonar, IR, etc.) runs on all of them. Platform-specific code is limited to `hal/`,
 `transport/`, and `platform/`. See `PLAN.md` for roadmap and status.
 
 ## Architecture in one sentence
@@ -219,6 +220,24 @@ re-enum nudge) once via ST-Link. Then `bootloader`
 **D+ pull-up caveat.** Many Bluepill clones have a too-weak D+ pull-up (R10 ~10k instead
 of 1.5k), so USB may only enumerate after pressing RESET post-plug. Real fix: add a
 1.5k–1.8k resistor PA12→3.3 V.
+
+### BIGTREETECH TFT35-E3 V3.0 (STM32F207) — scaffolded, not yet hardware-confirmed
+
+Same approach as the Bluepill: native CMSIS + vendored FreeRTOS (GCC/ARM_CM3, F207 is
+Cortex-M3 like F103) — no Arduino framework, no dependency on the board's stock BTT
+TouchScreenFirmware. **Headless shell only for now** — no LCD/touch/SD driver; see
+PLAN.md ("BTT TFT35-E3 V3.0 port") for the open hardware questions to resolve before a
+first flash (HSE crystal, whether PA9/PA10 are broken out for USART1 vs. reserved for
+the LCD bus, the status LED pin) and the follow-up phases (I2C, then display/touch).
+
+```bash
+pio run -e btt-tft35           # build only — untested, no dev/btt-tft35/ scripts yet
+```
+
+`hal/stm32f2/hal.cpp` is the HAL (CMSIS registers: GPIO via MODER/OTYPER/OSPEEDR/PUPDR/
+AFR — F2/F4's style, not F1's CRL/CRH — DWT µs time base, USART1; I2C is stubbed like
+the Bluepill's). `platform/btt-tft35/clock.c` deliberately runs off the internal 16 MHz
+HSI (no PLL) rather than guess this board's HSE crystal.
 
 ### Arduino Uno Q (QRB2210 Debian + STM32U585 M33)
 
