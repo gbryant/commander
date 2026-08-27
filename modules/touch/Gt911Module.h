@@ -70,9 +70,18 @@ public:
         _lastPoll = now;
         TouchPoint p;
         if (!read(p)) return;
-        bool changed = p.pressed != _last.pressed ||
-                       (p.pressed && (p.x != _last.x || p.y != _last.y));
-        _last = p;
+        // Press and release always count. Movement only counts once it exceeds
+        // a threshold: a finger resting on the glass jitters by a pixel or two
+        // every poll, and reporting that as a fresh event makes a consumer
+        // re-trigger whatever it does on touch, 60 times a second.
+        bool edge  = p.pressed != _last.pressed;
+        int  dx    = p.x > _last.x ? p.x - _last.x : _last.x - p.x;
+        int  dy    = p.y > _last.y ? p.y - _last.y : _last.y - p.y;
+        bool moved = p.pressed && _last.pressed &&
+                     (dx >= _moveThreshold || dy >= _moveThreshold);
+        bool changed = edge || moved;
+        if (changed) _last = p;
+        else { _last.pressed = p.pressed; }
         if (changed && _cb) _cb(p, _cbCtx);
         if (changed && _streaming) emitConsole(p);
     }
@@ -124,6 +133,9 @@ public:
     void setRotation(uint8_t r) { _rot = r & 3; }
     uint8_t rotation() const { return _rot; }
     void setFlip(bool x, bool y, bool swap) { _flipX = x; _flipY = y; _swapXY = swap; }
+    // Pixels of movement before a held touch counts as having moved (0 = report
+    // every reading, which is rarely what a consumer wants).
+    void setMoveThreshold(uint8_t px) { _moveThreshold = px; }
 
 private:
     static constexpr uint16_t kProductId = 0x8140;
@@ -143,6 +155,7 @@ private:
     Callback   _cb    = nullptr;
     void      *_cbCtx = nullptr;
     bool       _streaming = false;
+    uint8_t    _moveThreshold = 4;
 
     bool readReg(uint16_t reg, uint8_t *buf, size_t len) {
         uint8_t a[2] = {(uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF)};

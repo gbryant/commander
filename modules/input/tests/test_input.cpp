@@ -333,7 +333,7 @@ int main() {
 
         reg.dispatch("buzz 1000", w);
         check(lastTone() == 1000, "buzz: 'buzz 1000' sounds 1000 Hz");
-        check(!b.playing(), "buzz: an open-ended tone isn't 'playing' a sequence");
+        check(b.playing(), "buzz: an open-ended tone counts as playing (tick must watch it)");
         reg.dispatch("buzz off", w);
         check(lastTone() == 0, "buzz: 'buzz off' silences");
 
@@ -384,6 +384,18 @@ int main() {
         w.text.clear();
         reg.dispatch("buzz play", w);
         check(w.text.find("buzz play") != std::string::npos, "buzz: 'play' with no notes prints usage");
+
+        // The watchdog: a tone left sounding with nothing scheduled must be
+        // recovered by tick(), not left on forever. This is the failure that
+        // reached hardware — a stuck buzzer needing a reboot.
+        fake_hal::reset();
+        b.stop();
+        reg.dispatch("buzz 1500", w);            // open-ended tone
+        check(lastTone() == 1500 && b.playing(), "buzz: open-ended tone sounds");
+        fake_hal::now_us += 61ull * 1000000ull;  // past the safety cap
+        b.tick();
+        check(lastTone() == 0 && !b.playing(), "buzz: runaway tone is cut off by the safety cap");
+        check(b.lostStops() >= 1, "buzz: the cut-off is counted as a lost stop");
 
         // A very long sequence is truncated rather than overflowing the buffer.
         std::string longSeq;

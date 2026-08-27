@@ -55,10 +55,15 @@ bool hal_i2c_read_raw(uint8_t addr, uint8_t *data, size_t len) {
 
 bool hal_i2c_write_read(uint8_t addr, const uint8_t *wdata, size_t wlen,
                         uint8_t *rdata, size_t rlen) {
-    // nostop=true on the write leaves the bus held, so the read below issues a
-    // repeated START — one transaction, which is what multi-byte-register parts
-    // (GT911) require.
-    if (i2c_write_blocking_until(_i2c_bus, addr, wdata, wlen, true,
+    // Hold the bus (nostop) ONLY when a read follows — that's the repeated START
+    // multi-byte-register parts (GT911) require. With no read to follow, the
+    // write must be terminated with a STOP or the transaction is never completed:
+    // the target sees an unfinished write and may ignore it. That bit us for
+    // real — the GT911's "touch consumed" acknowledgement is a write with no
+    // read, and leaving it open made the controller re-report a stale touch
+    // until further touches shook it loose.
+    const bool hold = (rlen != 0);
+    if (i2c_write_blocking_until(_i2c_bus, addr, wdata, wlen, hold,
                                  make_timeout_time_ms(10)) != (int)wlen) return false;
     if (rlen == 0) return true;
     return i2c_read_blocking_until(_i2c_bus, addr, rdata, rlen, false,
@@ -152,6 +157,7 @@ void hal_pwm_init(uint8_t pin) {
 }
 
 void hal_pwm_duty(uint8_t pin, uint8_t duty) {
+    gpio_set_function(pin, GPIO_FUNC_PWM);   // hal_pwm_stop hands the pin back to SIO
     uint slice = pwm_gpio_to_slice_num(pin);
     pwm_set_clkdiv(slice, 4.0f);         // ~122 kHz at 125 MHz sys clock — silent
     pwm_set_wrap(slice, 255);
@@ -160,8 +166,9 @@ void hal_pwm_duty(uint8_t pin, uint8_t duty) {
 }
 
 void hal_pwm_tone(uint8_t pin, uint32_t freq_hz) {
-    uint slice = pwm_gpio_to_slice_num(pin);
     if (freq_hz == 0) { hal_pwm_stop(pin); return; }
+    gpio_set_function(pin, GPIO_FUNC_PWM);   // hal_pwm_stop hands the pin back to SIO
+    uint slice = pwm_gpio_to_slice_num(pin);
     // Pick the smallest divider that keeps wrap inside 16 bits, so low notes and
     // high notes both land close to the requested pitch.
     uint32_t sys = clock_get_hz(clk_sys);
@@ -176,8 +183,20 @@ void hal_pwm_tone(uint8_t pin, uint32_t freq_hz) {
 }
 
 void hal_pwm_stop(uint8_t pin) {
+    // Disabling a slice FREEZES its output at whatever level the counter left it
+    // at — and pwm_set_gpio_level() only takes effect at the next wrap, which
+    // never comes once the slice is off. So stopping this way leaves the pin high
+    // about half the time. On a buzzer that is a continuous tone that nothing can
+    // clear (hardware, 2026-08-27: intermittent stuck wail from every input path,
+    // with the buzzer module's own start/stop counts perfectly balanced).
+    //
+    // Take the pin back as a plain output and drive it low, so "stopped" is a
+    // state we set rather than one we hope the counter left behind.
     pwm_set_gpio_level(pin, 0);
     pwm_set_enabled(pwm_gpio_to_slice_num(pin), false);
+    gpio_set_function(pin, GPIO_FUNC_SIO);
+    gpio_set_dir(pin, GPIO_OUT);
+    gpio_put(pin, false);
 }
 
 void     hal_delay_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }

@@ -597,11 +597,19 @@ commander/
   is a debug-probe status screen, not a commander app — proof the display layer
   travels outside commander.
 - Pico Breadboard Kit peripherals (`st7796`, `gt911`, `joystick`, `buttons`,
-  `leds`, `buzzer`, pico `ws2812`): **builds + host-tested, NOT hardware-confirmed.**
-  Firmware links for RP2350 (460 KB flash / 277 KB RAM with the full stack) and
-  every driver is asserted byte-for-byte against `tests/fakes/fake_hal`, but none
-  has met the board. Consumer: cmdr-pico-breadboard-kit (its
-  `docs/hardware-test.md` is the bring-up order).
+  `leds`, `buzzer`, pico `ws2812`): **hardware-confirmed 2026-08-27**, flashed
+  over SWD through the [cmdr-probe] GEEK. Panel, touch controller (answers at
+  0x5d, product "911"), joystick ADC, debounced buttons, LEDs, buzzer and the
+  PIO RGB LED all working. Still unchecked: touch corner mapping, and WiFi
+  (credentials weren't connecting). Consumer: cmdr-pico-breadboard-kit.
+
+  **Two HAL bugs the hardware found that host tests structurally could not** —
+  both the same species, *leaving a peripheral in a state the caller assumed
+  rather than set*: `hal_i2c_write_read` held the bus with no STOP when no read
+  followed (breaking the GT911's touch-acknowledge write), and `hal_pwm_stop`
+  disabled the slice without settling the pin, freezing it high about half the
+  time (a buzzer stuck on). The fake HAL has its own implementations, so it can
+  see neither. Worth auditing the rest of the HAL for the same pattern.
 - STM32 Bluepill (STM32F103C8): hardware-confirmed — blink, `help` over USART1, `help`
   over USB CDC, and USB-DFU upload with no ST-Link. I2C/compass pending. `cmdr init
   bluepill <name>` scaffolds projects; `cmdr enable dfu` / `disable dfu` toggle the

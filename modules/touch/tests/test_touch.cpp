@@ -196,6 +196,31 @@ int main() {
         t.tick();
         check(calls == 2 && !seen.pressed, "tick: fires the callback on release");
 
+        // Jitter must not look like movement. A finger resting on the glass
+        // wanders a pixel or two per poll; reporting that as a fresh event makes
+        // a consumer re-trigger on every poll (this shipped, and turned a touch
+        // beep into a continuous tone on hardware).
+        calls = 0;
+        fake_hal::now_us += 100000;
+        panelReports(50, 60, true);
+        t.tick();                              // press
+        int after_press = calls;
+        fake_hal::now_us += 100000;
+        panelReports(52, 61, true);            // 2px of jitter
+        t.tick();
+        check(calls == after_press, "tick: sub-threshold jitter is not an event");
+
+        fake_hal::now_us += 100000;
+        panelReports(70, 60, true);            // a real 20px slide
+        t.tick();
+        check(calls == after_press + 1, "tick: movement past the threshold is an event");
+
+        // Release still fires even if the finger barely moved.
+        fake_hal::now_us += 100000;
+        panelReports(70, 60, false);
+        t.tick();
+        check(calls == after_press + 2, "tick: release always fires regardless of movement");
+
         // Polling is rate-limited — a tick right after the last one does nothing.
         int before = (int)fake_hal::count(fake_hal::Event::I2cWriteRead);
         t.tick();

@@ -32,11 +32,38 @@ public:
 
     void registerCommands(CommandRegistry &reg) override;
 
+    /*
+     * Every mode is checked on every tick — deliberately.
+     *
+     * The previous version returned immediately unless a timed note was
+     * playing, which meant the pin could be left oscillating in a state nothing
+     * ever looked at again: an actuator stuck on, with no way back except a
+     * reboot. That happened on hardware (a buzzer stuck in a continuous tone,
+     * from both the touch and button paths).
+     *
+     * So `Off` now means silent and is *verified* rather than assumed, and even
+     * an "until stop()" tone carries a safety cap. A buzzer that can get stuck
+     * on is worse than one that occasionally cuts a long note short.
+     */
     void tick() override {
-        if (!_playing) return;
         uint64_t now = hal_time_us();
-        if (now < _noteEnd) return;
-        advance();
+        switch (_mode) {
+            case Off:
+                if (_current != 0) {          // sounding with nothing scheduled
+                    _lostStops++;
+                    stop();
+                }
+                return;
+            case Timed:
+                if (now >= _noteEnd) stop();
+                return;
+            case Sequence:
+                if (now >= _noteEnd) advance();
+                return;
+            case Indefinite:
+                if (now >= _noteEnd) { _lostStops++; stop(); }
+                return;
+        }
     }
 
     // ── App API ──────────────────────────────────────────────────────────────
@@ -46,21 +73,28 @@ public:
         _seqPos = 0;
         if (hz == 0) { stop(); return; }
         hal_pwm_tone(_pin, hz);
-        _current = hz;
+        _current  = hz;
+        _toneCalls++;
+        _lastMs   = ms;
+        uint64_t now = hal_time_us();
         if (ms) {
-            _noteEnd = hal_time_us() + (uint64_t)ms * 1000;
-            _playing = true;
+            _noteEnd = now + (uint64_t)ms * 1000;
+            _mode    = Timed;
         } else {
-            _playing = false;
+            // "Until stop()" still gets an end time — a safety cap, not a
+            // duration. See the watchdog note on tick().
+            _noteEnd = now + kMaxSoundUs;
+            _mode    = Indefinite;
         }
     }
 
     void stop() {
         hal_pwm_stop(_pin);
-        _playing = false;
+        _mode    = Off;
         _current = 0;
         _seq[0]  = '\0';
         _seqPos  = 0;
+        _stopCalls++;
     }
 
     void beep() { tone(2000, 60); }
@@ -72,7 +106,7 @@ public:
         _seq[kSeqMax - 1] = '\0';
         _seqPos  = 0;
         _noteEnd = 0;
-        _playing = true;
+        _mode    = Sequence;
         advance();
         return true;
     }
@@ -87,8 +121,12 @@ public:
         return false;
     }
 
-    bool     playing() const { return _playing; }
+    bool     playing() const { return _mode != Off; }
     uint32_t current() const { return _current; }
+    // Times tick() found the pin sounding with nothing scheduled, or had to cut
+    // off a runaway tone. Non-zero means something lost a stop — the counter is
+    // the evidence trail, since the symptom is otherwise just "it made a noise".
+    uint32_t lostStops() const { return _lostStops; }
 
     // Note name → Hz. Public because it's useful on its own (e.g. mapping a
     // touch coordinate to a pitch). Returns 0 for a rest or an unparseable note.
@@ -117,13 +155,21 @@ public:
 
 private:
     static constexpr int kSeqMax = 96;
+    // Nothing this module drives should sound for a minute unattended.
+    static constexpr uint64_t kMaxSoundUs = 60ull * 1000000ull;
+
+    enum Mode : uint8_t { Off, Timed, Sequence, Indefinite };
 
     uint8_t  _pin;
     char     _seq[kSeqMax] = {};
     int      _seqPos  = 0;
     uint64_t _noteEnd = 0;
-    bool     _playing = false;
+    Mode     _mode    = Off;
     uint32_t _current = 0;
+    uint32_t _toneCalls = 0;
+    uint32_t _stopCalls = 0;
+    uint32_t _lostStops = 0;
+    uint32_t _lastMs    = 0;
 
     // Play the next note in _seq, or stop at the end of the sequence.
     void advance() {
@@ -151,7 +197,7 @@ private:
         if (hz) hal_pwm_tone(_pin, hz);
         else    hal_pwm_stop(_pin);              // a rest is silence, not a stop
         _noteEnd = hal_time_us() + (uint64_t)ms * 1000;
-        _playing = true;
+        _mode    = Sequence;
     }
 
     static void buzzCmd(const char *args, Writer &out, void *ctx);
@@ -199,11 +245,17 @@ inline void BuzzerModule::dispatch(const char *args, Writer &out) {
     }
 
     if (cmdarg::empty(p)) {
-        if (_playing || _current) {
+        static const char *kModes[] = {"off", "timed", "sequence", "indefinite"};
+        if (_mode != Off || _current) {
             out.write("playing "); cmdarg::putUInt(out, _current); out.writeln(" Hz");
         } else {
             out.writeln("silent");
         }
+        cmdarg::putField(out, "mode",       kModes[_mode]);
+        cmdarg::putField(out, "tones",      (int32_t)_toneCalls);
+        cmdarg::putField(out, "stops",      (int32_t)_stopCalls);
+        cmdarg::putField(out, "lost stops", (int32_t)_lostStops);
+        cmdarg::putField(out, "last ms",    (int32_t)_lastMs);
         return;
     }
 

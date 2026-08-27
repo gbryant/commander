@@ -86,17 +86,17 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | `include/i2c_ids.h`               | ✅ done      | wire protocol spec                                  |
 | `hal/hal.h` interface             | ✅ done      | I2C, GPIO, SPI, ADC, PWM, time, UART                |
 | `hal/arduino/`                    | ✅ done      | Wire + Arduino GPIO + Serial                        |
-| `hal/pico/`                       | ✅ done      | Pico SDK; the only HAL with SPI/ADC/PWM so far. SPI + PWM HW-confirmed 2026-08-27 (GEEK panel + backlight); ADC still untested |
+| `hal/pico/`                       | ✅ done      | Pico SDK; the only HAL with SPI/ADC/PWM so far. SPI/PWM/ADC/I2C all HW-confirmed 2026-08-27 |
 | `hal/esp32/`                      | ✅ done      | ESP-IDF v5 i2c_master + UART driver                 |
 | `modules/CompassModule`           | ✅ done      | HAL only                                            |
 | `modules/SonarModule`             | ✅ done      |                                                     |
 | `modules/display/` (SpiPanel)     | ✅ HW-confirmed | drawing/text/offsets proven on a 240x135 ST7789 (2026-08-27) |
-| `modules/display/` (st7796)       | 🟡 untested  | builds + host-tested; not yet on a panel             |
+| `modules/display/` (st7796)       | ✅ HW-confirmed | GeeekPi kit 3.5" panel, `lcd test` (2026-08-27)   |
 | `modules/display/` (st7789)       | ✅ HW-confirmed | RP2350-GEEK 1.14" panel, rotation 1 (2026-08-27)  |
-| `modules/touch/` (gt911)          | 🟡 untested  | builds + host-tested; not yet on a panel             |
-| `modules/input/` (joystick, btn)  | 🟡 untested  | builds + host-tested; not yet on the board          |
-| `modules/LedModule`, `BuzzerModule` | 🟡 untested | builds + host-tested; not yet on the board          |
-| `platform/pico/PicoWs2812Module`  | 🟡 untested  | PIO backend of the esp32 `ws2812` module            |
+| `modules/touch/` (gt911)          | ✅ HW-confirmed | answers at 0x5d, product "911", 320x480 (2026-08-27); corner mapping not yet checked |
+| `modules/input/` (joystick, btn)  | ✅ HW-confirmed | real ADC counts + debounced presses (2026-08-27)  |
+| `modules/LedModule`, `BuzzerModule` | ✅ HW-confirmed | LEDs, tones and melodies (2026-08-27)          |
+| `platform/pico/PicoWs2812Module`  | ✅ HW-confirmed | RGB LED on the kit, GP12 PIO (2026-08-27)        |
 | `transport/uart/`                 | ✅ done      | platform-agnostic; begin() overload without baud    |
 | `transport/telnet/`               | ✅ done      | lwIP BSD sockets (Pico/ESP32)                       |
 | `transport/telnet/arduino/`       | ✅ done      | WiFiServer-based (R4)                               |
