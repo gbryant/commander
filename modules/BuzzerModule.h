@@ -152,6 +152,10 @@ public:
     // off a runaway tone. Non-zero means something lost a stop — the counter is
     // the evidence trail, since the symptom is otherwise just "it made a noise".
     uint32_t lostStops() const { return _lostStops; }
+    // Tones started since boot — single tones and each sounding note of a
+    // sequence. Won't balance against stops for a melody (N notes, one stop);
+    // it's a diagnostic trail, not an invariant.
+    uint32_t tonesStarted() const { return _toneCalls; }
 
     // Note name → Hz. Public because it's useful on its own (e.g. mapping a
     // touch coordinate to a pitch). Returns 0 for a rest or an unparseable note.
@@ -220,6 +224,7 @@ private:
 
         uint32_t hz = noteToHz(note, noteLen);
         _current = hz;
+        if (hz) _toneCalls++;                    // a rest starts no tone
         sound(hz);                               // a rest is silence, not a stop
         _noteEnd = hal_time_us() + (uint64_t)ms * 1000;
         _mode    = Sequence;

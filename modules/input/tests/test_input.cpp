@@ -405,6 +405,17 @@ int main() {
         check(lastTone() == 0 && !b.playing(), "buzz: runaway tone is cut off by the safety cap");
         check(b.lostStops() >= 1, "buzz: the cut-off is counted as a lost stop");
 
+        // The diagnostic counter has to see sequence notes too, or a melody
+        // looks like it played nothing (which is how it read on hardware).
+        fake_hal::reset();
+        b.stop();
+        uint32_t before = b.tonesStarted();
+        b.play("c4:50,r:50,e4:50");           // two notes and a rest
+        fake_hal::now_us += 60000; b.tick();
+        fake_hal::now_us += 60000; b.tick();
+        fake_hal::now_us += 60000; b.tick();
+        check(b.tonesStarted() == before + 2, "buzz: a melody counts its notes, rests excluded");
+
         // ── Volume ───────────────────────────────────────────────────────────
         // Loudness on a piezo is duty cycle, so volume must reach the pin — and
         // 0 must be genuinely silent, not just quiet.
