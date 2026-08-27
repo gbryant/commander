@@ -1,0 +1,36 @@
+{
+  "build": {
+    "core": "stm32",
+    "cpu": "cortex-m3",
+    "extra_flags": "-DSTM32F2 -DSTM32F207xx",
+    "f_cpu": "120000000L",
+    "mcu": "stm32f207vct6",
+    "product_line": "STM32F207xx",
+    "variant": "STM32F2xx/F207V(C-E)T_F217V(E)T"
+  },
+  "connectivity": [
+    "can",
+    "ethernet"
+  ],
+  "debug": {
+    "default_tools": [
+      "stlink"
+    ],
+    "openocd_target": "stm32f2x",
+    "svd_path": "STM32F20x.svd"
+  },
+  "frameworks": [
+    "cmsis"
+  ],
+  "name": "BIGTREETECH TFT35-E3 V3.0 (STM32F207VC)",
+  "upload": {
+    "maximum_ram_size": 131072,
+    "maximum_size": 262144,
+    "protocol": "stlink",
+    "protocols": [
+      "stlink"
+    ]
+  },
+  "url": "https://github.com/bigtreetech/BTT-TFT35-E3-V3.0",
+  "vendor": "BIGTREETECH"
+}

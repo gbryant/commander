@@ -261,16 +261,29 @@ bitmap rendering, touch calibration) and is deliberately out of scope for the fi
         with the Bluepill; USART1 (TX1/RX1) is dedicated to the onboard WIFI module
         header instead. `hal/stm32f2/hal.cpp` and the runner were updated accordingly.
       - USB is on PA11(D-)/PA12(D+), confirmed but unused by this port so far.
-- [ ] **Still open before first flash attempt:**
-      1. HSE crystal frequency — a Y1 crystal footprint is on the schematic sheet but
-         no value is printed; `clock.c` runs off HSI (16 MHz, no PLL) until this is
-         confirmed (by reading the physical crystal or a fuller schematic export).
-      2. The onboard status LEDs (D1-D6 on the pinout sheet) have no GPIO mapping shown
-         on this sheet — needed to wire `commander_on_panic()` beyond a silent halt (see
-         `platform/btt-tft35/stm32_panic.h`).
-      3. `board = genericSTM32F207VC` in `platformio.ini` resolves in the installed
-         `ststm32` platform version; the upstream BTT firmware's own `platformio.ini`
-         uses a custom board JSON (`STM32F207VC_0x8000`) we don't currently vendor.
+- [x] **Confirmed `board = genericSTM32F207VC` does NOT exist upstream** — PlatformIO's
+      `ststm32` platform ships no bare-chip "generic" board for the F207 family, only
+      named dev boards (`nucleo_f207zg`, etc; checked by probing the platform's GitHub
+      board JSONs directly, since its package registry domains are unreachable from
+      this sandbox). Fixed by vendoring `boards/genericSTM32F207VC.json` (derived from
+      `nucleo_f207zg.json`, adjusted to the VC's 256 KB flash/128 KB RAM) and pointing
+      `platformio.ini`'s `[platformio] boards_dir` at it.
+      **Still a guess:** the JSON's `variant` field (`STM32F2xx/F207V(C-E)T_F217V(E)T`,
+      extrapolated from the Z-package Nucleo's naming) — low risk for us since
+      `framework = cmsis` is raw register access with our own clock/startup, not
+      framework-provided pin tables, but if the build ever complains about a missing
+      variant folder, that field is the first thing to check.
+- [ ] **This whole build is still not compile-verified.** Attempted from this session:
+      installed PlatformIO and tried `pio run -e btt-tft35`, but this sandbox's network
+      policy blocks PlatformIO's own package registry (`api.registry.nm1.platformio.org`
+      → 403), so the `ststm32` toolchain package itself can't be fetched here. First real
+      build has to happen on a machine with normal internet access.
+- [ ] HSE crystal frequency — a Y1 crystal footprint is on the schematic sheet but no
+      value is printed; `clock.c` runs off HSI (16 MHz, no PLL) until this is confirmed
+      (by reading the physical crystal or a fuller schematic export).
+- [ ] The onboard status LEDs (D1-D6 on the pinout sheet) have no GPIO mapping shown on
+      this sheet — needed to wire `commander_on_panic()` beyond a silent halt (see
+      `platform/btt-tft35/stm32_panic.h`).
 - [ ] First hardware test: `dev/btt-tft35/bum` (ST-Link flash), confirm `help` over
       USART2 via a USB-TTL adapter on the RS232 header.
 - [ ] Bluepill I2C and this board's I2C stub are both open — likely worth landing
