@@ -1168,6 +1168,11 @@ MODULE_SPECS = {
         ("pin",   "WS2812 data GPIO", {"esp32": "5", "pico": "12", "pico2": "12"}),
         ("count", "number of LEDs in the chain", {"esp32": "6", "pico": "1", "pico2": "1"}),
         ("order", "colour order (GRB/RGB/BRG/RBG/GBR/BGR)", "GRB"),
+        # These chips are searingly bright at full scale, and how bright is a
+        # property of the board, not of the app — so it belongs here with the
+        # pin and the colour order. Apps should express colours at full scale and
+        # let this set the level; `wled bright <n>` tunes it live.
+        ("brightness", "default brightness 0-255", "255"),
     ]},
     # Grove Vision AI Module V2 (WiseEye2 + camera) host module — SSCMA AT protocol.
     # Default UART transport (esp32-specific backend, gated COMMANDER_ENABLE_AICAM);
@@ -1373,18 +1378,24 @@ def _emit_module(name: str, opts: dict, target: str):
         order = str(opts.get("order", "GRB")).strip().upper()
         if order not in ("GRB", "RGB", "BRG", "RBG", "GBR", "BGR"):
             die(f"ws2812 'order' must be one of GRB/RGB/BRG/RBG/GBR/BGR (got '{order}')")
+        bright = int(opts.get("brightness", 255))
+        if not 0 <= bright <= 255:
+            die(f"ws2812 'brightness' must be 0..255 (got {bright})")
+        # Only emitted when it differs from the module's own default, so existing
+        # projects' generated files don't churn on regen.
+        dim = [f"_m_ws2812.setBrightness({bright});"] if bright != 255 else []
         if target in ("pico", "pico2"):
             # PIO backend; the commander_pico_ws2812 target (linked into the pico
             # runner) owns the .pio build, so enabling is pure registration.
             return (['#include "platform/pico/PicoWs2812Module.h"'],
                     [f"static PicoWs2812Module _m_ws2812({pin}, {count}, PicoWs2812Module::{order});"],
-                    ["reg.registerModule(_m_ws2812);",
-                     "if (commander_on_ws2812_ready) commander_on_ws2812_ready(_m_ws2812);"], [])
+                    ["reg.registerModule(_m_ws2812);"] + dim +
+                    ["if (commander_on_ws2812_ready) commander_on_ws2812_ready(_m_ws2812);"], [])
         return (['#include "platform/esp32/Ws2812Module.h"'],
                 [f"static Ws2812Module _m_ws2812({pin}, {count}, Ws2812Module::{order});",
                  "void commander_on_ws2812_ready(Ws2812Module &);"],
-                ["reg.registerModule(_m_ws2812);",
-                 "commander_on_ws2812_ready(_m_ws2812);"], [])
+                ["reg.registerModule(_m_ws2812);"] + dim +
+                ["commander_on_ws2812_ready(_m_ws2812);"], [])
     if name == "aicam":
         if target != "esp32":
             die(f"aicam module is not supported on target '{target}'")

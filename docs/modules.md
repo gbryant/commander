@@ -294,9 +294,17 @@ per-display chip-select. `ipstube on/off/dim/fill/clear/test`, text rendering
 
 ### ws2812 — addressable RGB
 `wled <r> <g> <b>` (all), `wled <i> <r> <g> <b>` (one), `wled off`,
-`wled bright <0-255>`, `wled test`. Questions: `pin`, `count`, colour `order`. A
-board's onboard RGB LED is just this with `count=1`. Apps drive effects via
-`commander_on_ws2812_ready(...)`.
+`wled bright <0-255>`, `wled test`. Questions: `pin`, `count`, colour `order`,
+`brightness`. A board's onboard RGB LED is just this with `count=1`. Apps drive
+effects via `commander_on_ws2812_ready(...)`.
+
+**Set `brightness` rather than dimming your colours.** These chips are searing at
+full scale, and how bright a board should be is a property of the board, not the
+app — so it lives in `cmdr.toml` with the pin and the colour order, and is
+applied on `show()`. Apps should express colours at full scale (`255, 0, 0` for
+red) and let the setting decide the level; picking small values *and* setting a
+brightness dims twice, which is how you end up with an LED you can't see.
+`wled bright <n>` tunes it live to find the value worth recording.
 
 **Two backends, one module name and one command surface:** ESP32 drives the chain
 from the RMT peripheral (`platform/esp32/Ws2812Module`), Pico from a PIO state
