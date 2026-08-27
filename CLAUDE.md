@@ -600,8 +600,9 @@ commander/
   `leds`, `buzzer`, pico `ws2812`): **hardware-confirmed 2026-08-27**, flashed
   over SWD through the [cmdr-probe] GEEK. Panel, touch controller (answers at
   0x5d, product "911"), joystick ADC, debounced buttons, LEDs, buzzer and the
-  PIO RGB LED all working. Still unchecked: touch corner mapping, and WiFi
-  (credentials weren't connecting). Consumer: cmdr-pico-breadboard-kit.
+  PIO RGB LED all working, plus WiFi/telnet and touch corner mapping (verified
+  by touching on-screen targets — the coordinate space needs no flip). Consumer:
+  cmdr-pico-breadboard-kit.
 
   **Two HAL bugs the hardware found that host tests structurally could not** —
   both the same species, *leaving a peripheral in a state the caller assumed

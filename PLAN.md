@@ -93,7 +93,7 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | `modules/display/` (SpiPanel)     | ✅ HW-confirmed | drawing/text/offsets proven on a 240x135 ST7789 (2026-08-27) |
 | `modules/display/` (st7796)       | ✅ HW-confirmed | GeeekPi kit 3.5" panel, `lcd test` (2026-08-27)   |
 | `modules/display/` (st7789)       | ✅ HW-confirmed | RP2350-GEEK 1.14" panel, rotation 1 (2026-08-27)  |
-| `modules/touch/` (gt911)          | ✅ HW-confirmed | answers at 0x5d, product "911", 320x480 (2026-08-27); corner mapping not yet checked |
+| `modules/touch/` (gt911)          | ✅ HW-confirmed | 0x5d, product "911", 320x480, and corner mapping verified against on-screen targets — no flip needed (2026-08-27) |
 | `modules/input/` (joystick, btn)  | ✅ HW-confirmed | real ADC counts + debounced presses (2026-08-27)  |
 | `modules/LedModule`, `BuzzerModule` | ✅ HW-confirmed | LEDs, tones and melodies (2026-08-27)          |
 | `platform/pico/PicoWs2812Module`  | ✅ HW-confirmed | RGB LED on the kit, GP12 PIO (2026-08-27)        |
