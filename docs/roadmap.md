@@ -124,6 +124,44 @@ honest-menu principle from a hand-maintained list into an invariant.
 
 ---
 
+## 5. Async streams need a writer that outlives one command — *proposed*
+
+**The problem.** A `Writer` is a stack local owned by a single `dispatch()` — `UartWriter out;` in
+`transport/uart`, `TelnetWriter out(fd);` in `transport/telnet`. It dies when the command returns.
+But a module's *stream* outlives the command that started it: `ir recv`, `aicam stream` and the
+`watch` modes on `touch` / `joy` / `btn` all emit from `tick()`, in the UART task, long afterwards.
+
+There is currently no writer such a module may legally hold, so **every one of them writes to the
+board console** via `hal_uart_puts` (see `modules/ConsoleOut.h`). Start `touch watch` over telnet
+and you get the acknowledgement on telnet and the stream on the serial port — which is not what
+anyone means by it.
+
+This is not a hypothetical: a module storing the `Writer*` it was handed is a use-after-free, and
+that shipped briefly on 2026-08-27 before being caught and routed to the console instead. The
+console was the only sink guaranteed to still exist.
+
+**The fix.** A small **sink registry in `core/`**, with lifetime owned by the transports: register a
+Writer when a session opens, unregister when it closes; tick-driven modules emit to the registered
+sinks, falling back to the console when there are none. One change fixes every streaming module,
+and both serial and telnet see the output.
+
+**Risks worth designing for, not discovering.**
+- *Cross-task writes.* The UART task would call `lwip_send` on telnet's socket. The Pico runner uses
+  the `lwip_sys_freertos` flavour, whose socket API is thread-safe — verify rather than assume, and
+  check the ESP32 runner separately.
+- *A stalled client must not stall the board.* If a telnet socket blocks, the tick loop that also
+  polls touch and buttons stalls behind it. Needs a non-blocking send with an explicit drop policy,
+  so a wedged client degrades its own stream and nothing else.
+
+**Relation to item 2.** The session/channel unification wants exactly the same thing — "the
+command's output *plus any async stream it spawns* routes back to that same channel's writer" — but
+for the channel bus. These are one abstraction seen from two directions: an addressable writer that
+outlives a dispatch. Worth checking whether one mechanism serves both before building either.
+
+**Affected today:** `ir recv`, `aicam stream`, `touch watch`, `joy watch`, `btn watch`.
+
+---
+
 ## Cheap insurance (do regardless of path)
 
 - **Protocol versioning.** A version byte in the channel handshake (and `i2c_ids.h` is already the
@@ -132,6 +170,15 @@ honest-menu principle from a hand-maintained list into an invariant.
 - **Pinned releases + a public README** — *DONE 2026-08*. `v1.0` tagged, scaffolds emit
   `GIT_TAG <release>` via `FRAMEWORK_TAG`, and the getting-started/module/cmdr docs are written.
   Releases are two-part `vMAJOR.MINOR`; the major moves only when a release breaks consumers.
+- **Audit the HAL for peripherals left in an assumed state.** Two bugs on 2026-08-27 were the same
+  species: `hal_i2c_write_read` held the bus with no STOP when no read followed (the GT911's
+  touch-acknowledge write never completed), and `hal_pwm_stop` disabled the PWM slice without
+  settling the pin, freezing it high about half the time (a buzzer stuck on). In both cases the HAL
+  left the peripheral wherever the last operation happened to leave it, rather than putting it in a
+  defined state. **The host tests cannot catch this class** — `tests/fakes` has its own HAL, so it
+  sees what a driver *asks for*, never what the silicon is left holding. Worth reading the SPI and
+  GPIO paths with the same question: after this call returns, is the hardware in a state I set, or
+  one I hope it landed in?
 - **Make the CMake-generated dev scripts relocatable.** `cmake/GenerateScripts.cmake` substitutes
   `@CMDR_BUILD_DIR@` / `@CMDR_SOURCE_DIR@` as *absolute* paths, so on pico/pico2 the emitted
   `build`/`upload`/`monitor`/`bum-ota` hard-code the project's location. Renaming or moving a

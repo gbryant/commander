@@ -618,6 +618,12 @@ commander/
 
 ## What's next
 
+Two lists, deliberately separate: **PLAN.md ("What's next")** is the near-term
+work — hardware passes and specific gaps. **docs/roadmap.md** is the backlog of
+framework improvements and known design debt, each entry carrying the reasoning
+and its status (proposed / partially shipped / DONE). Non-urgent improvements go
+there rather than being remembered.
+
 See PLAN.md ("What's next") for the live list. Headlines: an IR hardware pass on the
 ESP32 (RMT) / Bluepill (EXTI) implementations, and Bluepill I2C (`hal_i2c_*` is
 stubbed there). **Phases R0–R3 are all done and hardware-confirmed** — platform

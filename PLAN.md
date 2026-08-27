@@ -273,6 +273,10 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
 
 ### What's next
 
+*Near-term work lives here. Framework improvements and known design debt that
+isn't urgent go in [docs/roadmap.md](docs/roadmap.md) — that's the backlog, and
+each entry keeps the reasoning behind it.*
+
 1. **Board commands — ESP32 only.** Pico has `reset` + `bootloader`
    (`BootselModule`, reset_usb_boot) and the Bluepill has `bootloader` (USB-DFU).
    The ESP32 has `reset` but no way to drop into download mode from the shell.
