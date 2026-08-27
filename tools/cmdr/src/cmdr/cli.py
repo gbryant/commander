@@ -1236,8 +1236,12 @@ MODULE_SPECS = {
         ("pins",        "LED pins, comma-separated", {"pico": "16,17", "pico2": "16,17", "esp32": "2", "r4": "13", "uno": "13"}),
         ("active_high", "LED lights when the pin is high?", "yes"),
     ]},
+    # `volume` is percent, applied as PWM duty — 0 is properly silent. It lives
+    # here rather than in the app because "how loud is this board allowed to be"
+    # is a property of the board and the room it's in, not of the code.
     "buzzer": {"always": False, "platforms": ["pico", "pico2"], "questions": [
-        ("pin", "Buzzer PWM pin", "13"),
+        ("pin",    "Buzzer PWM pin", "13"),
+        ("volume", "default volume 0-100 (0 = silent)", "100"),
     ]},
     # DS1302 RTC — Maxim 3-wire, bit-banged over hal_gpio_* (portable, all
     # platforms). Command `rtc`; the app reads/writes time via
@@ -1523,10 +1527,16 @@ def _emit_module(name: str, opts: dict, target: str):
                 ["uart.addTicker(_m_leds);"])
     if name == "buzzer":
         pin = opts.get("pin", 13)
+        vol = int(opts.get("volume", 100))
+        if not 0 <= vol <= 100:
+            die(f"buzzer 'volume' must be 0..100 (got {vol})")
+        # Emitted only when it differs from the module default, so existing
+        # projects' generated files don't churn on regen.
+        quiet = [f"_m_buzzer.setVolume({vol});"] if vol != 100 else []
         return (['#include "modules/BuzzerModule.h"'],
                 [f"static BuzzerModule _m_buzzer({pin});"],
-                ["reg.registerModule(_m_buzzer);",
-                 "if (commander_on_buzzer_ready) commander_on_buzzer_ready(_m_buzzer);"],
+                ["reg.registerModule(_m_buzzer);"] + quiet +
+                ["if (commander_on_buzzer_ready) commander_on_buzzer_ready(_m_buzzer);"],
                 ["uart.addTicker(_m_buzzer);"])
     if name == "ds1302":
         sclk = opts.get("sclk", 22)

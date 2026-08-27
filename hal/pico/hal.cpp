@@ -165,8 +165,9 @@ void hal_pwm_duty(uint8_t pin, uint8_t duty) {
     pwm_set_enabled(slice, true);
 }
 
-void hal_pwm_tone(uint8_t pin, uint32_t freq_hz) {
-    if (freq_hz == 0) { hal_pwm_stop(pin); return; }
+void hal_pwm_tone(uint8_t pin, uint32_t freq_hz, uint8_t duty_pct) {
+    if (freq_hz == 0 || duty_pct == 0) { hal_pwm_stop(pin); return; }
+    if (duty_pct > 100) duty_pct = 100;
     gpio_set_function(pin, GPIO_FUNC_PWM);   // hal_pwm_stop hands the pin back to SIO
     uint slice = pwm_gpio_to_slice_num(pin);
     // Pick the smallest divider that keeps wrap inside 16 bits, so low notes and
@@ -178,7 +179,10 @@ void hal_pwm_tone(uint8_t pin, uint32_t freq_hz) {
     if (wrap > 65535) wrap = 65535;
     pwm_set_clkdiv(slice, div);
     pwm_set_wrap(slice, (uint16_t)wrap);
-    pwm_set_gpio_level(pin, (uint16_t)(wrap / 2));   // 50% duty = square wave
+    // wrap/2 is a 50% square — the loudest a piezo goes. Scale from there.
+    uint32_t level = ((uint32_t)wrap * duty_pct) / 100u;
+    if (level == 0) level = 1;                      // never silence a live tone
+    pwm_set_gpio_level(pin, (uint16_t)level);
     pwm_set_enabled(slice, true);
 }
 

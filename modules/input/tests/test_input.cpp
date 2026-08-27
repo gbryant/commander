@@ -56,6 +56,14 @@ static uint32_t lastTone() {
     return hz;
 }
 
+// Duty cycle of the most recent tone — this is what volume actually controls.
+static uint32_t lastDuty() {
+    uint32_t duty = 0;
+    for (const auto &e : fake_hal::log)
+        if (e.kind == fake_hal::Event::PwmTone) duty = e.aux;
+    return duty;
+}
+
 int main() {
     // ═══ Joystick ════════════════════════════════════════════════════════════
     // NOTE: registerModule() calls init(), which calibrates. So register first
@@ -396,6 +404,49 @@ int main() {
         b.tick();
         check(lastTone() == 0 && !b.playing(), "buzz: runaway tone is cut off by the safety cap");
         check(b.lostStops() >= 1, "buzz: the cut-off is counted as a lost stop");
+
+        // ── Volume ───────────────────────────────────────────────────────────
+        // Loudness on a piezo is duty cycle, so volume must reach the pin — and
+        // 0 must be genuinely silent, not just quiet.
+        fake_hal::reset();
+        b.stop();
+        check(b.volume() == 100 && !b.muted(), "buzz: full volume by default");
+        b.tone(1000, 100);
+        uint32_t loud = lastDuty();
+        check(loud > 0, "buzz: a tone carries a duty cycle");
+
+        fake_hal::reset();
+        b.setVolume(50);
+        b.tone(1000, 100);
+        check(lastDuty() > 0 && lastDuty() < loud, "buzz: half volume lowers the duty cycle");
+
+        fake_hal::reset();
+        b.setVolume(0);
+        check(b.muted(), "buzz: volume 0 reads as muted");
+        b.tone(1000, 100);
+        check(lastTone() == 0, "buzz: muted means the pin is never driven");
+
+        // Muting must not distort timing — a silent melody still runs and ends
+        // on schedule, so app logic behaves the same either way.
+        fake_hal::reset();
+        b.play("c4:100,e4:100");
+        check(b.playing(), "buzz: a muted melody still plays (silently)");
+        check(lastTone() == 0, "buzz: ...and makes no sound");
+        fake_hal::now_us += 110000; b.tick();
+        check(b.playing(), "buzz: muted melody advances to the second note");
+        fake_hal::now_us += 110000; b.tick();
+        check(!b.playing(), "buzz: muted melody finishes on schedule");
+
+        // Turning the volume up mid-note takes effect immediately.
+        fake_hal::reset();
+        b.setVolume(100);
+        b.tone(880, 500);
+        check(lastTone() == 880, "buzz: unmuting restores sound");
+        fake_hal::reset();
+        b.setVolume(0);
+        check(lastTone() == 0, "buzz: muting mid-note silences it at once");
+        b.stop();
+        b.setVolume(100);
 
         // A very long sequence is truncated rather than overflowing the buffer.
         std::string longSeq;

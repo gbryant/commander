@@ -66,7 +66,11 @@ uint16_t hal_adc_max (void);   // full-scale count, e.g. 4095 — for portable s
 // hal_pwm_duty(), and audio via hal_pwm_tone() (fixed 50% duty at a frequency).
 void hal_pwm_init(uint8_t pin);
 void hal_pwm_duty(uint8_t pin, uint8_t duty);       // 0..255
-void hal_pwm_tone(uint8_t pin, uint32_t freq_hz);   // 0 Hz == stop
+// Square wave at freq_hz with the given duty cycle in percent. 0 Hz or 0% is
+// silence. Duty is how LOUD a piezo sounds: a 50% square carries the most
+// energy, and lower duty is quieter, so a volume control is a duty control.
+// Values above 50 are symmetric with their complement (75% sounds like 25%).
+void hal_pwm_tone(uint8_t pin, uint32_t freq_hz, uint8_t duty_pct);
 void hal_pwm_stop(uint8_t pin);
 
 // --- Time ----------------------------------------------------------------

@@ -103,5 +103,5 @@ uint16_t hal_adc_read(uint8_t)     { return 0; }
 uint16_t hal_adc_max (void)        { return 0; }
 void hal_pwm_init(uint8_t)         {}
 void hal_pwm_duty(uint8_t, uint8_t)   {}
-void hal_pwm_tone(uint8_t, uint32_t)  {}
+void hal_pwm_tone(uint8_t, uint32_t, uint8_t) {}
 void hal_pwm_stop(uint8_t)            {}

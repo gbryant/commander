@@ -21,6 +21,7 @@ struct Event {
     Kind                 kind;
     int                  pin   = -1;    // pin / bus / channel, per kind
     uint32_t             value = 0;     // level, frequency, duty, speed, ms…
+    uint32_t             aux   = 0;     // second parameter where one exists (tone duty)
     std::vector<uint8_t> bytes;         // SPI/I2C payload (16-bit writes: MSB first)
 };
 

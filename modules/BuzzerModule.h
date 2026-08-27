@@ -68,11 +68,27 @@ public:
 
     // ── App API ──────────────────────────────────────────────────────────────
     // A single tone for `ms` (0 = until stop()).
+    // Every path that makes noise goes through here, so volume (and mute) can't
+    // be bypassed by one of them.
+    void sound(uint32_t hz) {
+        if (hz == 0 || _volume == 0) { hal_pwm_stop(_pin); return; }
+        hal_pwm_tone(_pin, hz, dutyForVolume());
+    }
+    void reapply() {                       // volume changed mid-note
+        if (_mode == Off) return;
+        sound(_current);
+    }
+    uint8_t dutyForVolume() const {
+        // 50% duty is the loudest a square wave drives a piezo; scale to that.
+        uint32_t d = ((uint32_t)_volume * 50u) / 100u;
+        return (uint8_t)(d == 0 ? 1 : d);
+    }
+
     void tone(uint32_t hz, uint32_t ms = 0) {
         _seq[0] = '\0';
         _seqPos = 0;
         if (hz == 0) { stop(); return; }
-        hal_pwm_tone(_pin, hz);
+        sound(hz);
         _current  = hz;
         _toneCalls++;
         _lastMs   = ms;
@@ -120,6 +136,15 @@ public:
         if (cmdarg::is(name, "fail"))  return play("g4:140,r:40,c4:240");
         return false;
     }
+
+    // ── Volume ────────────────────────────────────────────────────────────────
+    // 0..100 percent, applied as PWM duty (see hal_pwm_tone). 0 is properly
+    // silent — the pin is never driven — but timing is unaffected: a muted
+    // melody still runs and finishes on schedule, so app logic behaves the same
+    // whether or not anyone can hear it.
+    void setVolume(uint8_t pct) { _volume = pct > 100 ? 100 : pct; reapply(); }
+    uint8_t volume() const { return _volume; }
+    bool    muted()  const { return _volume == 0; }
 
     bool     playing() const { return _mode != Off; }
     uint32_t current() const { return _current; }
@@ -170,6 +195,7 @@ private:
     uint32_t _stopCalls = 0;
     uint32_t _lostStops = 0;
     uint32_t _lastMs    = 0;
+    uint8_t  _volume    = 100;      // percent
 
     // Play the next note in _seq, or stop at the end of the sequence.
     void advance() {
@@ -194,8 +220,7 @@ private:
 
         uint32_t hz = noteToHz(note, noteLen);
         _current = hz;
-        if (hz) hal_pwm_tone(_pin, hz);
-        else    hal_pwm_stop(_pin);              // a rest is silence, not a stop
+        sound(hz);                               // a rest is silence, not a stop
         _noteEnd = hal_time_us() + (uint64_t)ms * 1000;
         _mode    = Sequence;
     }
@@ -217,6 +242,7 @@ inline void BuzzerModule::usage(Writer &out) {
     out.writeln("buzz beep                a short chirp");
     out.writeln("buzz play <notes>        e.g. c4:200,e4:200,g4:400  ('r' = rest)");
     out.writeln("buzz melody boot|ok|alert|fail");
+    out.writeln("buzz vol [0-100]         volume; 0 mutes (bare: report it)");
 }
 
 inline void BuzzerModule::dispatch(const char *args, Writer &out) {
@@ -230,6 +256,18 @@ inline void BuzzerModule::dispatch(const char *args, Writer &out) {
         return;
     }
     if (cmdarg::is(p, "beep")) { beep(); out.writeln("beep"); return; }
+
+    if (cmdarg::is(p, "vol") || cmdarg::is(p, "volume")) {
+        long v;
+        if (!cmdarg::integer(cmdarg::next(p), v, 0, 100)) {
+            out.write("volume "); cmdarg::putUInt(out, _volume); out.writeln("%");
+            return;
+        }
+        setVolume((uint8_t)v);
+        if (_volume == 0) out.writeln("muted");
+        else { out.write("volume "); cmdarg::putUInt(out, _volume); out.writeln("%"); }
+        return;
+    }
 
     if (cmdarg::is(p, "play")) {
         const char *q = cmdarg::next(p);
@@ -251,6 +289,8 @@ inline void BuzzerModule::dispatch(const char *args, Writer &out) {
         } else {
             out.writeln("silent");
         }
+        cmdarg::putField(out, "volume",     (int32_t)_volume);
+        if (_volume == 0) out.writeln("  (muted — commands still run, silently)");
         cmdarg::putField(out, "mode",       kModes[_mode]);
         cmdarg::putField(out, "tones",      (int32_t)_toneCalls);
         cmdarg::putField(out, "stops",      (int32_t)_stopCalls);

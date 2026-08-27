@@ -273,7 +273,17 @@ Questions: `pins`, `active_high`.
 
 ### buzzer — piezo buzzer
 `buzz` — what's playing; `buzz <hz> [ms]`, `off`, `beep`,
-`play <notes>`, `melody boot|ok|alert|fail`.
+`play <notes>`, `melody boot|ok|alert|fail`, `vol [0-100]`.
+
+**Volume, and muting.** Loudness on a piezo is the PWM duty cycle — a 50% square
+carries the most energy — so `volume` (percent, a `cmdr.toml` question) scales
+the duty, and **0 is properly silent: the pin is never driven**. Muting does
+*not* alter timing: a silent melody still runs and finishes on schedule, so app
+logic behaves identically whether or not anyone can hear it. `buzz vol 0` mutes
+for the session; `volume = 0` in `cmdr.toml` mutes from boot.
+
+Like the ws2812's `brightness`, this lives with the board's configuration rather
+than in app code — how loud a device may be is a property of the room it's in.
 
 Note syntax is `<note><octave>[#|b]:<ms>` comma-separated, with `r` for a rest:
 `buzz play c4:200,e4:200,g4:400`. Frequencies come from an integer table shifted

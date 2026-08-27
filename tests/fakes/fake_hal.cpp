@@ -167,7 +167,10 @@ uint16_t hal_adc_max (void)        { return 4095; }
 
 void hal_pwm_init(uint8_t pin)              { push(Event::PwmInit, pin); }
 void hal_pwm_duty(uint8_t pin, uint8_t d)   { push(Event::PwmDuty, pin, d); }
-void hal_pwm_tone(uint8_t pin, uint32_t hz) { push(Event::PwmTone, pin, hz); }
+void hal_pwm_tone(uint8_t pin, uint32_t hz, uint8_t duty) {
+    push(Event::PwmTone, pin, hz);
+    fake_hal::log.back().aux = duty;   // qualified: ::log is <math.h>'s
+}
 void hal_pwm_stop(uint8_t pin)              { push(Event::PwmStop, pin); }
 
 void     hal_delay_ms(uint32_t ms) { push(Event::Delay, -1, ms); now_us += (uint64_t)ms * 1000; }
