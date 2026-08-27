@@ -86,13 +86,13 @@ void commander_on_wifi_connected();                // post-WiFi (launch PIO/core
 | `include/i2c_ids.h`               | ✅ done      | wire protocol spec                                  |
 | `hal/hal.h` interface             | ✅ done      | I2C, GPIO, SPI, ADC, PWM, time, UART                |
 | `hal/arduino/`                    | ✅ done      | Wire + Arduino GPIO + Serial                        |
-| `hal/pico/`                       | ✅ done      | Pico SDK; the only HAL with SPI/ADC/PWM so far      |
+| `hal/pico/`                       | ✅ done      | Pico SDK; the only HAL with SPI/ADC/PWM so far. SPI + PWM HW-confirmed 2026-08-27 (GEEK panel + backlight); ADC still untested |
 | `hal/esp32/`                      | ✅ done      | ESP-IDF v5 i2c_master + UART driver                 |
 | `modules/CompassModule`           | ✅ done      | HAL only                                            |
 | `modules/SonarModule`             | ✅ done      |                                                     |
-| `modules/display/` (SpiPanel)     | ✅ done      | shared base: drawing, clipping, text, `lcd` command  |
+| `modules/display/` (SpiPanel)     | ✅ HW-confirmed | drawing/text/offsets proven on a 240x135 ST7789 (2026-08-27) |
 | `modules/display/` (st7796)       | 🟡 untested  | builds + host-tested; not yet on a panel             |
-| `modules/display/` (st7789)       | 🟡 untested  | 240x135/240x240/320x170; window offsets host-tested  |
+| `modules/display/` (st7789)       | ✅ HW-confirmed | RP2350-GEEK 1.14" panel, rotation 1 (2026-08-27)  |
 | `modules/touch/` (gt911)          | 🟡 untested  | builds + host-tested; not yet on a panel             |
 | `modules/input/` (joystick, btn)  | 🟡 untested  | builds + host-tested; not yet on the board          |
 | `modules/LedModule`, `BuzzerModule` | 🟡 untested | builds + host-tested; not yet on the board          |
@@ -307,7 +307,9 @@ is the command's own toggle. Enables the zero-code Uno Q IR demo: `cmdr autostar
    `hal/arduino`, `hal/esp32`, `hal/stm32` and `hal/zephyr` carry honest stubs
    today, and the cmdr menu is gated to match.
 
-6. **A debug probe with a screen (RP2350-GEEK).** Planned project, design notes in
+6. **A debug probe with a screen (RP2350-GEEK).** **Tier 1 is built and
+   hardware-confirmed (2026-08-27)** — see [cmdr-probe] and its `docs/geek-lcd.md`.
+   Remaining tiers and the design reasoning are in
    [probe-display.md](docs/probe-display.md). Turn a Waveshare RP2350-GEEK into a
    CMSIS-DAP probe that displays its own state, then the target's. Architecture is
    settled: **fork `debugprobe` and add a commander shell on a second USB CDC**,

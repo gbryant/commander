@@ -4,8 +4,9 @@ Notes for a planned project: turn a **Waveshare RP2350-GEEK** into a debug probe
 that shows what it's doing on its own LCD, and eventually shows something about
 the *target's* execution.
 
-Nothing here is built yet. The `st7789` module is the first piece and it has
-landed; the rest is recorded so the reasoning doesn't have to be redone.
+**Tier 1 is built and hardware-confirmed (2026-08-27)** — the firmware is
+[cmdr-probe], a fork of debugprobe, and its `docs/geek-lcd.md` records what the
+hardware taught us. Tiers 2 and 3 below are still design notes.
 
 ## The board
 
@@ -39,14 +40,19 @@ vendor interface (CMSIS-DAP bulk) plus one CDC (the UART bridge).
 
 Three tiers, in ascending order of ambition and descending order of certainty.
 
-### 1. Probe status on the LCD
+### 1. Probe status on the LCD — DONE, hardware-confirmed
 
-Target connected / IDCODE, SWD clock, DAP transaction counters, UART bridge baud
-and byte rates, the last few lines of target output, USB state. Every one of
-those values already exists inside the firmware; it has nowhere to go today.
+A traffic light for the target: green running, yellow halted/stepping, red for a
+broken link, grey for no debugger — plus DHCSR, the DP IDCODE and transfer/fault
+counts underneath.
 
-Certain. The only new code is the display driver (done — `st7789`) and a status
-task.
+The state is snooped from the host's own DAP traffic, which cost the debug
+session nothing. **The part that was not obvious:** OpenOCD parks `TAR` at the
+DHCSR address once and then polls through the MEM-AP **banked data registers**
+(`BD0` at AP offset `0xD10` on ADIv6), so a snooper that only understands
+`TAR`/`DRW` sees the connect handshake and then goes blind. That also matters for
+tier 2 below, which has to share the link's conventions. Full write-up in
+cmdr-probe's `docs/geek-lcd.md`.
 
 ### 2. Standalone SWD monitor — a sampling profiler
 
@@ -115,9 +121,11 @@ versus debugprobe's own descriptors) and makes upstream rebases harder.
 
 ## Status
 
-- [x] `st7789` module (this is the display the probe needs)
-- [ ] Fork debugprobe; take GP25 over as a real backlight
+- [x] `st7789` module (this is the display the probe needs) — HW-confirmed
+- [x] Fork debugprobe ([cmdr-probe]); GP25 taken over as a real backlight
+- [x] Tier 1 status screen — HW-confirmed 2026-08-27
+- [x] Remote BOOTSEL via CMSIS-DAP vendor command (stock debugprobe has no
+      picoboot reset interface, so reflashing otherwise needs the BOOT button)
 - [ ] Second CDC + commander shell
-- [ ] Tier 1 status screen
 - [ ] Tier 2 standalone sampling profiler (+ symbols from the TF card)
 - [ ] Tier 3 ITM capture over SWD

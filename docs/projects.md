@@ -23,6 +23,7 @@ siblings in `~/github/` and are found by their prefix.
 | [cmdr-oi-bridge](#cmdr-oi-bridge) | r4 | PlatformIO | Arduino Uno R4 WiFi + Roomba | The slave half; commander as an I2C peripheral |
 | [cmdr-solar-monitor](#cmdr-solar-monitor) | esp32 | CMake / ESP-IDF | ESP32-S3-N16R8 + INA219 | The smallest useful consumer; firmware + host logging |
 | [cmdr-pico-breadboard-kit](#cmdr-pico-breadboard-kit) | pico2 | CMake / Pico SDK | GeeekPi Pico Breadboard Kit: 3.5" touch TFT, stick, buttons, LEDs, buzzer | A whole dev board as modules — display + touch + front-panel I/O |
+| [cmdr-probe](#cmdr-probe) | pico2 | CMake / Pico SDK | Waveshare RP2350-GEEK debug probe | Not a consumer — a debugprobe fork that borrows commander's display layer |
 | [cmdr-unoq-ir-speaker](#cmdr-unoq-ir-speaker) | unoq | CMake / Zephyr (west) | Arduino Uno Q + IR receiver + BT speaker | Dual-brain: MCU real-time work feeding a Linux consumer. Zero custom firmware |
 | [unoq-tools](#unoq-tools) | — | — | Arduino Uno Q (Debian side) | Not a consumer — a companion tooling repo |
 
@@ -208,6 +209,33 @@ socket, announces itself, and needs no computer.
 Hardware-confirmed 2026-08-12: 18 presses decoded, matched and spoken, and the
 full chain coming up by itself after a reboot. The walkthrough that builds this
 device from nothing is [unoq-ir-speaker.md](unoq-ir-speaker.md).
+
+## cmdr-probe
+
+**A debug probe that shows what the target is doing.** A Waveshare RP2350-GEEK
+running `debugprobe` (CMSIS-DAP), with a traffic light for the target on its own
+1.14" LCD: green running, yellow halted or stepping, red for a broken link, grey
+for no debugger — plus DHCSR, the DP IDCODE and transfer counts.
+
+Not a commander consumer in the usual sense: it's a **fork of
+raspberrypi/debugprobe** that compiles a few files from a commander checkout
+(`COMMANDER_PATH`) rather than fetching the framework as a dependency. It's
+listed here because it does depend on commander's source layout — `IDisplay`,
+`Font5x7`, `SpiPanel`/`St7789Module`, `hal/pico` and `core/CommandRegistry` — so
+moving those breaks it, exactly like the FetchContent consumers.
+
+- **Framework code used:** the `st7789` display module and the Pico HAL's
+  SPI/PWM. The probe firmware contains no ST7789 register code of its own.
+- **Hardware-confirmed 2026-08-27** against a Pico 2 W target.
+
+Its value back to the framework is the proof that the display layer travels:
+`IDisplay` + `SpiPanel` dropped into a foreign C firmware — different USB stack,
+different FreeRTOS config, no commander runner, no `CommandRegistry` shell — and
+worked. That's the seam doing its job.
+
+Findings from its bring-up live in its own `docs/geek-lcd.md`; the roadmap for
+its later tiers (a standalone sampling profiler, ITM trace) is in
+[probe-display.md](probe-display.md).
 
 ## unoq-tools
 

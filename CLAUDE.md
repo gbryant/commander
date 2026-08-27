@@ -589,6 +589,13 @@ commander/
 - Arduino Uno Q: hardware-confirmed — `help` on the M33 over the ch0 console, the
   channel bus carrying IR presses to a Debian subscriber on ch1 while ch0 stays
   free, and `cmdr autostart` streaming from boot. Consumer: cmdr-unoq-ir-speaker.
+- Display stack (`SpiPanel` + `st7789` + `Font5x7`, and `hal_spi_*`/`hal_pwm_*` on
+  pico): **hardware-confirmed 2026-08-27** on a Waveshare RP2350-GEEK's 1.14"
+  240x135 ST7789 — init sequence, window offsets, fills and text at three scales,
+  PWM backlight. Confirmed at rotation 1 only, and via the C++ API rather than the
+  `lcd` command (the host firmware, [cmdr-probe], has no shell yet). The consumer
+  is a debug-probe status screen, not a commander app — proof the display layer
+  travels outside commander.
 - Pico Breadboard Kit peripherals (`st7796`, `gt911`, `joystick`, `buttons`,
   `leds`, `buzzer`, pico `ws2812`): **builds + host-tested, NOT hardware-confirmed.**
   Firmware links for RP2350 (460 KB flash / 277 KB RAM with the full stack) and
