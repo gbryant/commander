@@ -34,7 +34,7 @@ REPO_URL = "https://github.com/gbryant/commander.git"
 # Versioning is two-part and the left digit means one thing: **this release breaks you**. Right
 # digit for everything else. Bump this constant as part of cutting a release, so a project
 # scaffolded today gets today's framework.
-FRAMEWORK_TAG = "v1.2"
+FRAMEWORK_TAG = "v1.3"
 
 # The OLDEST framework release this cmdr's generated code compiles against.
 #
@@ -1911,8 +1911,22 @@ def _extra_top_keys(path: Path) -> "list[str]":
     return keep
 
 
-def write_manifest(path: Path, target: str, modules: dict, autostart: "list" = None) -> None:
+_KEEP = object()      # "leave whatever is in the file alone"
+
+
+def write_manifest(path: Path, target: str, modules: dict, autostart: "list" = None,
+                   debug=_KEEP) -> None:
+    # [debug] is preserved by default rather than passed by every caller: the
+    # same trap `_extra_top_keys` exists for. A `cmdr module enable` that dropped
+    # it would leave ./flash and ./debug orphaned, with nothing to regenerate from.
+    dbg = _read_debug(path) if debug is _KEEP else debug
     lines = [f'target = "{target}"'] + _extra_top_keys(path) + [""]
+    if dbg:
+        lines.append("[debug]")
+        for k, v in dbg.items():
+            lines.append(f"{k} = {v}" if isinstance(v, int) and not isinstance(v, bool)
+                         else f'{k} = "{v}"')
+        lines.append("")
     for name in sorted(modules):
         lines.append(f"[module.{name}]")
         for k, v in modules[name].items():
@@ -2594,6 +2608,16 @@ def _emit_scripts(target: str, name: str, out_dir: Path, chip: str = "esp32s3",
         _script("install-broker",    UNOQ_INSTALL_BROKER_SCRIPT)
         _script("restore-arduino",   UNOQ_RESTORE_ARDUINO_SCRIPT)
         _script("deploy-sbc",        UNOQ_DEPLOY_SBC_SCRIPT)
+    # SWD files (`cmdr enable debug`). Emitted for every target that has them,
+    # including pico/pico2 - those write nothing above, but their flash/debug/
+    # reset come from cmdr, not from CMake.
+    _dbg = _read_debug(out_dir / "cmdr.toml")
+    if _dbg and target in DEBUG_TARGETS:
+        if dry:
+            written.extend(DEBUG_FILES)
+        else:
+            written.extend(_emit_debug_files(target, name, out_dir, _dbg))
+
     # pico/pico2: dev scripts come from CMake (commander_generate_scripts) → none here.
     return written
 
@@ -3318,6 +3342,288 @@ def disable_dfu() -> None:
         print("  • bum restored to ST-Link upload")
 
 
+# ── SWD debugging (`cmdr enable debug`) ───────────────────────────────────────
+#
+# Emits a wiring description (openocd.cfg) plus three thin shims — flash, debug,
+# reset — that delegate to scripts/swd.sh in the framework. The shims are
+# generated and gitignored like build/upload/monitor; the logic they call lives
+# in commander so it refreshes with `cmdr pull` instead of going stale in every
+# project. cmdr.toml's [debug] section is the record, so `cmdr regen` can put
+# the scripts back after a fresh clone.
+
+# The RP2350 gotcha, paid for once on the breadboard kit: without this, a `reset`
+# with both cores running leaves core1 somewhere gdb cannot recover from.
+_RP2350_QUIRK = """
+# The RP2350's second core needs SYSRESETREQ rather than the default reset, or a
+# `reset` with both cores running leaves core1 in a state gdb can't recover.
+rp2350.dap.core1 cortex_m reset_config sysresetreq
+"""
+
+# Only targets where a local SWD probe genuinely applies, and only where the
+# openocd config is verified to exist. Deliberately absent:
+#   esp32 - Xtensa/RISC-V, not ARM SWD; it debugs over its own JTAG story.
+#   r4    - Renesas RA4M1. openocd 0.12 ships no renesas_ra target config
+#           (checked 2026-08-28), so offering it would emit a script that
+#           cannot work.
+#   uno   - AVR, no SWD at all.
+#   unoq  - STM32U585, but it flashes over adb to the paired Linux side rather
+#           than a local probe. Its own `flash` script already handles that.
+DEBUG_TARGETS = {
+    "pico":     {"cfg": "target/rp2040.cfg",   "quirks": "",            "speed": 5000, "probe": "cmsis-dap"},
+    "pico2":    {"cfg": "target/rp2350.cfg",   "quirks": _RP2350_QUIRK, "speed": 5000, "probe": "cmsis-dap"},
+    "bluepill": {"cfg": "target/stm32f1x.cfg", "quirks": "",            "speed": 1000, "probe": "stlink"},
+}
+
+# interface/<file> in openocd's script path. cmsis-dap covers the Waveshare
+# RP2350-GEEK, the Pi Debug Probe and picoprobe.
+DEBUG_PROBES = {
+    "cmsis-dap": "interface/cmsis-dap.cfg",
+    "stlink":    "interface/stlink.cfg",
+    "jlink":     "interface/jlink.cfg",
+}
+
+# The release that introduced scripts/swd.sh. The shims exec it out of the
+# *fetched* framework, so a project pinned older than this would get scripts that
+# can't find their implementation. Deliberately a feature-specific minimum rather
+# than a MIN_FRAMEWORK_TAG bump: nothing else cmdr generates needs v1.3, and
+# forcing every v1.2 project to move just to keep using `cmdr module enable`
+# would be the version-skew guard doing more harm than the skew.
+DEBUG_MIN_TAG = "v1.3"
+
+DEBUG_SCRIPTS = ["flash", "debug", "reset"]
+DEBUG_FILES = DEBUG_SCRIPTS + ["openocd.cfg"]
+
+OPENOCD_CFG_TEMPLATE = """\
+# SWD wiring for __NAME__ - generated by `cmdr enable debug`.
+#
+# Generated from the [debug] section of cmdr.toml: change the probe or speed
+# there and run `cmdr regen`. Edits to this file are overwritten.
+#
+# Wiring: probe SWCLK -> target SWCLK, SWDIO -> SWDIO, GND -> GND. Power the
+# target over its own USB; a probe's 3V3 pin is not a supply for a whole board.
+
+source [find __INTERFACE__]
+transport select swd
+adapter speed __SPEED__
+
+source [find __TARGET_CFG__]
+__QUIRKS__
+# Anything this generator doesn't cover - a nonstandard reset, a second target,
+# a flash bank - goes in openocd-local.cfg beside this file. That one is yours:
+# not generated, not gitignored.
+set _local [file join [file dirname [info script]] openocd-local.cfg]
+if {[file exists $_local]} { source $_local }
+"""
+
+# The shim. Locating the framework is the one piece that has to live in the
+# project, because only the project knows how it fetched commander.
+SWD_SHIM_SCRIPT = """\
+#!/bin/bash
+# Thin shim: the real logic is scripts/swd.sh in the commander framework, so it
+# refreshes with `cmdr pull` rather than going stale here. Generated by
+# `cmdr enable debug` - change [debug] in cmdr.toml and run `cmdr regen`.
+set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+find_impl() {
+    # An explicit override always wins.
+    if [ -n "${COMMANDER_PATH:-}" ] && [ -f "$COMMANDER_PATH/scripts/swd.sh" ]; then
+        echo "$COMMANDER_PATH/scripts/swd.sh"; return
+    fi
+    # `cmdr link` - CMake records the local checkout in the cache.
+    local src
+    src=$(grep -h '^FETCHCONTENT_SOURCE_DIR_COMMANDER:' build-*/CMakeCache.txt 2>/dev/null \
+          | head -1 | cut -d= -f2-) || true
+    if [ -n "$src" ] && [ -f "$src/scripts/swd.sh" ]; then
+        echo "$src/scripts/swd.sh"; return
+    fi
+    # FetchContent (CMake), then lib_deps (PlatformIO).
+    find build-* -path '*/commander-src/scripts/swd.sh' 2>/dev/null | head -1 | grep . && return
+    find .pio/libdeps -path '*/commander/scripts/swd.sh' 2>/dev/null | head -1 | grep . && return
+    true
+}
+
+IMPL=$(find_impl)
+if [ -z "$IMPL" ]; then
+    # Two different problems with the same symptom, so say which one it is.
+    if find build-* .pio/libdeps -maxdepth 3 -name commander -o -name commander-src \
+       2>/dev/null | grep -q .; then
+        echo "commander is fetched, but it has no scripts/swd.sh - the pinned version" >&2
+        echo 'predates `cmdr enable debug`. Upgrade it:' >&2
+        echo "    cmdr pin __MIN_TAG__ && cmdr pull" >&2
+    else
+        echo "commander not fetched yet - run ./build first (it downloads the" >&2
+        echo "framework), then re-run ./__SCRIPT__." >&2
+    fi
+    exit 1
+fi
+exec bash "$IMPL" __ACTION__ --cfg openocd.cfg --build-dir "__BUILD_DIR__" "$@"
+"""
+
+
+def _debug_build_dir(target: str, root: Path = Path(".")) -> str:
+    """Where the linked ELF lands, per target's build system."""
+    if target in PICO_TARGETS:
+        return f"build-{target}"
+    pio = root / "platformio.ini"
+    if pio.exists():
+        return f".pio/build/{_env_name_from_pio(pio.read_text())}"
+    return f"build-{target}"
+
+
+def _read_debug(path: Path = Path("cmdr.toml")) -> dict:
+    """The [debug] section of a manifest, or {} if absent."""
+    if not path.exists():
+        return {}
+    out: dict = {}
+    in_debug = False
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("["):
+            in_debug = (line == "[debug]")
+            continue
+        if in_debug and "=" in line:
+            k, _, v = line.partition("=")
+            k, v = k.strip(), v.strip()
+            if v[:1] == '"' and v[-1:] == '"':
+                out[k] = v[1:-1]
+            else:
+                try:
+                    out[k] = int(v, 0)
+                except ValueError:
+                    out[k] = v
+    return out
+
+
+_DEBUG_GITIGNORE_HEADER = ("# cmdr-generated SWD files (`cmdr enable debug`) — "
+                           "`cmdr regen` puts them back")
+
+
+def _gitignore_add_debug(entries: "list[str]") -> None:
+    """Add the generated SWD files to .gitignore in one block. Written as a
+    block rather than per-entry so the heading appears once and no blank lines
+    creep in between the paths."""
+    gi = Path(".gitignore")
+    lines = gi.read_text().splitlines() if gi.exists() else []
+    missing = [e for e in entries if f"/{e}" not in lines and e not in lines]
+    if not missing:
+        return
+    block = []
+    if _DEBUG_GITIGNORE_HEADER not in lines:
+        block.append(_DEBUG_GITIGNORE_HEADER)
+    block += [f"/{e}" for e in missing]
+    with gi.open("a") as f:
+        if lines and lines[-1].strip():
+            f.write("\n")
+        f.write("\n".join(block) + "\n")
+
+
+def _emit_debug_files(target: str, name: str, out_dir: Path, dbg: dict) -> "list[str]":
+    """Write openocd.cfg + the flash/debug/reset shims. Shared by `cmdr enable
+    debug` and `cmdr regen` so the two can't drift - the same reason
+    `_emit_scripts` is shared by init and regen."""
+    spec = DEBUG_TARGETS[target]
+    probe = dbg.get("probe", spec["probe"])
+    written = []
+
+    (out_dir / "openocd.cfg").write_text(render(
+        OPENOCD_CFG_TEMPLATE,
+        name=name,
+        interface=DEBUG_PROBES.get(probe, DEBUG_PROBES["cmsis-dap"]),
+        speed=str(dbg.get("speed", spec["speed"])),
+        target_cfg=str(dbg.get("target_cfg", spec["cfg"])),
+        quirks=spec["quirks"],
+    ))
+    written.append("openocd.cfg")
+
+    build_dir = _debug_build_dir(target, out_dir)
+    for script in DEBUG_SCRIPTS:
+        write_script(out_dir / script, render(
+            SWD_SHIM_SCRIPT, script=script, action=script, build_dir=build_dir,
+            min_tag=DEBUG_MIN_TAG))
+        written.append(script)
+    return written
+
+
+def enable_debug(probe: "str | None" = None) -> None:
+    manifest = Path("cmdr.toml")
+    if not manifest.exists():
+        die("no cmdr.toml here - run from a commander project root")
+    target, modules, autostart = read_manifest(manifest)
+    target = target or detect_target()
+    if target not in DEBUG_TARGETS:
+        die(f"`cmdr enable debug` has no SWD story for target '{target}'.\n"
+            f"Supported: {', '.join(sorted(DEBUG_TARGETS))}.\n"
+            "esp32 is not ARM SWD, uno is AVR, r4 has no openocd target config,\n"
+            "and unoq flashes over adb (see its own ./flash).")
+
+    # `cmdr link` is framework development: the local checkout is the version.
+    if not Path(_LOCAL_CMAKE).exists():
+        have, need = _parse_release(_project_pin()), _parse_release(DEBUG_MIN_TAG)
+        if have and need and have < need:
+            die(f"`cmdr enable debug` needs commander >= {DEBUG_MIN_TAG} (it added "
+                f"scripts/swd.sh,\nwhich the generated ./flash, ./debug and ./reset "
+                f"exec), but this project pins {_project_pin()}.\n\n"
+                f"  cmdr pin {DEBUG_MIN_TAG} && cmdr pull\n\n"
+                "Nothing else needs the bump — this is the only feature that does.")
+
+    spec = DEBUG_TARGETS[target]
+    probe = probe or spec["probe"]
+    if probe not in DEBUG_PROBES:
+        die(f"unknown probe '{probe}' - choose from: {', '.join(sorted(DEBUG_PROBES))}")
+
+    dbg = {"probe": probe, "target_cfg": spec["cfg"], "speed": spec["speed"]}
+    write_manifest(manifest, target, modules, autostart, debug=dbg)
+
+    name = Path.cwd().name
+    pio = Path("platformio.ini")
+    if pio.exists():
+        name = _env_name_from_pio(pio.read_text()) or name
+    _emit_debug_files(target, name, Path("."), dbg)
+    _gitignore_add_debug(DEBUG_FILES)
+
+    print(f"Enabled SWD debugging for {target} via {probe}:")
+    print("  \u2022 [debug] recorded in cmdr.toml (probe, target config, adapter speed)")
+    print(f"  \u2022 openocd.cfg - {DEBUG_PROBES[probe]} + {spec['cfg']}"
+          + (" + the RP2350 core1 reset fix" if spec["quirks"] else ""))
+    print("  \u2022 ./flash   flash over SWD - no BOOTSEL, verified, board stays wired")
+    print("  \u2022 ./debug   openocd + gdb attached")
+    print("  \u2022 ./reset   reset the target when the console is wedged")
+    print("  \u2022 all four gitignored - they're generated; `cmdr regen` puts them back")
+    print("\n./upload is unchanged: it still flashes over USB/BOOTSEL.")
+
+    # Optimisation level is the user's call. Changing a project's build type as
+    # a side effect of enabling a feature is too big a hammer - say it instead.
+    cmake = Path("CMakeLists.txt")
+    if cmake.exists() and "RelWithDebInfo" not in cmake.read_text():
+        print("\nnote: this project builds optimised, so gdb will report line numbers")
+        print("that jump and locals that have been optimised away. For a debugging")
+        print("session add to CMakeLists.txt, before project():")
+        print("    set(CMAKE_BUILD_TYPE RelWithDebInfo)")
+        print("cmdr does not change it for you - it would silently alter your image.")
+
+
+def disable_debug() -> None:
+    manifest = Path("cmdr.toml")
+    if not manifest.exists():
+        die("no cmdr.toml here - run from a commander project root")
+    target, modules, autostart = read_manifest(manifest)
+    if not _read_debug(manifest):
+        print("SWD debugging already disabled.")
+    else:
+        write_manifest(manifest, target or detect_target(), modules, autostart, debug={})
+        print("Removed [debug] from cmdr.toml.")
+    for f in DEBUG_FILES:
+        fp = Path(f)
+        if fp.exists():
+            fp.unlink()
+            print(f"  \u2022 removed {f}")
+    if Path("openocd-local.cfg").exists():
+        print("  ! kept openocd-local.cfg (hand-written, not generated)")
+
+
 # ── CLI entry points ──────────────────────────────────────────────────────────
 
 # Seeded into every new project so credentials and build output never land in
@@ -3383,6 +3689,8 @@ def cmd_enable(args: argparse.Namespace) -> None:
         enable_dfu()
     elif args.feature == "littlefs":
         enable_littlefs(label=args.label, subdir=args.dir, size_mb=args.size)
+    elif args.feature == "debug":
+        enable_debug(probe=args.probe)
 
 
 def cmd_disable(args: argparse.Namespace) -> None:
@@ -3392,6 +3700,8 @@ def cmd_disable(args: argparse.Namespace) -> None:
         disable_dfu()
     elif args.feature == "littlefs":
         disable_littlefs(label=args.label)
+    elif args.feature == "debug":
+        disable_debug()
 
 
 def cmd_update() -> None:
@@ -3811,7 +4121,10 @@ def main() -> None:
 
     # ── enable / disable ──────────────────────────────────────────────────────
     enable_p = sub.add_parser("enable", help="enable a feature in the current project")
-    enable_p.add_argument("feature", choices=["ota", "dfu", "littlefs"], help="feature to enable")
+    enable_p.add_argument("feature", choices=["ota", "dfu", "littlefs", "debug"],
+                          help="feature to enable")
+    enable_p.add_argument("--probe", choices=sorted(DEBUG_PROBES),
+                          help="debug: SWD probe interface (default: per target)")
     enable_p.add_argument("--size", type=int, metavar="MB",
                           help="littlefs: filesystem size in MB (default: remaining flash)")
     enable_p.add_argument("--label", default="storage",
@@ -3820,7 +4133,8 @@ def main() -> None:
                           help="littlefs: source dir packed into the image (default: storage)")
 
     disable_p = sub.add_parser("disable", help="disable a feature in the current project")
-    disable_p.add_argument("feature", choices=["ota", "dfu", "littlefs"], help="feature to disable")
+    disable_p.add_argument("feature", choices=["ota", "dfu", "littlefs", "debug"],
+                           help="feature to disable")
     disable_p.add_argument("--label", default="storage",
                            help="littlefs: partition label to remove (default: storage)")
 

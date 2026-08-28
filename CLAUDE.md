@@ -151,8 +151,17 @@ re-`init`; `--dry-run` available). `regen` deliberately does NOT touch hand-writ
 targeted migrations only). `init` and `regen` share `_emit_scripts` so they can't drift.
 The long-term direction is **thin shim scripts** that delegate to the fetched framework
 (logic lives in commander, refreshed by `pull`/`clean`) — `install-broker` is the first
-(its logic is `dev/unoq/install_broker.sh`; the project script is a stub) — which shrinks
+(its logic is `dev/unoq/install_broker.sh`; the project script is a stub) and
+`cmdr enable debug`'s `flash`/`debug`/`reset` the second (`scripts/swd.sh`) — which shrinks
 `regen`'s scope over time.
+
+**SWD debugging is opt-in per project** (`cmdr enable debug`, v1.3; pico/pico2/bluepill only).
+It writes `openocd.cfg` + `flash`/`debug`/`reset` and records `[debug]` in `cmdr.toml`;
+`write_manifest` preserves that section for callers that know nothing about it, the same care
+`[autostart]` and `libraries_only` get. `./upload` stays BOOTSEL — SWD is a second path, not a
+replacement — and enabling it warns about the optimised build type rather than changing it.
+Targets with no working openocd story (esp32, uno, r4, unoq) are refused, on the same honesty
+principle as the module menu.
 
 **Composable partition table + filesystem (ESP32).** `cmdr` owns the ESP32
 `partitions.csv` as a composition of enabled features rather than each feature

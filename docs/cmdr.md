@@ -85,6 +85,51 @@ flash via `./flash-bluepill-bootloader`): links the app above the bootloader,
 adds the `bootloader` shell command, and rewires `./bum` to reboot the board
 into DFU and flash with `dfu-util` (`./upload` stays ST-Link).
 
+### `cmdr enable debug [--probe cmsis-dap|stlink|jlink]` / `disable debug`
+
+SWD flashing and gdb through a hardware probe, for the targets where one
+applies: **pico**, **pico2** and **bluepill**. Writes four files —
+
+| file | what it does |
+|------|--------------|
+| `openocd.cfg` | the wiring: probe interface, target config, adapter speed |
+| `./flash` | flash over SWD — no BOOTSEL, verified, the board stays wired |
+| `./debug` | openocd + gdb attached to the running firmware |
+| `./reset` | reset the target when the console is wedged |
+
+`./upload` is left alone: it still flashes over USB/BOOTSEL. The two paths sit
+side by side, and SWD is the one that still works when the firmware is too
+wedged to be told to reboot.
+
+All four are **generated and gitignored**, like `build`/`upload`/`monitor` —
+`cmdr regen` puts them back after a clone. The scripts are thin shims; the real
+logic is `scripts/swd.sh` in the framework, so it refreshes with `cmdr pull`
+rather than going stale in each project. The record is a `[debug]` section in
+`cmdr.toml`:
+
+```toml
+[debug]
+probe = "cmsis-dap"                 # cmsis-dap covers the RP2350-GEEK, Pi Debug Probe, picoprobe
+target_cfg = "target/rp2350.cfg"
+speed = 5000
+```
+
+Change those and run `cmdr regen`. For anything the generator doesn't model — a
+nonstandard reset, a second target, an extra flash bank — put it in
+`openocd-local.cfg` beside `openocd.cfg`; the generated config sources it if it
+exists, and that file is yours to commit.
+
+Not offered where it couldn't work, for the same reason the module menu is
+honest: **esp32** isn't ARM SWD, **uno** is AVR, **unoq** flashes over adb (it
+has its own `./flash`), and **r4** has no `renesas_ra` target config in openocd
+0.12 — a `./flash` for it would exist and always fail.
+
+Needs commander **v1.3+** (the release that added `scripts/swd.sh`); enabling it
+on an older pin tells you so and names the fix. Note that projects build
+optimised by default, so gdb will report jumping line numbers and locals that
+have been optimised away — `cmdr` says so on enable but doesn't change your
+build type, which would silently alter the image you flash.
+
 ## Framework version
 
 A project fetches commander from GitHub at build time.

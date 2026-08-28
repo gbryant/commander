@@ -216,63 +216,51 @@ these helpers break silently whenever a struct field is renamed.
 
 ---
 
-## 7. Framework-aware debugging, part 2: consolidate SWD behind `cmdr enable debug` — *proposed*
+## 7. Framework-aware debugging, part 2: consolidate SWD behind `cmdr enable debug` — *DONE 2026-08-28 (v1.3)*
 
-**The actual state.** Commander flashes over SWD in four places, none sharing a
-config or a concept, and none offering gdb:
+`cmdr enable debug [--probe cmsis-dap|stlink|jlink]` emits `openocd.cfg` plus
+`flash` / `debug` / `reset`, recorded as a `[debug]` section in `cmdr.toml` and
+gitignored like the other generated scripts. Offered for **pico, pico2 and
+bluepill** only. See `docs/cmdr.md`.
 
-| where | what it does |
-|-------|--------------|
-| `tools/cmdr/src/cmdr/templates/flash-bluepill-bootloader` | `openocd -f interface/stlink.cfg -f target/stm32f1x.cfg` |
-| `tools/cmdr/src/cmdr/templates/unlock-bluepill` | openocd again, with its own PATH/PlatformIO discovery |
-| unoq `flash` template (in `cli.py`, look for `pkill -f openocd`) | openocd-over-adb, forwards tcp:3333 |
-| `cmdr-pico-breadboard-kit/{openocd.cfg,swd-flash,swd-debug,swd-reset}` | the CMSIS-DAP reference implementation — **generalise from this one** |
+**How it came out, against what was proposed:**
 
-**What to build.** `cmdr enable debug`, in the same shape as `cmdr enable
-ota|littlefs|dfu` (copy that structure — the `_ota_*` / `_littlefs_*` helpers in
-`cli.py`, plus a `cmdr.toml` record). It asks the probe type and emits
-`openocd.cfg`, `debug`, `reset`, and rewires `upload` to prefer SWD with a USB
-fallback.
+- **Thin shims, as directed.** The logic is `scripts/swd.sh` in the framework;
+  the project scripts locate it and exec it, so fixes travel by `cmdr pull`
+  instead of going stale in every consumer. `install-broker` was the precedent
+  and this is the second one. Resolution order is `$COMMANDER_PATH`, then
+  `FETCHCONTENT_SOURCE_DIR_COMMANDER` from the CMake cache (`cmdr link`), then
+  the FetchContent copy, then PlatformIO's `lib_deps` — and the failure message
+  distinguishes "not fetched yet" from "fetched but predates v1.3".
+- **`r4` is confirmed out.** openocd 0.12 ships no `renesas_ra` target config
+  (checked 2026-08-28), so it would have emitted a script that always fails.
+  `esp32`, `uno` and `unoq` are out for the reasons already given.
+- **The RP2350 core1 `sysresetreq` fix is generated** for pico2 and not for pico,
+  with the comment explaining why, so nobody has to pay for it twice.
+- **`upload` was NOT rewired** (decided 2026-08-28). It was proposed, but a
+  `./bum` that silently changes what it does depending on what is plugged in is
+  worse than two scripts that each do one thing. `./upload` is BOOTSEL, `./flash`
+  is SWD.
+- **Build type: warns, doesn't change.** Enabling a feature must not silently
+  alter the image you flash, so `cmdr` prints the `RelWithDebInfo` line and
+  leaves the choice alone. This is the open question from the original item,
+  answered.
+- **`[debug]` survives a debug-unaware `write_manifest`**, the way `[autostart]`
+  and the `libraries_only` top key do. Without it, `cmdr module enable` would
+  drop the section and orphan the scripts. Covered by a test that exists
+  specifically to fail if someone reworks the manifest writer.
+- **Version skew is feature-scoped.** `DEBUG_MIN_TAG = "v1.3"` rather than a
+  `MIN_FRAMEWORK_TAG` bump — nothing else cmdr generates needs v1.3, and forcing
+  every v1.2 project to move just to keep using `cmdr module enable` would be
+  the guard doing more harm than the skew.
 
-Per CLAUDE.md's stated direction these should be **thin shims delegating to a
-`scripts/swd.sh` in commander**, so the logic refreshes with `cmdr pull` rather
-than going stale in every project. `install-broker` (`dev/unoq/install_broker.sh`)
-is the existing precedent for that pattern. Done this way, the four integrations
-above can collapse onto it later instead of becoming a fifth copy.
-
-**Target → openocd config** (verify each; only the first two are confirmed):
-- `pico` → `target/rp2040.cfg`; `pico2` → `target/rp2350.cfg` ✔ used daily
-- `bluepill` → `target/stm32f1x.cfg` ✔ already in the bootloader template
-- `unoq` → STM32U585, but it flashes over **adb**, not a local probe — likely
-  stays special; fold in only if it's clean
-- `r4` → Renesas RA4M1. **Unverified** that a usable openocd target config
-  exists; check before promising the target
-- `esp32` → **not applicable** (Xtensa, not ARM). Don't offer it.
-
-**Interfaces:** `interface/cmsis-dap.cfg` covers the Waveshare RP2350-GEEK, the
-Pi Debug Probe and picoprobe; `interface/stlink.cfg` covers the bluepill's
-existing story. Make it a question, default cmsis-dap.
-
-**A gotcha already paid for:** RP2350 needs
-`rp2350.dap.core1 cortex_m reset_config sysresetreq` in the config, or a reset
-with both cores running leaves core1 somewhere gdb can't recover. It's in the
-kit's `openocd.cfg` with a comment.
-
-**Honest menu:** only offer this where a probe applies, and remember it's opt-in
-precisely because emitting a `debug` script for someone with no probe is the same
-dishonesty the module menu already avoids.
-
-**Open questions.**
-- *Build type.* Debugging wants `RelWithDebInfo`. Should `cmdr enable debug`
-  change it, warn, or leave it? Changing a project's optimisation level as a side
-  effect of enabling a feature is a big hammer.
-- *Should `upload` prefer SWD?* It's strictly better when a probe is attached —
-  it verifies, and it recovers a bricked target that can't be told to enter
-  BOOTSEL. But `swd-flash` currently hardcodes one project's ELF path and needs
-  generalising first.
-- *Does `debug` surface the probe's own view?* [cmdr-probe] knows the target's
-  run/halt state by snooping DAP traffic and can report it (`probe`) — but that's
-  one specific probe, and the framework shouldn't assume it.
+**Still open, deliberately:** the four other openocd call sites
+(`flash-bluepill-bootloader`, `unlock-bluepill`, the unoq `flash` template) have
+NOT been collapsed onto `swd.sh` yet. They work, and folding them in is a
+refactor with its own hardware-verification cost. `swd.sh` is now the thing to
+fold them onto rather than a fifth copy to add to. Item 6's gdb helpers are also
+still to do — `swd.sh`'s `debug` already loads `scripts/gdb/commander.py` if it
+finds one, so that item only has to write the file.
 
 ---
 
