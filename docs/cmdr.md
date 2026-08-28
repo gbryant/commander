@@ -122,9 +122,9 @@ surface as a compile error inside `commander_modules.h`, cmdr checks the pin
 before generating and offers both fixes:
 
 ```
-This cmdr generates code for commander >= v2.0, but this project pins v1.1.
+This cmdr generates code for commander >= v1.2, but this project pins v1.1.
 
-  Upgrade the project:  cmdr pin v2.0 && cmdr pull
+  Upgrade the project:  cmdr pin v1.2 && cmdr pull
   Or match the project: pip install --force-reinstall \
       "git+https://github.com/gbryant/commander.git@v1.1#subdirectory=tools/cmdr"
 ```

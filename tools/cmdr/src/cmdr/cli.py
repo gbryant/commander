@@ -34,7 +34,7 @@ REPO_URL = "https://github.com/gbryant/commander.git"
 # Versioning is two-part and the left digit means one thing: **this release breaks you**. Right
 # digit for everything else. Bump this constant as part of cutting a release, so a project
 # scaffolded today gets today's framework.
-FRAMEWORK_TAG = "v2.0"
+FRAMEWORK_TAG = "v1.2"
 
 # The OLDEST framework release this cmdr's generated code compiles against.
 #
@@ -48,10 +48,16 @@ FRAMEWORK_TAG = "v2.0"
 # current release. Nothing can derive it automatically. It's on PUBLISH_CHECKLIST
 # next to FRAMEWORK_TAG.
 #
-# v2.0: emits _m_ws2812.setBrightness()/_m_buzzer.setVolume(), the named-field
+# v1.2: emits _m_ws2812.setBrightness()/_m_buzzer.setVolume(), the named-field
 # SpiPanelConfig, the st7789/gt911/joystick/buttons/leds/buzzer module specs, and
 # commander_on_app_tickers — none of which exist in v1.1.
-MIN_FRAMEWORK_TAG = "v2.0"
+#
+# (v1.2, not v2.0: everything this release adds to the public API is additive.
+# hal_pwm_tone's extra parameter looks like a break but isn't — the function was
+# introduced and then changed within the same unreleased branch, so no consumer
+# ever saw the old shape. The major digit moves only when a release breaks
+# consumers.)
+MIN_FRAMEWORK_TAG = "v1.2"
 
 PICO_TARGETS = {
     "pico":  "pico_w",
