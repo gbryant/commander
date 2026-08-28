@@ -154,7 +154,8 @@ a shell over USB or telnet.
 - **Modules:** `st7796` (panel), `gt911` (touch), `joystick`, `buttons`, `leds`,
   `buzzer`, `ws2812` (PIO backend), `wifi`, `i2c`
 - **App-side:** three screens (Status / Piano / Splash), a `kit` command with a
-  `selftest`, and SWD tooling for a CMSIS-DAP debug probe
+  `selftest`, and `cmdr enable debug` for SWD flash/gdb/reset through a
+  CMSIS-DAP probe
 
 It is a rewrite of an earlier non-commander project that drove the same board with
 LVGL and vendor demo code. The interesting part is the split that produced: the
@@ -163,19 +164,33 @@ pinout) became **framework modules**, and what stayed in the project is
 composition — which screen is showing, what a touch means, what the stick does.
 `main.cpp` contains no driver code.
 
-It also drove three framework changes that outlive it: the HAL grew SPI, ADC and
+It also drove four framework changes that outlive it: the HAL grew SPI, ADC and
 PWM (plus `hal_i2c_write_read` for the GT911's 16-bit registers); the UART
 ticker list grew from 2 to 8 slots — five ticking modules on one board — and
 started *reporting* overflow instead of dropping it; and the cmdr-generated
 `commander_on_uart_ready` now calls a weak `commander_on_app_tickers()`, so an
-app can still add periodic work once a ticking module is enabled.
+app can still add periodic work once a ticking module is enabled. And its
+hand-written `openocd.cfg` + SWD scripts became `cmdr enable debug` in v1.3 —
+the generated config is byte-identical to the one that had been driving this
+board, RP2350 core1 `sysresetreq` fix included.
 
-**Not yet hardware-confirmed** — the only consumer in this list that isn't. Every
-driver is host-tested against the recording HAL in `tests/fakes/` (the address
-windows, the touch coordinate mapping at all four rotations, the debounce
-windows), and the firmware builds for RP2350, but the board hasn't arrived at the
-bench. The project ships `docs/hardware-test.md`: a bring-up checklist ordered by
-what each failure would tell you.
+**Hardware-confirmed 2026-08-27**, flashed over SWD through a Waveshare
+RP2350-GEEK probe: panel, touch (including corner mapping), joystick, buttons,
+LEDs, buzzer, RGB LED and WiFi/telnet all working. `docs/hardware-test.md`
+records the checklist — ordered by what each failure would tell you — and what
+is still unexercised.
+
+The bring-up is worth reading as a case for what host tests can and can't do.
+Every driver was tested against the recording HAL in `tests/fakes/` first (the
+address windows, touch coordinate mapping at all four rotations, the debounce
+windows) and all of that logic held on contact with the board. What the host
+tests could not see were two bugs in the Pico HAL itself, where the fake has its
+own implementation: `hal_i2c_write_read` sent no STOP when no read followed, and
+`hal_pwm_stop` disabled the PWM slice without settling the pin, freezing it high
+about half the time. The second presented as a buzzer stuck wailing, from both
+the touch and button paths, and was found by making the module account for
+itself — instrumenting it to report `tones: 5, stops: 5, lost stops: 0`, which
+proved it innocent and moved the search a layer down. Both are fixed in v1.2.
 
 ---
 

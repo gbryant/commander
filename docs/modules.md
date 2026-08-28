@@ -158,9 +158,11 @@ they're an ST7796 panel, a GT911 touch layer, an analog stick, buttons, LEDs and
 a buzzer. The defaults match that kit's wiring because that's where they were
 brought up; change the pins and they work anywhere.
 
-> Not yet hardware-confirmed. The drivers are covered by host tests against the
-> recording HAL in `tests/fakes/` — every byte they put on the wire is asserted —
-> but they have not met the physical board. See PLAN.md.
+> Hardware-confirmed 2026-08-27 on a Pico 2 W. Beyond the host tests against the
+> recording HAL in `tests/fakes/` (every byte they put on the wire is asserted),
+> the panel, touch — including corner mapping — stick, buttons, LEDs, buzzer and
+> RGB LED were all exercised on the physical board. See
+> [cmdr-pico-breadboard-kit](https://github.com/gbryant/cmdr-pico-breadboard-kit).
 
 ### The shared panel driver
 

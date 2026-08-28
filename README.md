@@ -112,6 +112,7 @@ dependency and provides two functions.
 | [cmdr-robot](https://github.com/gbryant/cmdr-robot) | Pico 2 W | Bluetooth pad → I2C actuation; WiFi and BT on one radio |
 | [cmdr-oi-bridge](https://github.com/gbryant/cmdr-oi-bridge) | Uno R4 WiFi | Commander as an I2C *peripheral* — the robot's other half |
 | [cmdr-solar-monitor](https://github.com/gbryant/cmdr-solar-monitor) | ESP32-S3 | The smallest useful consumer: two modules and a host script |
+| [cmdr-pico-breadboard-kit](https://github.com/gbryant/cmdr-pico-breadboard-kit) | Pico 2 W | A whole dev board as modules: touch panel, stick, buttons, LEDs, buzzer |
 | [cmdr-unoq-ir-speaker](https://github.com/gbryant/cmdr-unoq-ir-speaker) | Uno Q | Dual-brain: hard real-time on the MCU, neural TTS beside it — with no custom firmware |
 
 Between them they cover all four build flavours (ESP-IDF, Pico SDK, PlatformIO,

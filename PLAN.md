@@ -292,23 +292,23 @@ each entry keeps the reasoning behind it.*
    `aicam stream` inference (rock-paper-scissors model) over the UART link. Still to
    exercise on HW: `snap` (640x480 image may exceed AICAM_RX_MAX) and the I2C transport.
 
-5. **Pico Breadboard Kit hardware pass** — six new modules (`st7796`, `gt911`,
-   `joystick`, `buttons`, `leds`, `buzzer`) plus a Pico PIO backend for `ws2812`
-   landed on `feat/pico-breadboard-kit`, together with the HAL's new SPI/ADC/PWM
-   and `hal_i2c_write_read` entry points. **None of it has met hardware yet.**
-   Every driver is covered by host tests against the new recording HAL
-   (`tests/fakes/`), so what's unknown is wiring and panel behaviour, not logic.
-   The bring-up checklist — ordered by what a failure would tell you — is
-   `docs/hardware-test.md` in the consumer, [cmdr-pico-breadboard-kit].
-   Open questions the hardware answers:
-   - Does the datasheet ST7796S init sequence bring this panel up, or does it
-     need the vendor table (`-DST7796_LEGACY_INIT`, kept for exactly this)?
-   - The panel's SPI ceiling: default 40 MHz here, the vendor code asked 62.5.
-   - GT911 orientation vs. the glass (`touch flip` / `touch rotate`), and
-     whether it answers at 0x5D or 0x14.
-   - Joystick axis polarity and a sensible default deadzone.
-   Widen those modules' platform lists only as other HALs grow SPI/ADC/PWM —
-   `hal/arduino`, `hal/esp32`, `hal/stm32` and `hal/zephyr` carry honest stubs
+5. **Pico Breadboard Kit hardware pass** — **DONE, hardware-confirmed
+   2026-08-27.** Six new modules (`st7796`, `gt911`, `joystick`, `buttons`,
+   `leds`, `buzzer`) plus a Pico PIO backend for `ws2812`, together with the
+   HAL's new SPI/ADC/PWM and `hal_i2c_write_read` entry points, shipped in v1.2.
+   Consumer: [cmdr-pico-breadboard-kit], with the bring-up record in its
+   `docs/hardware-test.md`. What the hardware answered:
+   - The datasheet ST7796S init sequence brings the panel up; the vendor table
+     stays as `-DST7796_LEGACY_INIT` but wasn't needed.
+   - 40 MHz SPI is fine on this panel (the vendor code asked 62.5).
+   - The GT911 answers at **0x5D** (product string "911"), and its coordinate
+     space needs no flip — corner mapping verified by touching on-screen targets.
+   - Joystick axis polarity and deadzone: the defaults in `cmdr.toml` hold.
+   The two bugs it found were both in the Pico HAL rather than the modules, and
+   both invisible to host tests because the fake HAL has its own implementations
+   — see CLAUDE.md's HAL section, which records the species rather than just the
+   fixes. Widen those modules' platform lists only as other HALs grow SPI/ADC/PWM
+   — `hal/arduino`, `hal/esp32`, `hal/stm32` and `hal/zephyr` carry honest stubs
    today, and the cmdr menu is gated to match.
 
 6. **A debug probe with a screen (RP2350-GEEK).** **Tier 1 is built and
