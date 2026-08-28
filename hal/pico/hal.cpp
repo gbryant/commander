@@ -206,6 +206,15 @@ void hal_pwm_stop(uint8_t pin) {
 void     hal_delay_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 uint64_t hal_time_us(void)         { return time_us_64(); }
 
+// ── Console backend ──────────────────────────────────────────────────────────
+// By default the console is the SDK's stdio (USB-CDC or UART, per the CMake
+// pico_enable_stdio_* settings). A firmware that owns its own USB stack — a
+// debugprobe fork with a dedicated shell endpoint, say — defines
+// COMMANDER_PICO_UART_EXTERNAL and supplies these four itself, which puts the
+// shell *and* every module stream (see modules/ConsoleOut.h) on its endpoint
+// instead. The ESP32 HAL makes the same split between USB-serial-JTAG and UART0.
+#ifndef COMMANDER_PICO_UART_EXTERNAL
+
 // stdio_init_all() in main.cpp connects USB-CDC (or UART) to stdin/stdout.
 void hal_uart_init(uint32_t /*baud*/) {}  // handled by pico_enable_stdio_usb in CMake
 int  hal_uart_getchar(uint32_t timeout_ms) {
@@ -219,3 +228,5 @@ int  hal_uart_getchar(uint32_t timeout_ms) {
 }
 void hal_uart_putchar(char c)     { putchar(c); fflush(stdout); }
 void hal_uart_puts(const char *s) { fputs(s, stdout); fflush(stdout); }
+
+#endif  // COMMANDER_PICO_UART_EXTERNAL

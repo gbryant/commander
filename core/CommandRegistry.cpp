@@ -9,6 +9,15 @@ __attribute__((weak)) void commander_on_panic() { for (;;) {} }
 // strong override when `cmdr autostart` has configured any (see CommandRegistry.h).
 extern "C" __attribute__((weak)) void commander_run_autostart(CommandRegistry &) {}
 
+// Same for the ticker hook. Every runner also defines this weakly, which is
+// harmless (the linker takes one no-op), but a COMMANDER_LIBRARIES_ONLY project
+// has no runner — and without a default here it fails to link the moment it
+// honours the runner contract and calls the hook. UartTransport is only
+// forward-declared: core must not depend on a transport, and the parameter is
+// unused. extern "C" keeps the symbol identical either way.
+class UartTransport;
+extern "C" __attribute__((weak)) void commander_on_uart_ready(UartTransport &) {}
+
 void CommandRegistry::registerCommand(const Command &cmd) {
     if (_count >= kMaxCommands) {       // registry full — don't drop it silently
         _dropped++;

@@ -1265,7 +1265,22 @@ UNOQ_MODULES = {"system", "ir"}
 BLUEPILL_EXCLUDED = {"compass", "i2c", "ina219"}
 
 
-def _module_supported(name: str, target: str) -> bool:
+# Modules whose build targets, sources or hooks live in the RUNNER rather than in
+# modules/ + hal/. A libraries-only project has no runner, so these would compile
+# and fail to link (or link and do nothing) — the honest menu hides them:
+#   wifi           — commander_wifi_status/off/on are implemented per runner
+#   ir, ws2812     — commander_pico_ir / commander_pico_ws2812 are defined in runners/pico
+#   controller     — COMMANDER_ENABLE_CONTROLLER lives in the runner's CMake
+#   serial_monitor — SerialMonitorModule.h lives in runners/pico/
+# Moving the first four's *library* targets out of the runner would shrink this
+# list; they aren't runner logic, they just live there. Worth doing if a
+# libraries-only project ever wants IR.
+RUNNER_DEPENDENT = {"wifi", "ir", "ws2812", "controller", "serial_monitor"}
+
+
+def _module_supported(name: str, target: str, libs_only: bool = False) -> bool:
+    if libs_only and name in RUNNER_DEPENDENT:
+        return False
     if target == "unoq":
         return name in UNOQ_MODULES
     if target == "bluepill" and name in BLUEPILL_EXCLUDED:
@@ -1839,8 +1854,42 @@ def read_manifest(path: Path):
     return target, modules, autostart
 
 
+def libraries_only(path: Path = Path("cmdr.toml")) -> bool:
+    """True if this project supplies its own runner (main/FreeRTOS/USB) and links
+    only commander's libraries — `libraries_only = true` in cmdr.toml, matching
+    the COMMANDER_LIBRARIES_ONLY CMake option. cmdr then manages modules and the
+    framework version, but never the build or the dev scripts."""
+    if not path.exists():
+        return False
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if line.startswith("["):
+            break                      # top-level keys only
+        if line.replace(" ", "").startswith("libraries_only=true"):
+            return True
+    return False
+
+
+def _extra_top_keys(path: Path) -> "list[str]":
+    """Top-level keys cmdr doesn't manage, so a rewrite preserves them (the same
+    care [autostart] gets). Without this, `cmdr module enable` would silently
+    drop libraries_only and the project would start being treated as a normal
+    runner-based one."""
+    if not path.exists():
+        return []
+    keep = []
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if line.startswith("["):
+            break
+        if not line or line.startswith("#") or line.startswith("target"):
+            continue
+        keep.append(line)
+    return keep
+
+
 def write_manifest(path: Path, target: str, modules: dict, autostart: "list" = None) -> None:
-    lines = [f'target = "{target}"', ""]
+    lines = [f'target = "{target}"'] + _extra_top_keys(path) + [""]
     for name in sorted(modules):
         lines.append(f"[module.{name}]")
         for k, v in modules[name].items():
@@ -2280,7 +2329,8 @@ def cmd_module(args: argparse.Namespace) -> None:
         target, modules, _autostart = read_manifest(manifest) if manifest.exists() else (detect_target(), {}, [])
         if not target:
             die("could not determine target — run from a commander project root (no cmdr.toml or platformio.ini)")
-        print(f"target: {target}")
+        libs = libraries_only(manifest)
+        print(f"target: {target}" + ("  (libraries-only — this project owns its runner)" if libs else ""))
         width = max(len(n) for n in MODULE_SPECS)
         for name, spec in MODULE_SPECS.items():
             if spec["always"]:
@@ -2288,8 +2338,10 @@ def cmd_module(args: argparse.Namespace) -> None:
             elif name in modules:
                 opts = "  ".join(f"{k}={v}" for k, v in modules[name].items())
                 state = f"ON   {opts}".rstrip()
-            elif not _module_supported(name, target):
-                if target == "unoq":
+            elif not _module_supported(name, target, libs):
+                if libs and name in RUNNER_DEPENDENT:
+                    state = "n/a (needs a runner; this project supplies its own)"
+                elif target == "unoq":
                     state = "n/a (Uno Q HAL: console + IR only)"
                 elif target == "bluepill" and name in BLUEPILL_EXCLUDED:
                     state = "n/a (bluepill I2C HAL not implemented yet)"
@@ -2316,7 +2368,11 @@ def cmd_module(args: argparse.Namespace) -> None:
         autostart = []
     if not target:
         die("could not determine target — run from a commander project root (no cmdr.toml or platformio.ini)")
-    if not _module_supported(name, target):
+    if not _module_supported(name, target, libraries_only(manifest)):
+        if libraries_only(manifest) and name in RUNNER_DEPENDENT:
+            die(f"module '{name}' needs commander's runner, and this project is "
+                f"libraries-only (it supplies its own main/FreeRTOS/USB). Its build "
+                f"target or hooks live in runners/ and aren't compiled here.")
         if target == "unoq":
             die(f"module '{name}' isn't available on the Uno Q yet — its Zephyr HAL backs only "
                 f"the console/channel bus + IR so far (GPIO/I2C are stubbed).")
@@ -2446,6 +2502,13 @@ def _emit_scripts(target: str, name: str, out_dir: Path, chip: str = "esp32s3",
     commander_generate_scripts at configure time). Returns the relative paths it writes;
     with dry=True it only collects them (no writes)."""
     written: list = []
+
+    # A libraries-only project owns its build and its dev scripts; cmdr manages
+    # its modules and framework version, nothing else. (Pico targets emit no
+    # scripts here anyway — theirs come from CMake — but an esp32 or uno
+    # libraries-only project would otherwise have its scripts overwritten.)
+    if libraries_only(out_dir / "cmdr.toml"):
+        return written
 
     def _script(rel, content):
         if not dry:

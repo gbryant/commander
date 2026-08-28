@@ -160,6 +160,36 @@ def test_st7789_panel_preset_sets_ram_geometry(cli_mod, project_dir, answer_defa
     assert "c.ramW = 240; c.ramH = 320;" in gen
 
 
+def test_libraries_only_gates_runner_modules(cli_mod, project_dir, answer_defaults):
+    """A project that supplies its own runner can't have modules whose targets or
+    hooks live in runners/ — they'd compile and fail to link. The honest menu
+    hides them and enable refuses."""
+    _enter(cli_mod, project_dir, "pico2")
+    toml = project_dir.path / "proj" / "cmdr.toml"
+    toml.write_text(toml.read_text().replace('target = "pico2"',
+                                             'target = "pico2"\nlibraries_only = true'))
+    assert cli_mod.libraries_only(toml)
+    assert not cli_mod._module_supported("wifi", "pico2", True)
+    assert not cli_mod._module_supported("ir", "pico2", True)
+    # ...but the portable ones are unaffected.
+    assert cli_mod._module_supported("st7789", "pico2", True)
+    assert cli_mod._module_supported("buttons", "pico2", True)
+    with pytest.raises(SystemExit):
+        cli_mod.cmd_module(mod_args("enable", "wifi"))
+
+
+def test_libraries_only_survives_a_module_change(cli_mod, project_dir, answer_defaults):
+    """Enabling a module rewrites cmdr.toml — the flag must not be dropped, or the
+    project silently becomes a normal runner-based one."""
+    _enter(cli_mod, project_dir, "pico2")
+    toml = project_dir.path / "proj" / "cmdr.toml"
+    toml.write_text(toml.read_text().replace('target = "pico2"',
+                                             'target = "pico2"\nlibraries_only = true'))
+    cli_mod.cmd_module(mod_args("enable", "st7789"))
+    assert cli_mod.libraries_only(toml), "libraries_only was dropped by module enable"
+    assert "st7789" in toml.read_text()
+
+
 def test_ir_pio_lib_dep_added_on_r4(cli_mod, project_dir, answer_defaults):
     """On a PlatformIO target, enabling ir adds IRremote to lib_deps; disable removes it."""
     _enter(cli_mod, project_dir, "r4")
