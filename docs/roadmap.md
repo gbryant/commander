@@ -162,6 +162,120 @@ outlives a dispatch. Worth checking whether one mechanism serves both before bui
 
 ---
 
+## 6. Framework-aware debugging, part 1: gdb helpers that know commander — *proposed (do this first)*
+
+**Why this before the plumbing.** Commander already flashes over SWD from four
+places (item 7), so *flashing* is a consolidation job. What genuinely doesn't
+exist is **debugging**: nothing in the framework helps you answer "why is my
+module doing nothing?" — and that question cost most of a week in Aug 2026. Two
+of its causes were invisible from outside and trivial to see from inside:
+
+- a module registered but **never pumped** (`tick()` not in the ticker list) —
+  presents as dead hardware, identical to a wiring fault;
+- a command silently **dropped** because `MAX_COMMANDS` was too small (this
+  historically ate `ota`).
+
+Both are one gdb command away *if* the helper knows commander's structures.
+
+**What to build.** A gdb Python script in commander — suggested home
+`scripts/gdb/commander.py` — loaded by the generated `debug` script (`gdb -x`).
+Commands and the data behind them:
+
+| command | reads | notes |
+|---------|-------|-------|
+| `cmdr-commands` | `CommandRegistry::_commands[]`, `_count` | print name/help/i2c_id; **loudly flag `_dropped > 0` and `_firstDropped`** |
+| `cmdr-tickers` | `UartTransport::_tickers[]`, `_tickCount`, `_tickDropped` | the "module never ticks" bug, in one command |
+| `cmdr-modules` | registered modules | call/inspect `IModule::name()` via the vtable |
+| `cmdr-panic` | where `commander_on_panic` fired | it's a weak symbol in `core/CommandRegistry.cpp` |
+
+Exact fields (verify against the headers before writing, they may have moved):
+- `core/CommandRegistry.h`: `Command _commands[kMaxCommands]; size_t _count;
+  size_t _dropped; const char *_firstDropped;` and
+  `struct Command { const char *name; const char *help; uint8_t i2c_id;
+  void (*handler)(const char*, Writer&, void*); void *ctx; }`.
+- `transport/uart/UartTransport.h`: `IModule *_tickers[kMaxTickers]; uint8_t
+  _tickCount; uint8_t _tickDropped;` with `kMaxTickers = COMMANDER_MAX_TICKERS`.
+
+**Practicalities a fresh session will hit.**
+- These are *private* members. gdb reads them fine given DWARF; no code change
+  needed. Do **not** add accessors just for this.
+- The registry and transport in a cmdr project are `static` objects in the
+  generated `commander_modules.h` / the runner — internal linkage, but present in
+  DWARF. Finding them may need `info variables` rather than a global symbol name.
+- Builds are `Release` today. The Pico SDK still emits debug sections (checked
+  2026-08-28: 9 of them, and commander's types are visible), so this works — but
+  `-O3` will lie about line numbers and optimise away locals. See the open
+  question in item 7 about build type.
+
+**How to test it without hardware.** The host test binaries already contain a
+real `CommandRegistry` (see `core/tests/test_registry.cpp` and the fake-HAL
+suites under `tests/fakes/`). Build one with `-g`, run `gdb -x` against it with a
+breakpoint after registration, and assert on the helper's output. That makes this
+the rare debugging feature with a genuine regression test — worth doing, because
+these helpers break silently whenever a struct field is renamed.
+
+---
+
+## 7. Framework-aware debugging, part 2: consolidate SWD behind `cmdr enable debug` — *proposed*
+
+**The actual state.** Commander flashes over SWD in four places, none sharing a
+config or a concept, and none offering gdb:
+
+| where | what it does |
+|-------|--------------|
+| `tools/cmdr/src/cmdr/templates/flash-bluepill-bootloader` | `openocd -f interface/stlink.cfg -f target/stm32f1x.cfg` |
+| `tools/cmdr/src/cmdr/templates/unlock-bluepill` | openocd again, with its own PATH/PlatformIO discovery |
+| unoq `flash` template (in `cli.py`, look for `pkill -f openocd`) | openocd-over-adb, forwards tcp:3333 |
+| `cmdr-pico-breadboard-kit/{openocd.cfg,swd-flash,swd-debug,swd-reset}` | the CMSIS-DAP reference implementation — **generalise from this one** |
+
+**What to build.** `cmdr enable debug`, in the same shape as `cmdr enable
+ota|littlefs|dfu` (copy that structure — the `_ota_*` / `_littlefs_*` helpers in
+`cli.py`, plus a `cmdr.toml` record). It asks the probe type and emits
+`openocd.cfg`, `debug`, `reset`, and rewires `upload` to prefer SWD with a USB
+fallback.
+
+Per CLAUDE.md's stated direction these should be **thin shims delegating to a
+`scripts/swd.sh` in commander**, so the logic refreshes with `cmdr pull` rather
+than going stale in every project. `install-broker` (`dev/unoq/install_broker.sh`)
+is the existing precedent for that pattern. Done this way, the four integrations
+above can collapse onto it later instead of becoming a fifth copy.
+
+**Target → openocd config** (verify each; only the first two are confirmed):
+- `pico` → `target/rp2040.cfg`; `pico2` → `target/rp2350.cfg` ✔ used daily
+- `bluepill` → `target/stm32f1x.cfg` ✔ already in the bootloader template
+- `unoq` → STM32U585, but it flashes over **adb**, not a local probe — likely
+  stays special; fold in only if it's clean
+- `r4` → Renesas RA4M1. **Unverified** that a usable openocd target config
+  exists; check before promising the target
+- `esp32` → **not applicable** (Xtensa, not ARM). Don't offer it.
+
+**Interfaces:** `interface/cmsis-dap.cfg` covers the Waveshare RP2350-GEEK, the
+Pi Debug Probe and picoprobe; `interface/stlink.cfg` covers the bluepill's
+existing story. Make it a question, default cmsis-dap.
+
+**A gotcha already paid for:** RP2350 needs
+`rp2350.dap.core1 cortex_m reset_config sysresetreq` in the config, or a reset
+with both cores running leaves core1 somewhere gdb can't recover. It's in the
+kit's `openocd.cfg` with a comment.
+
+**Honest menu:** only offer this where a probe applies, and remember it's opt-in
+precisely because emitting a `debug` script for someone with no probe is the same
+dishonesty the module menu already avoids.
+
+**Open questions.**
+- *Build type.* Debugging wants `RelWithDebInfo`. Should `cmdr enable debug`
+  change it, warn, or leave it? Changing a project's optimisation level as a side
+  effect of enabling a feature is a big hammer.
+- *Should `upload` prefer SWD?* It's strictly better when a probe is attached —
+  it verifies, and it recovers a bricked target that can't be told to enter
+  BOOTSEL. But `swd-flash` currently hardcodes one project's ELF path and needs
+  generalising first.
+- *Does `debug` surface the probe's own view?* [cmdr-probe] knows the target's
+  run/halt state by snooping DAP traffic and can report it (`probe`) — but that's
+  one specific probe, and the framework shouldn't assume it.
+
+---
+
 ## Cheap insurance (do regardless of path)
 
 - **Protocol versioning.** A version byte in the channel handshake (and `i2c_ids.h` is already the
