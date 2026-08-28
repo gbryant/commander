@@ -34,7 +34,24 @@ REPO_URL = "https://github.com/gbryant/commander.git"
 # Versioning is two-part and the left digit means one thing: **this release breaks you**. Right
 # digit for everything else. Bump this constant as part of cutting a release, so a project
 # scaffolded today gets today's framework.
-FRAMEWORK_TAG = "v1.1"
+FRAMEWORK_TAG = "v2.0"
+
+# The OLDEST framework release this cmdr's generated code compiles against.
+#
+# cmdr is installed from main (see `cmdr update`) while projects pin a release
+# tag, so a cmdr can easily be newer than the framework it is generating for —
+# and generated code that calls an API the pinned framework doesn't have fails as
+# a compile error inside an auto-generated file, which is a poor way to learn
+# about version skew.
+#
+# BUMP THIS whenever codegen starts depending on framework code that isn't in the
+# current release. Nothing can derive it automatically. It's on PUBLISH_CHECKLIST
+# next to FRAMEWORK_TAG.
+#
+# v2.0: emits _m_ws2812.setBrightness()/_m_buzzer.setVolume(), the named-field
+# SpiPanelConfig, the st7789/gt911/joystick/buttons/leds/buzzer module specs, and
+# commander_on_app_tickers — none of which exist in v1.1.
+MIN_FRAMEWORK_TAG = "v2.0"
 
 PICO_TARGETS = {
     "pico":  "pico_w",
@@ -1941,6 +1958,9 @@ def _modules_file_path(target: str) -> Path:
 
 
 def _regenerate(target: str, modules: dict, autostart: "list" = None) -> None:
+    # One choke point: module enable/disable and `cmdr regen` all land here, so
+    # the version check can't be forgotten on one path.
+    check_framework_version()
     out = _modules_file_path(target)
     if not out.parent.exists():
         die(f"expected {out.parent}/ directory — run from your project root")
@@ -3645,6 +3665,59 @@ _PIN_RE = r"(FetchContent_Declare\(\s*commander\b.*?GIT_TAG\s+)(\S+)"
 def _read_pin(text: str) -> "str | None":
     m = re.search(_PIN_RE, text, re.DOTALL)
     return m.group(2) if m else None
+
+
+def _parse_release(ref: "str | None") -> "tuple | None":
+    """(major, minor) for a vMAJOR.MINOR release tag, else None.
+
+    None means "not comparable" — a branch, a commit sha, a bare `main`. Those
+    are deliberately NOT an error: a project tracking the tip is consistent with
+    a cmdr from the tip, and a commit pin is a choice we can't second-guess.
+    """
+    if not ref:
+        return None
+    m = re.fullmatch(r"v(\d+)\.(\d+)", ref.strip())
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def _project_pin() -> "str | None":
+    """The framework version this project declares, from wherever its build reads
+    it: GIT_TAG in CMakeLists.txt, or the #tag on the lib_deps git ref in
+    platformio.ini. Deliberately not duplicated into cmdr.toml — two copies of a
+    version drift, and a guard built on the wrong number is worse than none."""
+    cmake = Path("CMakeLists.txt")
+    if cmake.exists():
+        pin = _read_pin(cmake.read_text())
+        if pin:
+            return pin
+    pio = Path("platformio.ini")
+    if pio.exists():
+        m = re.search(r"commander\.git#(\S+)", pio.read_text())
+        if m:
+            return m.group(1)
+    return None
+
+
+def check_framework_version() -> None:
+    """Refuse to generate code the project's pinned framework can't compile.
+
+    Skipped when `cmdr link` is active — that's framework development, where the
+    local checkout is the version and it's ahead by definition.
+    """
+    if Path(_LOCAL_CMAKE).exists():
+        return                                   # linked: local checkout wins
+    have = _parse_release(_project_pin())
+    need = _parse_release(MIN_FRAMEWORK_TAG)
+    if not have or not need or have >= need:
+        return
+    pin = _project_pin()
+    die(f"this cmdr generates code for commander >= {MIN_FRAMEWORK_TAG}, but this "
+        f"project pins {pin}.\n\n"
+        f"  Upgrade the project:  cmdr pin {MIN_FRAMEWORK_TAG} && cmdr pull\n"
+        f"  Or match the project: pip install --force-reinstall \\\n"
+        f"      \"git+{REPO_URL}@{pin}#subdirectory=tools/cmdr\"\n\n"
+        f"Staying on an older framework is fine — install the cmdr that shipped "
+        f"with it.")
 
 
 def _resolve_remote_main() -> str:

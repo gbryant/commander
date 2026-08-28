@@ -163,3 +163,19 @@ def test_framework_tag_is_a_release_tag(cli_mod):
     tag = cli_mod.FRAMEWORK_TAG
     assert tag not in ("main", "master"), "FRAMEWORK_TAG must be a tag, not a branch"
     assert tag.startswith("v") and tag[1].isdigit(), f"unexpected tag shape: {tag}"
+
+
+def test_scaffold_pin_satisfies_codegen(cli_mod):
+    """cmdr must never scaffold a project it then refuses to generate for.
+
+    FRAMEWORK_TAG (what a new project pins) must be >= MIN_FRAMEWORK_TAG (what
+    this cmdr's codegen needs). If codegen starts depending on unreleased
+    framework code, MIN_FRAMEWORK_TAG goes up — and this test says the release
+    tag has to follow before it can ship."""
+    have = cli_mod._parse_release(cli_mod.FRAMEWORK_TAG)
+    need = cli_mod._parse_release(cli_mod.MIN_FRAMEWORK_TAG)
+    assert have and need, "both tags must be vMAJOR.MINOR releases"
+    assert have >= need, (
+        f"scaffolds pin {cli_mod.FRAMEWORK_TAG} but codegen needs "
+        f"{cli_mod.MIN_FRAMEWORK_TAG} — a fresh project would be refused by "
+        f"check_framework_version()")

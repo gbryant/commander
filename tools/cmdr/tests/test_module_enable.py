@@ -198,3 +198,54 @@ def test_ir_pio_lib_dep_added_on_r4(cli_mod, project_dir, answer_defaults):
     assert "IRremote" in pio.read_text()
     cli_mod.cmd_module(mod_args("disable", "ir"))
     assert "IRremote" not in pio.read_text()
+
+
+def test_version_guard_refuses_an_older_pin(cli_mod, project_dir, answer_defaults):
+    """cmdr installs from main while projects pin releases, so a cmdr can be newer
+    than the framework it generates for. Generated code calling an API the pinned
+    framework lacks fails as a compile error inside an auto-generated file — a
+    poor way to learn about version skew. Catch it with the fix in the message."""
+    _enter(cli_mod, project_dir, "pico2")
+    cmake = project_dir.path / "proj" / "CMakeLists.txt"
+    cmake.write_text(cmake.read_text().replace(
+        f"GIT_TAG        {cli_mod.FRAMEWORK_TAG}", "GIT_TAG        v0.9"))
+    with pytest.raises(SystemExit):
+        cli_mod.cmd_module(mod_args("enable", "st7789"))
+
+
+def test_version_guard_skips_when_linked(cli_mod, project_dir, answer_defaults):
+    """`cmdr link` is framework development: the local checkout IS the version and
+    is ahead by definition. Guarding there would block the person writing the
+    feature."""
+    _enter(cli_mod, project_dir, "pico2")
+    cmake = project_dir.path / "proj" / "CMakeLists.txt"
+    cmake.write_text(cmake.read_text().replace(
+        f"GIT_TAG        {cli_mod.FRAMEWORK_TAG}", "GIT_TAG        v0.9"))
+    (project_dir.path / "proj" / cli_mod._LOCAL_CMAKE).write_text("# linked\n")
+    cli_mod.cmd_module(mod_args("enable", "st7789"))      # must not raise
+
+
+def test_version_guard_ignores_uncomparable_pins(cli_mod, project_dir, answer_defaults):
+    """A project tracking `main` is consistent with a cmdr from main, and a commit
+    pin is a deliberate choice we can't second-guess. Neither is an error."""
+    assert cli_mod._parse_release("main") is None
+    assert cli_mod._parse_release("40c5797") is None
+    assert cli_mod._parse_release("v2.0") == (2, 0)
+    assert cli_mod._parse_release("v10.3") > cli_mod._parse_release("v9.9")   # not string order
+
+    _enter(cli_mod, project_dir, "pico2")
+    cmake = project_dir.path / "proj" / "CMakeLists.txt"
+    cmake.write_text(cmake.read_text().replace(
+        f"GIT_TAG        {cli_mod.FRAMEWORK_TAG}", "GIT_TAG        main"))
+    cli_mod.cmd_module(mod_args("enable", "st7789"))      # must not raise
+
+
+def test_version_guard_reads_a_platformio_pin(cli_mod, project_dir, answer_defaults):
+    """PlatformIO projects pin via the #tag on the lib_deps git ref — `cmdr pin`
+    refuses to touch those, so the guard has to read them itself or uno/r4/
+    bluepill projects go unguarded."""
+    _enter(cli_mod, project_dir, "r4")
+    pio = project_dir.path / "proj" / "platformio.ini"
+    pio.write_text(pio.read_text() + "\n; lib_deps pin\n"
+                   "    https://github.com/gbryant/commander.git#v0.9\n")
+    assert cli_mod._project_pin() == "v0.9"

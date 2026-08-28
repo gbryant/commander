@@ -114,6 +114,27 @@ to freeze main's current tip, or `cmdr unpin` to track `main`), then `cmdr pull`
 On a PlatformIO project, bump the `#tag` on the `lib_deps` ref and rebuild. Either
 way it's the point of pinning — updates arrive when you ask.
 
+### When cmdr is newer than your framework
+
+cmdr installs from `main`; projects pin a release. So cmdr can generate code that
+calls framework APIs your pinned version doesn't have. Rather than let that
+surface as a compile error inside `commander_modules.h`, cmdr checks the pin
+before generating and offers both fixes:
+
+```
+This cmdr generates code for commander >= v2.0, but this project pins v1.1.
+
+  Upgrade the project:  cmdr pin v2.0 && cmdr pull
+  Or match the project: pip install --force-reinstall \
+      "git+https://github.com/gbryant/commander.git@v1.1#subdirectory=tools/cmdr"
+```
+
+**Staying on an older framework is a supported state** — install the cmdr that
+shipped with it. The check reads the pin from wherever your build does
+(`GIT_TAG` in CMakeLists.txt, or the `#tag` on the `lib_deps` ref in
+platformio.ini); it is skipped while `cmdr link` is active, and ignores pins it
+cannot compare, such as a branch name or a bare commit.
+
 ## Maintenance
 
 A project has four layers with three owners — see

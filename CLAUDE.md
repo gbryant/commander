@@ -127,7 +127,14 @@ FetchContent at `GIT_TAG`, and a fresh scaffold pins the **release tag** in
 `cli.py`'s `FRAMEWORK_TAG` — never `main` — so a mistake pushed here can't reach
 projects generated last month. Releases are **two-part, `vMAJOR.MINOR`, where the
 left digit moves only when a release breaks consumers** (right digit for
-everything else); bump `FRAMEWORK_TAG` as part of cutting one, and
+everything else); bump `FRAMEWORK_TAG` as part of cutting one — **plus
+`MIN_FRAMEWORK_TAG`, the oldest release this cmdr's codegen compiles against.**
+cmdr is installed from `main` (`cmdr update`) while projects pin releases, so a
+cmdr is routinely newer than the framework it generates for; the guard turns a
+compile error inside an auto-generated file into a message offering both fixes
+(upgrade the project, or `pip install` the cmdr that shipped with its pin). It's
+skipped under `cmdr link`, and ignores pins it can't compare (a branch, a commit).
+Also
 `tools/cmdr/tests/test_scaffold.py` guards that all three CMake emit sites agree.
 `cmdr pin <ref>` / `--latest` / `cmdr unpin` lock or
 float a project's commander version (rewrites the committed `CMakeLists.txt`);
