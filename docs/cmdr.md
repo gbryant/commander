@@ -85,7 +85,7 @@ flash via `./flash-bluepill-bootloader`): links the app above the bootloader,
 adds the `bootloader` shell command, and rewires `./bum` to reboot the board
 into DFU and flash with `dfu-util` (`./upload` stays ST-Link).
 
-### `cmdr enable debug [--probe cmsis-dap|stlink|jlink]` / `disable debug`
+### `cmdr enable debug [--probe P] [--build-dir DIR]` / `disable debug`
 
 SWD flashing and gdb through a hardware probe, for the targets where one
 applies: **pico**, **pico2** and **bluepill**. Writes four files —
@@ -112,12 +112,19 @@ rather than going stale in each project. The record is a `[debug]` section in
 probe = "cmsis-dap"                 # cmsis-dap covers the RP2350-GEEK, Pi Debug Probe, picoprobe
 target_cfg = "target/rp2350.cfg"
 speed = 5000
+build_dir = "build-pico2"           # where the linked .elf lands
 ```
 
 Change those and run `cmdr regen`. For anything the generator doesn't model — a
 nonstandard reset, a second target, an extra flash bank — put it in
 `openocd-local.cfg` beside `openocd.cfg`; the generated config sources it if it
 exists, and that file is yours to commit.
+
+**Libraries-only projects** get this too — the SWD files aren't part of the
+build, they only need to know where the ELF is. But such a project owns its own
+build and can put it anywhere (cmdr-probe links into `build-geek`, not
+`build-pico2`), so `--build-dir` is required rather than guessed: a guessed path
+would emit a script that looks right and never finds the firmware.
 
 Not offered where it couldn't work, for the same reason the module menu is
 honest: **esp32** isn't ARM SWD, **uno** is AVR, **unoq** flashes over adb (it

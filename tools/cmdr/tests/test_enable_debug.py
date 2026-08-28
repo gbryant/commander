@@ -36,7 +36,8 @@ def project(tmp_path, monkeypatch):
 def test_enable_records_debug_section(cli_mod, project):
     cli_mod.enable_debug()
     assert cli_mod._read_debug(project / "cmdr.toml") == {
-        "probe": "cmsis-dap", "target_cfg": "target/rp2350.cfg", "speed": 5000}
+        "probe": "cmsis-dap", "target_cfg": "target/rp2350.cfg", "speed": 5000,
+        "build_dir": "build-pico2"}
 
 
 def test_debug_survives_a_debug_unaware_write_manifest(cli_mod, project):
@@ -214,3 +215,62 @@ def test_debug_min_tag_is_not_ahead_of_what_scaffolds_pin(cli_mod):
     assert have >= need, (
         f"scaffolds pin {cli_mod.FRAMEWORK_TAG} but `cmdr enable debug` needs "
         f"{cli_mod.DEBUG_MIN_TAG} - a fresh project could not enable it")
+
+
+# ── libraries-only projects ──────────────────────────────────────────────────
+#
+# These own their build (their own main/FreeRTOS/USB and their own dev scripts),
+# so cmdr cannot derive where the ELF lands — cmdr-probe builds into build-geek,
+# not build-pico2. They still get SWD files, because those are not part of the
+# build: they need only the ELF's directory, and [debug].build_dir names it.
+
+@pytest.fixture
+def libs_only_project(tmp_path, monkeypatch):
+    (tmp_path / "cmdr.toml").write_text('target = "pico2"\nlibraries_only = true\n')
+    (tmp_path / "CMakeLists.txt").write_text("project(probe)\n")
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def test_libraries_only_requires_an_explicit_build_dir(cli_mod, libs_only_project):
+    """Guessing build-pico2 would emit a script that looks right and never finds
+    the firmware, so it asks instead."""
+    with pytest.raises(SystemExit):
+        cli_mod.enable_debug()
+    assert not (libs_only_project / "flash").exists()
+    assert cli_mod._read_debug(libs_only_project / "cmdr.toml") == {}
+
+
+def test_libraries_only_with_a_build_dir_works(cli_mod, libs_only_project):
+    cli_mod.enable_debug(build_dir="build-geek")
+    assert cli_mod._read_debug(libs_only_project / "cmdr.toml")["build_dir"] == "build-geek"
+    assert '--build-dir "build-geek"' in (libs_only_project / "flash").read_text()
+
+
+def test_regen_restores_a_libraries_only_projects_swd_files(cli_mod, libs_only_project):
+    """The v1.3 bug this fixes: enable wrote and gitignored the files, then regen
+    never put them back, so a fresh clone silently lost its SWD tooling."""
+    cli_mod.enable_debug(build_dir="build-geek")
+    for f in cli_mod.DEBUG_FILES:
+        (libs_only_project / f).unlink()
+
+    written = cli_mod._emit_scripts("pico2", "probe", libs_only_project)
+    assert set(cli_mod.DEBUG_FILES) <= set(written), \
+        "regen skipped the SWD files on a libraries-only project"
+    for f in cli_mod.DEBUG_FILES:
+        assert (libs_only_project / f).exists()
+    assert '--build-dir "build-geek"' in (libs_only_project / "flash").read_text(), \
+        "regen re-derived the build dir instead of reading [debug]"
+
+
+def test_regen_still_skips_dev_scripts_for_libraries_only(cli_mod, libs_only_project):
+    """The gate still does its original job: cmdr must not overwrite the build
+    and dev scripts a libraries-only project owns."""
+    cli_mod.enable_debug(build_dir="build-geek")
+    written = cli_mod._emit_scripts("uno", "probe", libs_only_project)
+    assert "bum" not in written and "build" not in written
+
+
+def test_explicit_build_dir_wins_on_a_normal_project(cli_mod, project):
+    cli_mod.enable_debug(build_dir="out/firmware/")
+    assert cli_mod._read_debug(project / "cmdr.toml")["build_dir"] == "out/firmware"

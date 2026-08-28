@@ -162,57 +162,53 @@ outlives a dispatch. Worth checking whether one mechanism serves both before bui
 
 ---
 
-## 6. Framework-aware debugging, part 1: gdb helpers that know commander — *proposed (do this first)*
+## 6. Framework-aware debugging, part 1: gdb helpers that know commander — *written 2026-08-28, NOT YET RUN*
 
-**Why this before the plumbing.** Commander already flashes over SWD from four
-places (item 7), so *flashing* is a consolidation job. What genuinely doesn't
-exist is **debugging**: nothing in the framework helps you answer "why is my
-module doing nothing?" — and that question cost most of a week in Aug 2026. Two
-of its causes were invisible from outside and trivial to see from inside:
+`scripts/gdb/commander.py` implements the four commands below, and
+`scripts/swd.sh` loads it automatically when `./debug` starts.
 
-- a module registered but **never pumped** (`tick()` not in the ticker list) —
-  presents as dead hardware, identical to a wiring fault;
-- a command silently **dropped** because `MAX_COMMANDS` was too small (this
-  historically ate `ota`).
+| command | what it answers |
+|---------|-----------------|
+| `cmdr-commands` | the command table; loudly flags `_dropped > 0` and names `_firstDropped` |
+| `cmdr-tickers` | which modules are actually pumped — the "module never ticks" bug in one command |
+| `cmdr-modules` | registered modules by concrete class, with whether each ticks and what it registered |
+| `cmdr-panic` | whether the target is spinning in `commander_on_panic`, and who called it |
 
-Both are one gdb command away *if* the helper knows commander's structures.
+**The blocker, found on first use: the gdb in Arm's own toolchain has no Python
+support.** `arm-none-eabi-gdb --batch -ex "python pass"` reports *"Python
+scripting is not supported in this copy of GDB"* on the Arm GNU Toolchain
+14.2.rel1 macOS build (`/Applications/ArmGNUToolchain/`, the `gcc-arm-embedded`
+cask). gdb then reads the `.py` as a *command* file and fails with `Undefined
+command: ""`. So **none of these four commands has ever executed.** They are
+written against verified struct fields and are syntactically valid Python,
+nothing more than that.
 
-**What to build.** A gdb Python script in commander — suggested home
-`scripts/gdb/commander.py` — loaded by the generated `debug` script (`gdb -x`).
-Commands and the data behind them:
+`swd.sh` now probes for Python support and skips the helpers with a note naming
+the fix, so a non-Python gdb degrades cleanly instead of erroring at startup.
 
-| command | reads | notes |
-|---------|-------|-------|
-| `cmdr-commands` | `CommandRegistry::_commands[]`, `_count` | print name/help/i2c_id; **loudly flag `_dropped > 0` and `_firstDropped`** |
-| `cmdr-tickers` | `UartTransport::_tickers[]`, `_tickCount`, `_tickDropped` | the "module never ticks" bug, in one command |
-| `cmdr-modules` | registered modules | call/inspect `IModule::name()` via the vtable |
-| `cmdr-panic` | where `commander_on_panic` fired | it's a weak symbol in `core/CommandRegistry.cpp` |
+**To finish this item**, someone needs a Python-enabled ARM gdb — Homebrew's
+`arm-none-eabi-gdb` formula builds from source and normally has it; the xPack
+distribution bundles Python too — and then to actually run the four commands
+against a live target and fix what falls over. Expect the object-finding to need
+the most work: the registry and transport are `static` objects with internal
+linkage, so `_resolve()` parses `info variables` output by type rather than
+looking up a name, and that parsing is the least verified part.
 
-Exact fields (verify against the headers before writing, they may have moved):
-- `core/CommandRegistry.h`: `Command _commands[kMaxCommands]; size_t _count;
-  size_t _dropped; const char *_firstDropped;` and
-  `struct Command { const char *name; const char *help; uint8_t i2c_id;
-  void (*handler)(const char*, Writer&, void*); void *ctx; }`.
-- `transport/uart/UartTransport.h`: `IModule *_tickers[kMaxTickers]; uint8_t
-  _tickCount; uint8_t _tickDropped;` with `kMaxTickers = COMMANDER_MAX_TICKERS`.
-
-**Practicalities a fresh session will hit.**
-- These are *private* members. gdb reads them fine given DWARF; no code change
-  needed. Do **not** add accessors just for this.
-- The registry and transport in a cmdr project are `static` objects in the
-  generated `commander_modules.h` / the runner — internal linkage, but present in
-  DWARF. Finding them may need `info variables` rather than a global symbol name.
-- Builds are `Release` today. The Pico SDK still emits debug sections (checked
-  2026-08-28: 9 of them, and commander's types are visible), so this works — but
-  `-O3` will lie about line numbers and optimise away locals. See the open
-  question in item 7 about build type.
-
-**How to test it without hardware.** The host test binaries already contain a
-real `CommandRegistry` (see `core/tests/test_registry.cpp` and the fake-HAL
-suites under `tests/fakes/`). Build one with `-g`, run `gdb -x` against it with a
-breakpoint after registration, and assert on the helper's output. That makes this
-the rare debugging feature with a genuine regression test — worth doing, because
-these helpers break silently whenever a struct field is renamed.
+**Design notes worth keeping:**
+- Everything is read-only and calls **nothing** on the target. Module identity
+  comes from each vtable pointer's `dynamic_type`, which gdb resolves without an
+  inferior call — so the helpers work on a target that is halted, faulted, or in
+  no state to run code. This is a deliberate departure from the original sketch,
+  which proposed calling `IModule::name()` through the vtable.
+- These are private members and stay that way. No accessors were added for
+  debugging; gdb reads them from DWARF.
+- The silent-breakage risk (a field rename kills the helpers with no compile
+  error) is covered by `tools/cmdr/tests/test_gdb_helpers.py`, which asserts
+  every field name the script reads still exists in the header it reads it from.
+  That runs everywhere; a gdb-driven test cannot be the gate while toolchains
+  ship without Python.
+- Builds are optimised by default, so line numbers jump and locals vanish.
+  `cmdr enable debug` says so and leaves the build type alone (see item 7).
 
 ---
 
@@ -253,6 +249,15 @@ bluepill** only. See `docs/cmdr.md`.
   `MIN_FRAMEWORK_TAG` bump — nothing else cmdr generates needs v1.3, and forcing
   every v1.2 project to move just to keep using `cmdr module enable` would be
   the guard doing more harm than the skew.
+
+**Fixed in v1.4:** enabling it on a `libraries_only` project wrote and
+gitignored the four files, and then `cmdr regen` never put them back — the SWD
+emission sat *after* the libraries-only early return in `_emit_scripts`, so a
+fresh clone of such a project silently lost its tooling. The files are not part
+of the build (they need only the ELF's directory), so they now emit ahead of
+that gate, and `[debug].build_dir` records the directory explicitly —
+required via `--build-dir` for libraries-only projects, since cmdr cannot know
+where their ELF lands (cmdr-probe links into `build-geek`, not `build-pico2`).
 
 **Still open, deliberately:** the four other openocd call sites
 (`flash-bluepill-bootloader`, `unlock-bluepill`, the unoq `flash` template) have

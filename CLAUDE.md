@@ -161,7 +161,16 @@ It writes `openocd.cfg` + `flash`/`debug`/`reset` and records `[debug]` in `cmdr
 `[autostart]` and `libraries_only` get. `./upload` stays BOOTSEL — SWD is a second path, not a
 replacement — and enabling it warns about the optimised build type rather than changing it.
 Targets with no working openocd story (esp32, uno, r4, unoq) are refused, on the same honesty
-principle as the module menu.
+principle as the module menu. Libraries-only projects DO get it, but must pass `--build-dir`:
+they own their build and cmdr can't know where the ELF lands.
+
+**gdb helpers** (`scripts/gdb/commander.py`, loaded by `./debug`): `cmdr-commands`,
+`cmdr-tickers`, `cmdr-modules`, `cmdr-panic` — they read `CommandRegistry` and `UartTransport`
+private members from DWARF and call nothing on the target (module identity comes from each
+vtable pointer's `dynamic_type`). **They have never been run**: Arm's own toolchain gdb has no
+Python support, so `swd.sh` probes for it and skips them with a note. See roadmap item 6 before
+trusting them. A field rename would break them silently, so `tools/cmdr/tests/test_gdb_helpers.py`
+asserts the names they read still exist in the headers.
 
 **Composable partition table + filesystem (ESP32).** `cmdr` owns the ESP32
 `partitions.csv` as a composition of enabled features rather than each feature

@@ -34,7 +34,7 @@ REPO_URL = "https://github.com/gbryant/commander.git"
 # Versioning is two-part and the left digit means one thing: **this release breaks you**. Right
 # digit for everything else. Bump this constant as part of cutting a release, so a project
 # scaffolded today gets today's framework.
-FRAMEWORK_TAG = "v1.3"
+FRAMEWORK_TAG = "v1.4"
 
 # The OLDEST framework release this cmdr's generated code compiles against.
 #
@@ -2543,10 +2543,23 @@ def _emit_scripts(target: str, name: str, out_dir: Path, chip: str = "esp32s3",
     with dry=True it only collects them (no writes)."""
     written: list = []
 
-    # A libraries-only project owns its build and its dev scripts; cmdr manages
-    # its modules and framework version, nothing else. (Pico targets emit no
-    # scripts here anyway — theirs come from CMake — but an esp32 or uno
-    # libraries-only project would otherwise have its scripts overwritten.)
+    # SWD files (`cmdr enable debug`) come first, because they apply even to a
+    # libraries-only project. They are not part of the build: they need only the
+    # ELF's directory, which [debug].build_dir records explicitly. Emitting them
+    # after the gate below was a bug — enable wrote and gitignored them, and then
+    # regen never put them back, so a fresh clone silently lost its SWD tooling.
+    _dbg = _read_debug(out_dir / "cmdr.toml")
+    if _dbg and target in DEBUG_TARGETS:
+        if dry:
+            written.extend(DEBUG_FILES)
+        else:
+            written.extend(_emit_debug_files(target, name, out_dir, _dbg))
+
+    # A libraries-only project owns its build and its per-target dev scripts;
+    # cmdr manages its modules, its framework version and (above) its SWD files,
+    # nothing else. (Pico targets emit no scripts below anyway — theirs come from
+    # CMake — but an esp32 or uno libraries-only project would otherwise have its
+    # scripts overwritten.)
     if libraries_only(out_dir / "cmdr.toml"):
         return written
 
@@ -2608,16 +2621,6 @@ def _emit_scripts(target: str, name: str, out_dir: Path, chip: str = "esp32s3",
         _script("install-broker",    UNOQ_INSTALL_BROKER_SCRIPT)
         _script("restore-arduino",   UNOQ_RESTORE_ARDUINO_SCRIPT)
         _script("deploy-sbc",        UNOQ_DEPLOY_SBC_SCRIPT)
-    # SWD files (`cmdr enable debug`). Emitted for every target that has them,
-    # including pico/pico2 - those write nothing above, but their flash/debug/
-    # reset come from cmdr, not from CMake.
-    _dbg = _read_debug(out_dir / "cmdr.toml")
-    if _dbg and target in DEBUG_TARGETS:
-        if dry:
-            written.extend(DEBUG_FILES)
-        else:
-            written.extend(_emit_debug_files(target, name, out_dir, _dbg))
-
     # pico/pico2: dev scripts come from CMake (commander_generate_scripts) → none here.
     return written
 
@@ -3461,8 +3464,17 @@ exec bash "$IMPL" __ACTION__ --cfg openocd.cfg --build-dir "__BUILD_DIR__" "$@"
 """
 
 
-def _debug_build_dir(target: str, root: Path = Path(".")) -> str:
-    """Where the linked ELF lands, per target's build system."""
+def _debug_build_dir(target: str, root: Path = Path("."),
+                     explicit: "str | None" = None) -> "str | None":
+    """Where the linked ELF lands. An explicit --build-dir always wins; otherwise
+    it follows from the target's build system. Returns None for a libraries-only
+    project with no explicit value: such a project owns its own build and can put
+    the ELF anywhere (cmdr-probe builds into build-geek, not build-pico2), so
+    guessing would emit a script that looks right and never finds the firmware."""
+    if explicit:
+        return explicit.rstrip("/")
+    if libraries_only(root / "cmdr.toml"):
+        return None
     if target in PICO_TARGETS:
         return f"build-{target}"
     pio = root / "platformio.ini"
@@ -3538,7 +3550,7 @@ def _emit_debug_files(target: str, name: str, out_dir: Path, dbg: dict) -> "list
     ))
     written.append("openocd.cfg")
 
-    build_dir = _debug_build_dir(target, out_dir)
+    build_dir = dbg.get("build_dir") or _debug_build_dir(target, out_dir)
     for script in DEBUG_SCRIPTS:
         write_script(out_dir / script, render(
             SWD_SHIM_SCRIPT, script=script, action=script, build_dir=build_dir,
@@ -3547,7 +3559,7 @@ def _emit_debug_files(target: str, name: str, out_dir: Path, dbg: dict) -> "list
     return written
 
 
-def enable_debug(probe: "str | None" = None) -> None:
+def enable_debug(probe: "str | None" = None, build_dir: "str | None" = None) -> None:
     manifest = Path("cmdr.toml")
     if not manifest.exists():
         die("no cmdr.toml here - run from a commander project root")
@@ -3574,7 +3586,17 @@ def enable_debug(probe: "str | None" = None) -> None:
     if probe not in DEBUG_PROBES:
         die(f"unknown probe '{probe}' - choose from: {', '.join(sorted(DEBUG_PROBES))}")
 
-    dbg = {"probe": probe, "target_cfg": spec["cfg"], "speed": spec["speed"]}
+    resolved = _debug_build_dir(target, Path("."), build_dir)
+    if not resolved:
+        die("this project is libraries-only, so it owns its own build and cmdr\n"
+            "cannot know where the ELF lands. Name it:\n\n"
+            "  cmdr enable debug --build-dir <dir>\n\n"
+            "(the directory holding the linked .elf — e.g. build-geek)")
+
+    # build_dir is recorded even when derived, so [debug] is a complete
+    # description and `cmdr regen` never has to re-derive it.
+    dbg = {"probe": probe, "target_cfg": spec["cfg"], "speed": spec["speed"],
+           "build_dir": resolved}
     write_manifest(manifest, target, modules, autostart, debug=dbg)
 
     name = Path.cwd().name
@@ -3591,6 +3613,7 @@ def enable_debug(probe: "str | None" = None) -> None:
     print("  \u2022 ./flash   flash over SWD - no BOOTSEL, verified, board stays wired")
     print("  \u2022 ./debug   openocd + gdb attached")
     print("  \u2022 ./reset   reset the target when the console is wedged")
+    print(f"  \u2022 ELF read from {resolved}/")
     print("  \u2022 all four gitignored - they're generated; `cmdr regen` puts them back")
     print("\n./upload is unchanged: it still flashes over USB/BOOTSEL.")
 
@@ -3690,7 +3713,7 @@ def cmd_enable(args: argparse.Namespace) -> None:
     elif args.feature == "littlefs":
         enable_littlefs(label=args.label, subdir=args.dir, size_mb=args.size)
     elif args.feature == "debug":
-        enable_debug(probe=args.probe)
+        enable_debug(probe=args.probe, build_dir=args.build_dir)
 
 
 def cmd_disable(args: argparse.Namespace) -> None:
@@ -4125,6 +4148,9 @@ def main() -> None:
                           help="feature to enable")
     enable_p.add_argument("--probe", choices=sorted(DEBUG_PROBES),
                           help="debug: SWD probe interface (default: per target)")
+    enable_p.add_argument("--build-dir", dest="build_dir", metavar="DIR",
+                          help="debug: directory holding the linked .elf "
+                               "(required for libraries-only projects)")
     enable_p.add_argument("--size", type=int, metavar="MB",
                           help="littlefs: filesystem size in MB (default: remaining flash)")
     enable_p.add_argument("--label", default="storage",

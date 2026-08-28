@@ -116,10 +116,22 @@ Or pass one: ./debug --gdb <path>"
     fi
 
     GDBARGS=(-ex "target extended-remote localhost:3333" -ex "set print pretty on")
-    # commander's gdb helpers, if this framework checkout has them. Absent in
-    # older versions, so it stays optional rather than a hard dependency.
+    # commander's gdb helpers, if this framework checkout has them AND this gdb
+    # can run them. Arm's own macOS toolchain builds ship WITHOUT Python
+    # scripting, and gdb then reads the .py as a command file and spits
+    # `Undefined command: ""` at startup — so check before offering it, and say
+    # what to do instead of failing cryptically.
     HELPERS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gdb/commander.py"
-    [ -f "$HELPERS" ] && GDBARGS=(-x "$HELPERS" "${GDBARGS[@]}")
+    if [ -f "$HELPERS" ]; then
+        if "$GDB" --batch -ex "python pass" >/dev/null 2>&1; then
+            GDBARGS=(-x "$HELPERS" "${GDBARGS[@]}")
+        else
+            echo "note: $GDB has no Python support, so commander's gdb helpers"
+            echo "      (cmdr-commands / cmdr-tickers / cmdr-modules / cmdr-panic)"
+            echo "      are unavailable. Arm's own toolchain builds omit Python;"
+            echo "      brew install arm-none-eabi-gdb gets a build that has it."
+        fi
+    fi
 
     echo "openocd on :3333 (log: $LOG)"
     echo "  monitor reset init    reset and halt at the vector table"
