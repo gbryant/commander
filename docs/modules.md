@@ -151,6 +151,37 @@ re-centered/rescaled before publishing; apps needing temporal smoothing apply
 needs `BLUEPAD32_PATH`; WiFi and BT share the one CYW43 radio, so telnet keeps
 working.
 
+### `wifi` — status, control and scanning
+
+`wifi status | off | on | scan | aps`. Status reports the link to the AP this
+station is **associated** with, with the RSSI labelled (`excellent` … `unusable`;
+the boundary that matters is **-67 dBm**, below which real-time traffic starts to
+suffer).
+
+`scan` and `aps` are separate because a scan takes seconds and nothing here may
+block: `scan` starts one and returns, `aps` prints what the last completed scan
+found. Both are subcommands of the one `wifi` command, so they cost no registry
+slot. Results are deduplicated by BSSID keeping the strongest sighting, and
+sorted strongest-first.
+
+**Scanning exists because connected RSSI answers the wrong question for coverage
+work.** A station roams lazily: walking from one mesh node toward another, its
+RSSI keeps falling long after a phone would have handed over, so a survey built
+on it alone reads good coverage as a dead spot. A scan sees every AP in earshot
+with its own BSSID — which is what tells two nodes of one mesh apart:
+
+```
+> wifi aps
+  ssid                              ch   dBm  quality    bssid
+  RainbowKale                       11   -38  excellent  a2:c9:eb:e5:c6:46
+  RainbowKale                       11   -62  good       a2:c9:eb:e5:1b:15
+  RainbowKale                        1   -83  unusable   02:11:87:a5:84:28
+```
+
+Scanning does **not** require being connected. Implemented on `pico`/`pico2`
+(`cyw43_wifi_scan`); esp32 and r4 link weak defaults that report
+"not supported" rather than an empty list that would read as "no networks".
+
 ## Panel, touch and front-panel I/O
 
 These came out of the Pico Breadboard Kit but none of them are kit-specific —

@@ -82,6 +82,88 @@ extern "C" bool commander_wifi_status(WifiInfo *info) {
     cyw43_arch_lwip_end();
     return info->connected;
 }
+// ── Scanning (core/WifiHooks.h) ──────────────────────────────────────────────
+//
+// cyw43_wifi_scan is already asynchronous: it calls back per beacon heard, and
+// cyw43_wifi_scan_active() reports completion. What this adds is a stable result
+// set — the driver reports the same BSSID repeatedly as it re-hears it, so
+// results are deduplicated by BSSID keeping the strongest sighting, and kept
+// sorted strongest-first so a caller that only has room for a few gets the ones
+// that matter.
+#ifndef COMMANDER_WIFI_MAX_APS
+#define COMMANDER_WIFI_MAX_APS 32
+#endif
+
+static WifiAp   _aps[COMMANDER_WIFI_MAX_APS];
+static unsigned _ap_count = 0;
+
+static int _scan_cb(void *, const cyw43_ev_scan_result_t *r) {
+    if (!r) return 0;
+    // Same radio heard again: keep the strongest reading rather than the latest.
+    for (unsigned i = 0; i < _ap_count; ++i) {
+        if (memcmp(_aps[i].bssid, r->bssid, 6) == 0) {
+            if (r->rssi > _aps[i].rssi) _aps[i].rssi = r->rssi;
+            return 0;
+        }
+    }
+    if (_ap_count >= COMMANDER_WIFI_MAX_APS) {
+        // Table full: displace the weakest, but only for something stronger.
+        unsigned weakest = 0;
+        for (unsigned i = 1; i < _ap_count; ++i)
+            if (_aps[i].rssi < _aps[weakest].rssi) weakest = i;
+        if (r->rssi <= _aps[weakest].rssi) return 0;
+        _ap_count = weakest;                 // overwrite that slot below
+    }
+    WifiAp &a = _aps[_ap_count];
+    unsigned n = r->ssid_len < 32 ? r->ssid_len : 32;
+    memcpy(a.ssid, r->ssid, n);
+    a.ssid[n] = '\0';
+    memcpy(a.bssid, r->bssid, 6);
+    a.rssi    = r->rssi;
+    a.channel = (uint8_t)r->channel;
+    a.auth    = r->auth_mode;
+    if (_ap_count < COMMANDER_WIFI_MAX_APS) ++_ap_count;
+    return 0;
+}
+
+extern "C" bool commander_wifi_scan_start() {
+    cyw43_arch_lwip_begin();
+    bool busy = cyw43_wifi_scan_active(&cyw43_state);
+    bool ok = false;
+    if (!busy) {
+        _ap_count = 0;                       // results belong to one scan only
+        cyw43_wifi_scan_options_t opts;
+        memset(&opts, 0, sizeof(opts));
+        ok = cyw43_wifi_scan(&cyw43_state, &opts, nullptr, _scan_cb) == 0;
+    }
+    cyw43_arch_lwip_end();
+    return ok;
+}
+
+extern "C" bool commander_wifi_scan_busy() {
+    cyw43_arch_lwip_begin();
+    bool busy = cyw43_wifi_scan_active(&cyw43_state);
+    cyw43_arch_lwip_end();
+    return busy;
+}
+
+extern "C" unsigned commander_wifi_scan_results(WifiAp *out, unsigned max) {
+    if (!out || !max) return 0;
+    cyw43_arch_lwip_begin();
+    unsigned n = _ap_count < max ? _ap_count : max;
+    // Selection sort by RSSI, strongest first. n is <= 32 and this runs once per
+    // read, not per beacon, so the simple thing is the right thing.
+    for (unsigned i = 0; i < n; ++i) {
+        unsigned best = i;
+        for (unsigned j = i + 1; j < _ap_count; ++j)
+            if (_aps[j].rssi > _aps[best].rssi) best = j;
+        if (best != i) { WifiAp t = _aps[i]; _aps[i] = _aps[best]; _aps[best] = t; }
+        out[i] = _aps[i];
+    }
+    cyw43_arch_lwip_end();
+    return n;
+}
+
 extern "C" void commander_wifi_off() {
     _wifi_user_off = true;                 // suppress watchdog auto-reconnect
     cyw43_arch_disable_sta_mode();

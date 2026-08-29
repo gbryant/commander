@@ -164,6 +164,13 @@ Targets with no working openocd story (esp32, uno, r4, unoq) are refused, on the
 principle as the module menu. Libraries-only projects DO get it, but must pass `--build-dir`:
 they own their build and cmdr can't know where the ELF lands.
 
+**WiFi scanning** (`commander_wifi_scan_start/busy/results`, `core/WifiHooks.h`; `wifi scan`
+and `wifi aps`). Asynchronous because a scan takes seconds and nothing may block the shell.
+Pico-only today; weak defaults in `core/CommandRegistry.cpp` make other runners link and report
+"not supported" rather than an empty list, which would read as "no networks in range". Results
+dedupe by **BSSID**, not SSID — that is the whole point, since mesh nodes share an SSID and
+connected-AP RSSI cannot tell them apart. Consumer: [cmdr-wifi-survey].
+
 **gdb helpers** (`scripts/gdb/commander.py`, loaded by `./debug`): `cmdr-commands`,
 `cmdr-tickers`, `cmdr-modules`, `cmdr-panic` — they read `CommandRegistry` and `UartTransport`
 private members from DWARF and call nothing on the target (module identity comes from each

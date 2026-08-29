@@ -1,9 +1,20 @@
 #include "CommandRegistry.h"
+#include "WifiHooks.h"
 #include <string.h>
 #include <stdio.h>
 
 // Override in platform code to add board-specific diagnostic output (LED blink, etc.)
 __attribute__((weak)) void commander_on_panic() { for (;;) {} }
+
+// Weak defaults for WiFi scanning (core/WifiHooks.h). Only the Pico runner
+// implements these today; esp32 and r4 link against these and report the truth —
+// that the platform can't scan — rather than failing to build or, worse,
+// silently returning an empty list that reads like "no networks in range".
+extern "C" __attribute__((weak)) bool commander_wifi_scan_start() { return false; }
+extern "C" __attribute__((weak)) bool commander_wifi_scan_busy()  { return false; }
+extern "C" __attribute__((weak)) unsigned commander_wifi_scan_results(struct WifiAp *, unsigned) {
+    return 0;
+}
 
 // Weak default — no autostart commands. The generated commander_modules.h provides a
 // strong override when `cmdr autostart` has configured any (see CommandRegistry.h).

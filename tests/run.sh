@@ -27,6 +27,7 @@ run_cpp() {
         "ChannelBusRunner|test_runner|-DMAX_COMMANDS=16|transport/channels/tests/test_runner.cpp transport/channels/ChannelBusRunner.cpp core/CommandRegistry.cpp"
         "NecDecoder/SonyDecoder|test_nec||modules/ir/tests/test_nec.cpp"
         "CommandRegistry/Writer/SystemModule|test_registry|-DMAX_COMMANDS=16|core/tests/test_registry.cpp core/CommandRegistry.cpp"
+        "WifiModule/scan|test_wifi|-DMAX_COMMANDS=16|modules/tests/test_wifi.cpp core/CommandRegistry.cpp"
         "DriveMixer/LocoProtocol|test_drivemixer||modules/locomotion/tests/test_drivemixer.cpp"
         "ControllerCalibration|test_calibration||modules/controller/tests/test_calibration.cpp"
         # Peripheral drivers, exercised against the recording HAL in tests/fakes.
