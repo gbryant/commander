@@ -162,51 +162,58 @@ outlives a dispatch. Worth checking whether one mechanism serves both before bui
 
 ---
 
-## 6. Framework-aware debugging, part 1: gdb helpers that know commander — *written 2026-08-28, NOT YET RUN*
+## 6. Framework-aware debugging, part 1: gdb helpers that know commander — *DONE 2026-08-28 (v1.5)*
 
-`scripts/gdb/commander.py` implements the four commands below, and
-`scripts/swd.sh` loads it automatically when `./debug` starts.
+`scripts/gdb/commander.py`, loaded automatically by `./debug`. All four verified
+against a live Pico 2 W over SWD.
 
-| command | what it answers |
+| command | verified output |
 |---------|-----------------|
-| `cmdr-commands` | the command table; loudly flags `_dropped > 0` and names `_firstDropped` |
-| `cmdr-tickers` | which modules are actually pumped — the "module never ticks" bug in one command |
-| `cmdr-modules` | registered modules by concrete class, with whether each ticks and what it registered |
-| `cmdr-panic` | whether the target is spinning in `commander_on_panic`, and who called it |
+| `cmdr-commands` | 14 commands, capacity 16, 2 spare — names, I2C ids and help |
+| `cmdr-tickers` | 6 of 8, each as its concrete class and symbol (`ButtonsModule 0x20002a38 <_m_buttons>`) |
+| `cmdr-modules` | every module by class, whether it ticks, and what it registered |
+| `cmdr-panic` | correctly reports no panic on a healthy stack |
 
-**The blocker, found on first use: the gdb in Arm's own toolchain has no Python
-support.** `arm-none-eabi-gdb --batch -ex "python pass"` reports *"Python
-scripting is not supported in this copy of GDB"* on the Arm GNU Toolchain
-14.2.rel1 macOS build (`/Applications/ArmGNUToolchain/`, the `gcc-arm-embedded`
-cask). gdb then reads the `.py` as a *command* file and fails with `Undefined
-command: ""`. So **none of these four commands has ever executed.** They are
-written against verified struct fields and are syntactically valid Python,
-nothing more than that.
+**The drop warnings — the whole point of the tool — were exercised too**, by
+writing `_dropped`/`_firstDropped`/`_tickDropped` on the halted target and
+restoring them, rather than trusting an untested branch: both print, name the
+limit, and say what the consequence is. Do this again if that formatting changes;
+it beats rebuilding with a deliberately small `MAX_COMMANDS`.
 
-`swd.sh` now probes for Python support and skips the helpers with a note naming
-the fix, so a non-Python gdb degrades cleanly instead of erroring at startup.
+**Toolchain requirement, found the hard way: gdb needs Python, and Arm's own
+build doesn't have it.** The Arm GNU Toolchain 14.2.rel1 macOS build
+(`/Applications/ArmGNUToolchain/`, the `gcc-arm-embedded` cask) reports *"Python
+scripting is not supported in this copy of GDB"*, and gdb then reads the `.py` as
+a *command* file and fails with `Undefined command: ""`. Homebrew's
+`arm-none-eabi-gdb` (17.2, bottled, depends on `python@3.14`) works. It conflicts
+with the cask's symlinks, so it installs unlinked — use the full path or
+`./debug --gdb <path>`. `swd.sh` probes for Python support and, when it's
+missing, skips the helpers with a note naming the fix rather than erroring.
 
-**To finish this item**, someone needs a Python-enabled ARM gdb — Homebrew's
-`arm-none-eabi-gdb` formula builds from source and normally has it; the xPack
-distribution bundles Python too — and then to actually run the four commands
-against a live target and fix what falls over. Expect the object-finding to need
-the most work: the registry and transport are `static` objects with internal
-linkage, so `_resolve()` parses `info variables` output by type rather than
-looking up a name, and that parsing is the least verified part.
+**Three bugs the first real run found**, all in the parts flagged as least
+verified:
+- capacity came from `reg.type.fields()[0]`, assuming `_commands` is the first
+  data member. It isn't necessarily. Now read from the array itself.
+- a command's `ctx` is a bare `void *` with no vtable, so every non-ticking
+  module printed as `?`. Resolved now by naming the symbol at that address and
+  reading *its* declared type.
+- the first fix for that cast `ctx` to `IModule*`, which worked but made gdb
+  print `can't find linker symbol for virtual table` for any ctx that isn't a
+  module — the `help` command's ctx is the registry itself. The symbol-type
+  route is both quiet and more accurate (it correctly prints `CommandRegistry`).
 
 **Design notes worth keeping:**
 - Everything is read-only and calls **nothing** on the target. Module identity
-  comes from each vtable pointer's `dynamic_type`, which gdb resolves without an
-  inferior call — so the helpers work on a target that is halted, faulted, or in
-  no state to run code. This is a deliberate departure from the original sketch,
-  which proposed calling `IModule::name()` through the vtable.
+  comes from `dynamic_type` or from the symbol's declared type, never an
+  inferior call — so these work on a target that is halted, faulted, or in no
+  state to run code. A deliberate departure from the original sketch, which
+  proposed calling `IModule::name()` through the vtable.
 - These are private members and stay that way. No accessors were added for
   debugging; gdb reads them from DWARF.
-- The silent-breakage risk (a field rename kills the helpers with no compile
-  error) is covered by `tools/cmdr/tests/test_gdb_helpers.py`, which asserts
-  every field name the script reads still exists in the header it reads it from.
-  That runs everywhere; a gdb-driven test cannot be the gate while toolchains
-  ship without Python.
+- A field rename would break the helpers with no compile error, discovered
+  mid-debug. `tools/cmdr/tests/test_gdb_helpers.py` asserts every field name the
+  script reads still exists in the header it reads it from. That runs everywhere;
+  a gdb-driven test can't be the gate while toolchains ship without Python.
 - Builds are optimised by default, so line numbers jump and locals vanish.
   `cmdr enable debug` says so and leaves the build type alone (see item 7).
 

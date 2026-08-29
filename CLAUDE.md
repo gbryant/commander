@@ -167,10 +167,11 @@ they own their build and cmdr can't know where the ELF lands.
 **gdb helpers** (`scripts/gdb/commander.py`, loaded by `./debug`): `cmdr-commands`,
 `cmdr-tickers`, `cmdr-modules`, `cmdr-panic` — they read `CommandRegistry` and `UartTransport`
 private members from DWARF and call nothing on the target (module identity comes from each
-vtable pointer's `dynamic_type`). **They have never been run**: Arm's own toolchain gdb has no
-Python support, so `swd.sh` probes for it and skips them with a note. See roadmap item 6 before
-trusting them. A field rename would break them silently, so `tools/cmdr/tests/test_gdb_helpers.py`
-asserts the names they read still exist in the headers.
+vtable pointer's `dynamic_type`). All four are hardware-verified, drop
+warnings included. **They need a gdb with Python — Arm's own toolchain build has none** (use
+Homebrew's `arm-none-eabi-gdb`, or `./debug --gdb <path>`); `swd.sh` probes for it and skips them
+with a note when absent. A field rename would break them silently, so
+`tools/cmdr/tests/test_gdb_helpers.py` asserts the names they read still exist in the headers.
 
 **Composable partition table + filesystem (ESP32).** `cmdr` owns the ESP32
 `partitions.csv` as a composition of enabled features rather than each feature

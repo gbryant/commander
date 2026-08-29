@@ -94,13 +94,42 @@ def _cstr(val):
 
 
 def _class_of(ptr):
-    """The concrete class behind an IModule* — read from the vtable, without
-    calling anything on the target."""
+    """The concrete class behind a module pointer, without calling anything on
+    the target.
+
+    Two routes, in order. A typed pointer (the ticker list is `IModule *`)
+    carries a vtable, so gdb resolves `dynamic_type` directly. A command's `ctx`
+    is a bare `void *` with no vtable to resolve, so instead name the symbol at
+    that address and read *its* declared type — accurate for anything with a
+    symbol, and unlike casting to IModule* it stays quiet when the object isn't
+    a module at all (the `help` command's ctx is the registry itself)."""
     try:
-        t = ptr.dynamic_type.target()
-        return str(t.name or t)
+        target = ptr.dynamic_type.target()
+        name = str(target.name or target)
+        if name not in ("void", "IModule"):
+            return name
     except (gdb.error, AttributeError):
+        pass
+
+    sym = _symbol_at(ptr)
+    if sym == "?":
         return "?"
+    try:
+        t = gdb.parse_and_eval(sym).type.strip_typedefs()
+        return str(t.name or t)
+    except (gdb.error, AttributeError, ValueError):
+        return sym
+
+
+def _symbol_at(ptr):
+    """The symbol name at a pointer, or "?" — `info symbol` without the section."""
+    try:
+        out = gdb.execute(f"info symbol {int(ptr)}", to_string=True).strip()
+    except (gdb.error, ValueError):
+        return "?"
+    if not out or out.startswith("No symbol"):
+        return "?"
+    return out.split(" in section")[0].strip() or "?"
 
 
 # ── the commands ─────────────────────────────────────────────────────────────
@@ -118,13 +147,15 @@ silent at runtime: the module registered fine, the command just isn't there."""
     def invoke(self, arg, from_tty):
         reg = _resolve("CommandRegistry", arg.strip())
         count = int(reg["_count"])
-        cap = int(reg.type.fields()[0].type.range()[1]) + 1 if reg.type.fields() else 0
         dropped = int(reg["_dropped"])
+        # Capacity from the array itself. Taking fields()[0] instead was wrong:
+        # the first data member of the class is not necessarily _commands.
+        cmds = reg["_commands"]
+        cap = int(cmds.type.range()[1]) + 1
 
         print(f"{count} command(s) registered, capacity {cap}:\n")
         print(f"  {'name':<14} {'id':>4}  help")
         print(f"  {'-' * 14} {'-' * 4}  {'-' * 44}")
-        cmds = reg["_commands"]
         for i in range(count):
             c = cmds[i]
             print(f"  {_cstr(c['name']):<14} {int(c['i2c_id']):>4}  {_cstr(c['help'])[:44]}")
@@ -196,7 +227,9 @@ no separate module registry and calls nothing on the target."""
             ctx = c["ctx"]
             if int(ctx) == 0:
                 continue               # a free function, not a module method
-            e = seen.setdefault(str(ctx), ["?", False, []])
+            e = seen.setdefault(str(ctx), [None, False, []])
+            if e[0] is None:
+                e[0] = _class_of(ctx)
             e[2].append(_cstr(c["name"]))
 
         if not seen:
