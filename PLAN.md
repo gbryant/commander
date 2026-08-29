@@ -375,3 +375,6 @@ modules disagree about the pins, since the HAL has one bus and the last
 | LEDs D1 / D2          | GP16, GP17                               |
 | Buzzer                | GP13 (PWM)                               |
 | RGB LED (WS2812)      | GP12 (PIO)                               |
+
+[cmdr-probe]: https://github.com/gbryant/cmdr-probe
+[cmdr-pico-breadboard-kit]: https://github.com/gbryant/cmdr-pico-breadboard-kit

@@ -129,3 +129,5 @@ versus debugprobe's own descriptors) and makes upstream rebases harder.
 - [ ] Second CDC + commander shell
 - [ ] Tier 2 standalone sampling profiler (+ symbols from the TF card)
 - [ ] Tier 3 ITM capture over SWD
+
+[cmdr-probe]: https://github.com/gbryant/cmdr-probe

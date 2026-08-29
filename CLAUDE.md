@@ -656,3 +656,5 @@ stubbed there). **Phases R0–R3 are all done and hardware-confirmed** — platf
 proofs, Roomba driver, Pico-as-controller via the R4 I2C bridge, and a Bluetooth pad
 driving the robot from the rolled-in `controller` module with telnet alongside BT.
 So is pull-OTA on every board that can do it (ESP32, Pico W, Pico 2 W — 2026-08-23).
+
+[cmdr-probe]: https://github.com/gbryant/cmdr-probe

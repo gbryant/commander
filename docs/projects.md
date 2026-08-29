@@ -23,7 +23,7 @@ siblings in `~/github/` and are found by their prefix.
 | [cmdr-oi-bridge](#cmdr-oi-bridge) | r4 | PlatformIO | Arduino Uno R4 WiFi + Roomba | The slave half; commander as an I2C peripheral |
 | [cmdr-solar-monitor](#cmdr-solar-monitor) | esp32 | CMake / ESP-IDF | ESP32-S3-N16R8 + INA219 | The smallest useful consumer; firmware + host logging |
 | [cmdr-pico-breadboard-kit](#cmdr-pico-breadboard-kit) | pico2 | CMake / Pico SDK | GeeekPi Pico Breadboard Kit: 3.5" touch TFT, stick, buttons, LEDs, buzzer | A whole dev board as modules — display + touch + front-panel I/O |
-| [cmdr-probe](#cmdr-probe) | pico2 | CMake / Pico SDK | Waveshare RP2350-GEEK debug probe | Not a consumer — a debugprobe fork that borrows commander's display layer |
+| [cmdr-probe](#cmdr-probe) | pico2 | CMake / Pico SDK | Waveshare RP2350-GEEK debug probe | Libraries-only consumer: commander embedded in firmware that owns main(), FreeRTOS and USB |
 | [cmdr-unoq-ir-speaker](#cmdr-unoq-ir-speaker) | unoq | CMake / Zephyr (west) | Arduino Uno Q + IR receiver + BT speaker | Dual-brain: MCU real-time work feeding a Linux consumer. Zero custom firmware |
 | [unoq-tools](#unoq-tools) | — | — | Arduino Uno Q (Debian side) | Not a consumer — a companion tooling repo |
 
@@ -232,21 +232,33 @@ running `debugprobe` (CMSIS-DAP), with a traffic light for the target on its own
 1.14" LCD: green running, yellow halted or stepping, red for a broken link, grey
 for no debugger — plus DHCSR, the DP IDCODE and transfer counts.
 
-Not a commander consumer in the usual sense: it's a **fork of
-raspberrypi/debugprobe** that compiles a few files from a commander checkout
-(`COMMANDER_PATH`) rather than fetching the framework as a dependency. It's
-listed here because it does depend on commander's source layout — `IDisplay`,
-`Font5x7`, `SpiPanel`/`St7789Module`, `hal/pico` and `core/CommandRegistry` — so
-moving those breaks it, exactly like the FetchContent consumers.
+**The libraries-only consumer**, and the reason that mode exists. It is a
+**fork of [raspberrypi/debugprobe]** — which already owns `main()`, the FreeRTOS
+configuration and the USB stack — so commander is linked as libraries rather than
+as a runner (`COMMANDER_LIBRARIES_ONLY`), and the project plays the runner's role
+itself in `src/commander_shell.cpp`. It is a normal consumer in every other
+respect: a `cmdr.toml`, a pinned `FetchContent` dependency, and `cmdr` managing
+its modules.
 
-- **Framework code used:** the `st7789` display module and the Pico HAL's
-  SPI/PWM. The probe firmware contains no ST7789 register code of its own.
-- **Hardware-confirmed 2026-08-27** against a Pico 2 W target.
+- **Modules:** `st7789`. The probe firmware contains no ST7789 register code of
+  its own — the driver, the font and the whole `lcd` command come from commander.
+- **App-side:** a commander shell on the probe's **second USB CDC** (instance 0
+  stays the target's UART bridge), reached with `./monitor`; a `probe` command
+  reporting the target's state, DHCSR, DP IDCODE and transfer counts; and a
+  CMSIS-DAP vendor command for remote BOOTSEL.
+- **The seam that makes it work is the HAL.** Defining
+  `COMMANDER_PICO_UART_EXTERNAL` and implementing `hal_uart_*` over CDC1 means
+  commander's `UartTransport` and every module stream work unmodified, on a
+  transport commander knows nothing about.
+- **Hardware-confirmed 2026-08-27** against a Pico 2 W target; still running it.
 
-Its value back to the framework is the proof that the display layer travels:
+Its value back to the framework is twofold. It proved the display layer travels:
 `IDisplay` + `SpiPanel` dropped into a foreign C firmware — different USB stack,
 different FreeRTOS config, no commander runner, no `CommandRegistry` shell — and
-worked. That's the seam doing its job.
+worked. That's the seam doing its job. And it drove
+`COMMANDER_LIBRARIES_ONLY` itself, plus the `libraries_only` key in `cmdr.toml`
+that tells `cmdr` to manage a project's modules and framework version while
+leaving its build and dev scripts alone.
 
 Findings from its bring-up live in its own `docs/geek-lcd.md`; the roadmap for
 its later tiers (a standalone sampling profiler, ITM trace) is in
@@ -298,3 +310,5 @@ against a local checkout for framework development; PlatformIO consumers
 (cmdr-oi-bridge) pin via the `#tag` on their `lib_deps` git ref instead. Consumers pin a release tag, so
 adopting framework changes is two deliberate steps — `cmdr pin <tag>` then `cmdr pull` —
 always against published commander, never a local override.
+
+[raspberrypi/debugprobe]: https://github.com/raspberrypi/debugprobe
