@@ -179,3 +179,38 @@ def test_scaffold_pin_satisfies_codegen(cli_mod):
         f"scaffolds pin {cli_mod.FRAMEWORK_TAG} but codegen needs "
         f"{cli_mod.MIN_FRAMEWORK_TAG} — a fresh project would be refused by "
         f"check_framework_version()")
+
+
+def test_framework_tag_matches_the_newest_release_tag(cli_mod):
+    """FRAMEWORK_TAG must not lag the newest release tag in this repo.
+
+    It is what a fresh `cmdr init` pins, so when it lags, every new project is
+    scaffolded onto an older framework than the one being shipped — silently,
+    since nothing fails to build. It went stale across two releases before this
+    test existed (v1.7 and v1.8 both shipped with it still reading v1.6, so a new
+    project would have been pinned to a version with a known radio bug).
+
+    Skipped outside a git checkout: an installed cmdr has no tags to compare to.
+    """
+    import subprocess
+    from pathlib import Path
+    repo = Path(cli_mod.__file__).resolve().parents[4]
+    if not (repo / ".git").exists():
+        pytest.skip("not a git checkout")
+    try:
+        out = subprocess.run(["git", "-C", str(repo), "tag", "--list", "v*"],
+                             capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pytest.skip("git unavailable")
+    tags = [cli_mod._parse_release(t.strip()) for t in out.stdout.splitlines()]
+    tags = [t for t in tags if t]
+    if not tags:
+        pytest.skip("no release tags yet")
+    newest = max(tags)
+    have = cli_mod._parse_release(cli_mod.FRAMEWORK_TAG)
+    # ">=" not "==": during a release the constant is bumped before the tag is
+    # cut, and that window is legitimate. What must never happen is lagging.
+    assert have >= newest, (
+        f"FRAMEWORK_TAG is v{have[0]}.{have[1]} but the newest release tag is "
+        f"v{newest[0]}.{newest[1]} — bump it as part of cutting the release, or "
+        f"new projects get pinned to the older framework")
