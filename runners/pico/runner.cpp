@@ -99,22 +99,26 @@ static unsigned _ap_count = 0;
 
 static int _scan_cb(void *, const cyw43_ev_scan_result_t *r) {
     if (!r) return 0;
-    // Same radio heard again: keep the strongest reading rather than the latest.
+
+    unsigned slot = _ap_count;                   // default: append
     for (unsigned i = 0; i < _ap_count; ++i) {
         if (memcmp(_aps[i].bssid, r->bssid, 6) == 0) {
-            if (r->rssi > _aps[i].rssi) _aps[i].rssi = r->rssi;
-            return 0;
+            // Same radio heard again: keep the strongest sighting, not the latest.
+            if (r->rssi <= _aps[i].rssi) return 0;
+            slot = i;
+            break;
         }
     }
-    if (_ap_count >= COMMANDER_WIFI_MAX_APS) {
+    if (slot == _ap_count && _ap_count >= COMMANDER_WIFI_MAX_APS) {
         // Table full: displace the weakest, but only for something stronger.
         unsigned weakest = 0;
         for (unsigned i = 1; i < _ap_count; ++i)
             if (_aps[i].rssi < _aps[weakest].rssi) weakest = i;
         if (r->rssi <= _aps[weakest].rssi) return 0;
-        _ap_count = weakest;                 // overwrite that slot below
+        slot = weakest;                          // overwrite in place
     }
-    WifiAp &a = _aps[_ap_count];
+
+    WifiAp &a = _aps[slot];
     unsigned n = r->ssid_len < 32 ? r->ssid_len : 32;
     memcpy(a.ssid, r->ssid, n);
     a.ssid[n] = '\0';
@@ -122,7 +126,7 @@ static int _scan_cb(void *, const cyw43_ev_scan_result_t *r) {
     a.rssi    = r->rssi;
     a.channel = (uint8_t)r->channel;
     a.auth    = r->auth_mode;
-    if (_ap_count < COMMANDER_WIFI_MAX_APS) ++_ap_count;
+    if (slot == _ap_count) ++_ap_count;
     return 0;
 }
 

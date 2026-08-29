@@ -51,6 +51,11 @@ struct WifiAp {
 // Begin a scan. False if one is already running or the platform can't scan.
 extern "C" bool commander_wifi_scan_start();
 // True while a scan is in flight. Results are stable once this goes false.
+//
+// **Do not poll this from a tick().** It takes the driver's lock, and a tick
+// runs every ~10 ms — polling it at that rate starves the WiFi driver of the
+// very context it needs to process the scan-completion event, so the scan never
+// finishes and this never goes false. Rate-limit to a few times a second.
 extern "C" bool commander_wifi_scan_busy();
 // Copy up to `max` results out, strongest first. Returns how many were written.
 extern "C" unsigned commander_wifi_scan_results(WifiAp *out, unsigned max);
