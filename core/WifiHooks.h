@@ -48,7 +48,18 @@ struct WifiAp {
     uint8_t auth;       // 0 = open; otherwise platform's auth enum
 };
 
-// Begin a scan. False if one is already running or the platform can't scan.
+// Begin a scan. False if one is already running, the platform can't scan, or
+// the radio is in a state where scanning would break it.
+//
+// **That last case is not theoretical and is why this returns bool.** On the
+// CYW43, starting a scan before the station interface is up, or while an
+// association attempt is in flight, does not fail — it sets the driver's scan
+// state and then never completes or reports a single beacon, for the rest of
+// the boot. `wifi off` / `wifi on` does not clear it. The Pico runner therefore
+// refuses in both windows, and the one that catches people is the second:
+// commander_setup() runs before the runner connects, so an app that kicks off a
+// scan there is scanning straight into the join. Start scans from a tick(), not
+// from setup, and treat false as "not now" rather than "not supported".
 extern "C" bool commander_wifi_scan_start();
 // True while a scan is in flight. Results are stable once this goes false.
 //

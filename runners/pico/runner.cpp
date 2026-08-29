@@ -97,6 +97,22 @@ extern "C" bool commander_wifi_status(WifiInfo *info) {
 static WifiAp   _aps[COMMANDER_WIFI_MAX_APS];
 static unsigned _ap_count = 0;
 
+// Whether the station interface is actually up. Scanning before
+// cyw43_arch_enable_sta_mode() does not fail — it sets the driver's scan state
+// and then never completes, wedging the scanner for the rest of the boot with
+// no way back (wifi off/on does not clear it). That trap is easy to fall into
+// because commander_setup() runs BEFORE the runner enables STA mode, so an app
+// that kicks off a scan during setup breaks its own radio. Refusing early is
+// the honest answer: callers already handle a false return.
+static bool _sta_ready = false;
+
+// Set while an association attempt is in flight. Starting a scan during a join
+// is the *other* way to wedge the CYW43 scanner: the scan state is set, the
+// driver is busy joining, and the scan never completes or reports a single
+// beacon — for the rest of the boot, and wifi off/on does not clear it. The
+// runner is the only thing that knows a connect is running, so it owns this.
+static volatile bool _wifi_joining = false;
+
 static int _scan_cb(void *, const cyw43_ev_scan_result_t *r) {
     if (!r) return 0;
 
@@ -131,6 +147,9 @@ static int _scan_cb(void *, const cyw43_ev_scan_result_t *r) {
 }
 
 extern "C" bool commander_wifi_scan_start() {
+    // Both of these wedge the scanner permanently rather than failing, so they
+    // are refused up front. A false return is a state callers already handle.
+    if (!_sta_ready || _wifi_joining) return false;
     cyw43_arch_lwip_begin();
     bool busy = cyw43_wifi_scan_active(&cyw43_state);
     bool ok = false;
@@ -170,12 +189,15 @@ extern "C" unsigned commander_wifi_scan_results(WifiAp *out, unsigned max) {
 
 extern "C" void commander_wifi_off() {
     _wifi_user_off = true;                 // suppress watchdog auto-reconnect
+    _sta_ready = false;                    // scanning is invalid again
     cyw43_arch_disable_sta_mode();
 }
 extern "C" void commander_wifi_on() {
     if (!_cfg.wifi_ssid) return;
     _wifi_user_off = false;
     cyw43_arch_enable_sta_mode();
+    _sta_ready = true;
+    _wifi_joining = true;
     cyw43_arch_wifi_connect_async(_cfg.wifi_ssid, _cfg.wifi_password, CYW43_AUTH_WPA2_MIXED_PSK);
 }
 
@@ -219,6 +241,7 @@ static void wifiBringUpServices() {
     } else if (_cfg.debug) {
         printf("[wifi] mdns re-announced\n");
     }
+    _wifi_joining = false;              // association finished; scanning is safe again
     commander_on_wifi_connected();      // app hook: every (re)connect
 }
 
@@ -244,8 +267,11 @@ static void wifiMonitor() {
 
         if (!announced) { printf("[wifi] link down (%d) — reconnecting...\n", link); announced = true; }
         cyw43_arch_enable_sta_mode();
+        _sta_ready = true;
+        _wifi_joining = true;
         int err = cyw43_arch_wifi_connect_timeout_ms(
             _cfg.wifi_ssid, _cfg.wifi_password, CYW43_AUTH_WPA2_MIXED_PSK, 15000);
+        _wifi_joining = false;
         if (err == 0) wifiBringUpServices();   // mDNS/telnet (if not yet) + app hook
         // else: next poll retries (the 5 s delay above paces the attempts)
     }
@@ -286,12 +312,15 @@ static void runnerTask(void *) {
         printf("[wifi] ssid='%s' connecting...\n", _cfg.wifi_ssid);
         {   // CYW43 already initialized above (shared with Bluetooth)
             cyw43_arch_enable_sta_mode();
+            _sta_ready = true;
             int err = -1;
             for (int i = 0; i < 3 && err != 0; i++) {
                 if (i > 0) { printf("[wifi] retry %d...\n", i); vTaskDelay(pdMS_TO_TICKS(5000)); }
+                _wifi_joining = true;
                 err = cyw43_arch_wifi_connect_timeout_ms(
                     _cfg.wifi_ssid, _cfg.wifi_password,
                     CYW43_AUTH_WPA2_MIXED_PSK, 15000);
+                _wifi_joining = false;
                 printf("[wifi] connect=%d\n", err);
             }
             if (err == 0) {
